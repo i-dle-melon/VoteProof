@@ -3,6 +3,7 @@
   "name": "voteproof",
   "main": "./src/index.js",
   "compatibility_date": "2026-10-07",
+  "keep_vars": true,
 
   "assets": {
     "directory": "./public",

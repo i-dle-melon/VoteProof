@@ -1,6 +1,13 @@
 {
   "name": "voteproof",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "node --test",
+    "test:smoke": "node scripts/smoke.mjs",
+    "check": "wrangler deploy --dry-run"
+  },
   "devDependencies": {
     "wrangler": "^4"
   }

@@ -1,5 +1,14 @@
 # VoteProof B1 API
 
+## B2 本機開發
+
+B2 私人 R2 上傳的 contract、Production 變數／secrets、CORS 與 lifecycle 說明見 [docs/b2-uploads.md](docs/b2-uploads.md)。
+新增正式依賴 `aws4fetch`，所有 Production 憑證仍只由使用者在 Cloudflare 設定；不寫入 Git 或聊天。
+既有 `npm test` 保留全部 B1 測試並加入 B2 測試；`npm run test:uploads-smoke` 使用本機 workerd/R2，不操作 Production 或提供 Production bypass。
+Git deployment 後的逐步 Production 驗收、正常 Turnstile／PUT／到期與 staging 清理，見 [docs/b2-production-acceptance.md](docs/b2-production-acceptance.md)。
+
+以下為原有 B1 的實作與驗收紀錄。
+
 本次以 `i-dle-melon/VoteProof` 的 main commit `37c4583` 為基礎，檢查了 repository 內原有的全部四個檔案。
 `public/index.html` 保持原樣；`wrangler.jsonc` 僅新增頂層 `keep_vars: true`。既有視覺、前端示範功能、Assets 路由及私有 R2 binding 全部保留。
 

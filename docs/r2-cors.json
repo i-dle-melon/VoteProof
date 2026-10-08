@@ -1,0 +1,11 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://voteproof.i-dle-melon.workers.dev"
+    ],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]

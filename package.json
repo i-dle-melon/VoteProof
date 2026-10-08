@@ -6,9 +6,13 @@
     "dev": "wrangler dev",
     "test": "node --test",
     "test:smoke": "node scripts/smoke.mjs",
+    "test:uploads-smoke": "node scripts/smoke-uploads.mjs",
     "check": "wrangler deploy --dry-run"
   },
   "devDependencies": {
     "wrangler": "^4"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
   }
 }

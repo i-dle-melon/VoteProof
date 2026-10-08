@@ -17,8 +17,7 @@
     {
       "binding": "DB",
       "database_name": "voteproof-cases",
-      // PLACEHOLDER: replace only after the real D1 database is created.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "9e2b885d-66e2-4e4d-b768-4bded261296a",
       "migrations_dir": "migrations"
     }
   ],

@@ -1,6 +1,6 @@
 // Live HTTP checks only: no uploads, credentials, or Dashboard changes.
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 const origin = "https://voteproof.i-dle-melon.workers.dev";
@@ -40,7 +40,9 @@ await check("B1 leaderboards", async () => {
 await check("B1 homepage bytes", async () => {
   const response = await fetch(origin + "/", { signal: AbortSignal.timeout(15000) });
   assert.equal(response.status, 200);
-  assert.equal(await response.text(), await readFile(new URL("../public/index.html", import.meta.url), "utf8"));
+  // Git deployment uses the committed bytes, while Windows checkout may use CRLF.
+  const committed = execFileSync("git", ["show", "HEAD:public/index.html"], { encoding: "utf8" });
+  assert.equal(await response.text(), committed);
 });
 await check("B1 unknown API", () => request("/api/not-a-real-endpoint", 404, "NOT_FOUND"));
 for (const path of ["prepare", "complete"]) {

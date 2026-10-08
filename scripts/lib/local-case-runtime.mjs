@@ -5,7 +5,8 @@ import { randomBytes } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-export async function localCaseRuntime() {
+export async function localCaseRuntime({ emailService, turnstileService } = {}) {
+  const emails = [];
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
   const options = {
@@ -16,10 +17,17 @@ export async function localCaseRuntime() {
       R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
       TURNSTILE_SECRET_KEY: randomBytes(32).toString("hex"),
       CASE_QUERY_KEY_SECRET: randomBytes(32).toString("hex"),
+      AUTH_SECRET: randomBytes(32).toString("hex"), AUTH_ORIGIN: "https://voteproof.example",
+      AUTH_EMAIL_API_KEY: randomBytes(32).toString("hex"), AUTH_EMAIL_FROM: "login@example.test",
     },
     outboundService: async request => {
+      if (request.url === "https://api.resend.com/emails") {
+        const message = await request.json();
+        emails.push({ email: message.to[0], code: message.text.match(/\d{8}/)?.[0] });
+        return emailService ? emailService(message) : Response.json({ id: crypto.randomUUID() });
+      }
       if (request.url !== "https://challenges.cloudflare.com/turnstile/v0/siteverify") throw new Error("Unexpected test upstream");
-      return Response.json({ success: true });
+      return turnstileService ? turnstileService() : Response.json({ success: true });
     },
   };
   const runtime = new Miniflare(convertV4MiniflareOptions(options));
@@ -56,8 +64,16 @@ export async function localCaseRuntime() {
       db = await runtime.getD1Database("DB");
       bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
     };
+    const setAuthConfig = async config => {
+      for (const [name, value] of Object.entries(config)) {
+        if (value === undefined) delete options.bindings[name];
+        else options.bindings[name] = value;
+      }
+      await runtime.setOptions(convertV4MiniflareOptions(options));
+      db = await runtime.getD1Database("DB"); bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
+    };
     return { runtime, get db() { return db; }, get bucket() { return bucket; },
-      fetch, upload, setQuerySecret, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
+      fetch, upload, setQuerySecret, setAuthConfig, emails, get authSecret() { return options.bindings.AUTH_SECRET; }, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
   } catch (error) { await runtime.dispose(); throw error; }
 }
 

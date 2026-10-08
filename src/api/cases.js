@@ -5,8 +5,10 @@ import { newCaseId, newQueryKey, sha256, equalQueryHash, CASE_ID_PATTERN, QUERY_
 import { archiveCaseFiles, cleanPrivateCopies } from "../lib/case-files.js";
 import { insertCase, guestCase, guestFiles } from "../lib/case-store.js";
 import { requestIdempotency, newQuerySeed, reconstructQueryKey, replayCase } from "../lib/case-idempotency.js";
+import { AuthError } from "./auth-validation.js";
+import { memberSession, memberCsrf } from "../lib/auth-session.js";
 
-const errorResponse = error => error instanceof CaseError
+const errorResponse = error => error instanceof CaseError || error instanceof AuthError
   ? jsonError(error.status, error.code, error.message)
   : jsonError(500, "DATABASE_ERROR", "Case service is unavailable");
 const notFound = () => jsonError(404, "CASE_NOT_FOUND", "Case not found");
@@ -16,6 +18,12 @@ export async function createCase(env, _url, request) {
   let db, input, id, identity, committed = false;
   try {
     input = validateCase(await readCaseJson(request));
+    const member = await memberSession(request, env, false);
+    if (member) {
+      await memberCsrf(request, env, member);
+      input.memberId = member.member_id;
+      input.sessionHash = member.tokenHash;
+    }
     identity = await requestIdempotency(request, input, env);
     db = caseDatabase(env);
     const replay = await replayCase(db, identity);
@@ -35,6 +43,7 @@ export async function createCase(env, _url, request) {
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {
     if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);
+    if (error instanceof AuthError) return errorResponse(error);
     // A competing atomic transaction may win after the initial replay lookup.
     // Resolve its persistent response even when it already removed staging data.
     if (db && identity) {

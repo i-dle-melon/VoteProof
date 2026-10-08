@@ -15,13 +15,18 @@ export async function requestIdempotency(request, input, env) {
   const normalized = { nickname: input.nickname, playerId: input.playerId, campaignId: input.campaignId,
     voteType: input.voteType, voteDate: input.voteDate, note: input.note,
     sessionId: input.sessionId, keys: [...input.keys].sort() };
+  // Guest hashes remain byte-compatible with B3. Member retries are scoped to
+  // the authenticated identity, independent of its current session or profile.
+  if (input.memberId) normalized.memberId = input.memberId;
   const secret = env.CASE_QUERY_KEY_SECRET;
   // A dedicated, randomly generated 256-bit hex Secret; never reuse other keys.
   if (typeof secret !== "string" || !/^[0-9a-fA-F]{64}$/.test(secret)) throw unavailable();
   const signingKey = await crypto.subtle.importKey("raw",
     Uint8Array.from(secret.match(/../g), byte => parseInt(byte, 16)),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return { keyHash: await sha256("VoteProof/case-idempotency/v1:" + key),
+  return { keyHash: await sha256(input.memberId
+    ? JSON.stringify(["VoteProof/member-idempotency/v1", input.memberId, key])
+    : "VoteProof/case-idempotency/v1:" + key),
     requestHash: await sha256(JSON.stringify(normalized)), signingKey };
 }
 

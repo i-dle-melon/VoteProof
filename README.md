@@ -1,11 +1,18 @@
 # VoteProof API
 
-## B3 本機開發
+## B4 Member identity（僅本機，未發布）
+
+Email OTP、D1 members/challenges/sessions/rate limits、HttpOnly cookies／CSRF、profile 與 owner-only cases API，見 [docs/b4-members.md](docs/b4-members.md)。
+`0003_member_identity.sql` 只在本機 apply；新 Secrets 為 `AUTH_SECRET`／`AUTH_EMAIL_API_KEY`，Variables 為 `AUTH_ORIGIN`／`AUTH_EMAIL_FROM`，Production 必須由使用者手動設定。
+`npm run test:auth-smoke` 使用 disposable local workerd/D1/R2 與 mock email，沒有寄送真實郵件或 Production bypass。
+首頁保持原樣，會員按鈕仍為原有示範；本次會員身份功能由 API 提供，Guest flow 與 B3 query key 保留，不做管理員後台／積分／排行榜改寫，不自行 push 或 deploy。
+
+## B3 既有基礎
 
 D1 Guest 案件、upload consumption、私人 R2 archival、query key、migration 與手動 rollout，見 [docs/b3-cases.md](docs/b3-cases.md)。
 新增 `POST /api/cases` 與 `GET /api/cases/:caseId`；`npm run test:cases-smoke` 在本機 workerd/D1/R2 驗證案件流程。
-`DB` 的 database_id 目前是全零 placeholder，正式 D1 尚待使用者手動建立／migration；B3 不自行 push 或部署。
-首頁與所有現有 B1/B2 功能保留，這階段不做 email、會員或後台。
+`DB` 已綁定既有 Production D1 `voteproof-cases`；0001/0002 與 B3/B3.1 已通過 Production 驗收。B4 不修改既有 binding，也不自行 apply remote migration。
+首頁與所有現有 B1/B2/Guest 功能保留。
 
 B3.1 本機收尾加入持久化 `Idempotency-Key`，相同 normalized request 可重取原 HTTP 201、case_id 與 query credential；不同 payload 回 409。
 需另外手動設定專用 Worker Secret `CASE_QUERY_KEY_SECRET`（獨立安全隨機 32 bytes／64 字元 hex），不得重用 Turnstile／R2 secrets、提交 Git 或貼入聊天。

@@ -24,3 +24,4 @@ export const REVIEW_AUTH_GUARD = `EXISTS (SELECT 1 FROM admin_memberships a
   WHERE a.member_id = ? AND a.status = 'active' AND a.role = ? AND m.status = 'active'
   AND s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER))`;
 export const actorBindings = actor => [actor.member.member_id, actor.role, actor.member.tokenHash];
+export const ELEVATED_AUTH_GUARD = REVIEW_AUTH_GUARD.replace("a.role = ?", "a.role = ? AND a.role IN ('admin', 'super_admin')");

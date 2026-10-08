@@ -31,8 +31,8 @@ export function adminPage(url, audit = false) {
   if (f.vote_type !== undefined && f.vote_type !== null && !["Solo", "團體"].includes(f.vote_type)) invalid();
   if (f.duplicate_flag !== undefined && f.duplicate_flag !== null && !["0", "1"].includes(f.duplicate_flag)) invalid();
   if (audit) {
-    if (f.action !== null && !["approve", "reject", "mark_duplicate", "complete", "revoke", "bootstrap_membership"].includes(f.action)) invalid();
-    if (f.target_type !== null && !["case", "admin_membership"].includes(f.target_type)) invalid();
+    if (f.action !== null && !["approve", "reject", "mark_duplicate", "complete", "revoke", "bootstrap_membership", "campaign_create", "campaign_update", "manual_adjustment"].includes(f.action)) invalid();
+    if (f.target_type !== null && !["case", "admin_membership", "campaign", "point_transaction"].includes(f.target_type)) invalid();
     if (f.target_id !== null && !/^[A-Za-z0-9_-]{1,100}$/.test(f.target_id)) invalid();
     if (f.admin_member_id !== null && (!f.admin_member_id.startsWith("M-") || !UUID_PATTERN.test(f.admin_member_id.slice(2)))) invalid();
   }

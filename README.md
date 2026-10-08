@@ -1,5 +1,12 @@
 # VoteProof API
 
+## B5B Campaign／Point Ledger（本機 checkpoint，未發布）
+
+正式 D1 Campaign、append-only Point Ledger、member/campaign/vote_date daily limit、atomic approve/revoke/audit、idempotent manual adjustments 與 ledger SUM，見 [docs/b5b-campaign-points.md](docs/b5b-campaign-points.md)。
+新增 0005；0001..0004 未改。`test:points-smoke` 驗證流程，`check:admin-schema` 從空 local DB 驗證 0001..0005。
+Campaign timezone 固定、closed 不接受新投稿，Guest 永遠零分；不重算歷史交易，不寫 Google Sheets，不做 B5C leaderboard。
+B4 auth 仍凍結，B4/B5 不 remote migrate／push／deploy，首頁與登入 provider 保持原樣。
+
 ## B5A 管理員授權／案件審核（僅本機，未發布）
 
 B4 身份驗證方案已凍結，Email OTP／Resend 版本只作為本機 checkpoint。B5A 只依賴已驗證的 VoteProof session/member，不引用登入 provider 或 email 作授權。

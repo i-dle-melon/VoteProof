@@ -27,6 +27,7 @@ export async function localAdminRuntime() {
       Origin: "https://voteproof.example", "X-CSRF-Token": csrf } };
   }
   async function makeCase({ member, metadata = {}, idempotencyKey = randomUUID() } = {}) {
+    if (metadata.campaign_id) await local.campaign({ campaign_id: metadata.campaign_id });
     const reference = await local.upload();
     const body = { ...guestBody(reference), ...metadata };
     const headers = { ...(member?.headers ?? {}), "Idempotency-Key": idempotencyKey };

@@ -36,7 +36,7 @@ export function validateCase(body, now = new Date()) {
   const nickname = text(body.nickname, CASE_LIMITS.nickname);
   const playerId = text(body.player_id, CASE_LIMITS.playerId);
   const campaignId = text(body.campaign_id, CASE_LIMITS.campaignId);
-  // TODO B4/B5: validate against the production Campaign source, not demo data.
+  // D1 Campaign existence/window/open-state checks run after idempotent replay.
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(campaignId)) invalid();
   if (!["Solo", "團體"].includes(body.vote_type)) invalid();
   if (typeof body.vote_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.vote_date)) invalid();

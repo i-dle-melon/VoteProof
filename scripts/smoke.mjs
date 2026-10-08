@@ -7,6 +7,7 @@ import http from "node:http";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const wrangler = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
@@ -49,8 +50,16 @@ async function freePort() {
 
 async function withWorker(configured, check) {
   const port = await freePort();
+  const persistTo = ".wrangler/b1-smoke-" + randomUUID();
+  const migration = spawn(process.execPath, [wrangler, "d1", "migrations", "apply", "voteproof-cases", "--local", "--persist-to", persistTo], {
+    cwd: repository, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
+    env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "true" },
+  });
+  let migrationLog = "";
+  migration.stdout.on("data", data => { migrationLog += data; }); migration.stderr.on("data", data => { migrationLog += data; });
+  if ((await once(migration, "exit"))[0] !== 0) throw new Error("Local smoke migrations failed:\n" + migrationLog);
   const args = [wrangler, "dev", "--local", "--ip", "127.0.0.1", "--port", String(port),
-    "--inspector-port", "0", "--show-interactive-dev-session", "false"];
+    "--inspector-port", "0", "--show-interactive-dev-session", "false", "--persist-to", persistTo];
   if (configured) args.push("--var", `GOOGLE_PUBLIC_API_URL:http://127.0.0.1:${fixture.address().port}/public`);
   const child = spawn(process.execPath, args, {
     cwd: repository, stdio: ["ignore", "pipe", "pipe"],

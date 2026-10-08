@@ -7,6 +7,8 @@ import { createCase, getCase } from "./cases.js";
 import { startLogin, verifyLogin, currentMember, logout } from "./auth.js";
 import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
+import { campaignRoute } from "./admin-campaigns.js";
+import { pointRoute } from "./points.js";
 
 const routes = new Map([
   ["/api/health", { method: "GET", handler: getHealth }],
@@ -24,14 +26,14 @@ const routes = new Map([
 ]);
 
 export async function routeApi(request, env, url) {
-  const route = routes.get(url.pathname) ?? adminRoute(url.pathname) ?? (/^\/api\/cases\/[^/]+$/.test(url.pathname)
+  const route = routes.get(url.pathname) ?? adminRoute(url.pathname) ?? campaignRoute(url.pathname, request.method) ?? pointRoute(url.pathname) ?? (/^\/api\/cases\/[^/]+$/.test(url.pathname)
     ? { method: "GET", handler: getCase } : /^\/api\/me\/cases\/[^/]+$/.test(url.pathname)
       ? { method: "GET", handler: getMemberCase } : undefined);
   if (!route) {
     return jsonError(404, "NOT_FOUND", "API endpoint not found");
   }
   if (request.method !== route.method) {
-    return jsonError(405, "METHOD_NOT_ALLOWED", `Only ${route.method} is supported`, { allow: route.method });
+    return jsonError(405, "METHOD_NOT_ALLOWED", `Only ${route.allow ?? route.method} is supported`, { allow: route.allow ?? route.method });
   }
   try {
     return await route.handler(env, url, request);

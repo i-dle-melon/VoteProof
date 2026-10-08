@@ -36,7 +36,7 @@ test("B5A schema preserves previous migrations and has RBAC, review, immutable a
   for (const name of ["status_reason", "status_updated_at", "status_updated_by", "duplicate_of_case_id", "version", "reviewer_id", "reviewed_at"]) assert.ok(cols.includes(name));
   assert.deepEqual((await local.db.prepare("PRAGMA foreign_key_check").all()).results, []);
   const triggers = (await local.db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all()).results.map(r => r.name);
-  assert.deepEqual(triggers.sort(), ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "cases_duplicate_insert", "cases_duplicate_update"]);
+  for (const name of ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "cases_duplicate_insert", "cases_duplicate_update"]) assert.ok(triggers.includes(name));
 });
 
 for (const [name, options, status, code] of [
@@ -128,7 +128,7 @@ test("review approve records actor, optimistic version, safe audit and preserves
   assert.equal(row.points_awarded, 0); assert.equal(row.status_reason, "已核對"); assert.ok(row.reviewed_at);
   const audit = await local.db.prepare("SELECT * FROM admin_audit_logs WHERE target_id = ?").bind(fixture.case_id).first();
   assert.equal(audit.admin_role, "reviewer"); assert.equal(audit.admin_member_id, reviewer.memberId); assert.equal(audit.action, "approve");
-  assert.deepEqual(JSON.parse(audit.before_json), { status: "pending", version: 0, duplicate_of_case_id: null });
+  assert.deepEqual(JSON.parse(audit.before_json), { status: "pending", version: 0, duplicate_of_case_id: null, points_awarded: 0, point_status: null });
   assert.equal(JSON.parse(audit.after_json).status, "approved"); safeJson(audit, [fixture.query_key, reviewer.token]);
   const guest = await local.fetch(`/api/cases/${fixture.case_id}?key=${fixture.query_key}`); assert.equal(guest.status, 200);
   const guestData = (await guest.json()).data; assert.equal(guestData.status, "approved"); safeJson(guestData);

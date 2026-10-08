@@ -35,8 +35,7 @@ export function reviewInput(body, role) {
 
 export function reviewTransition(row, input) {
   if (row.version !== input.expectedVersion || !input.transition.from.includes(row.status)) throw statusConflict();
-  // TODO B5B: atomic point-ledger entries belong in the same transaction as the
-  // transition. B5A deliberately never changes points_awarded or member totals.
+  // B5B ledger append/snapshot/audit execute together in the D1 review batch.
   // Revoked restoration is not enabled without verified legacy business rules.
   return input.transition.to;
 }

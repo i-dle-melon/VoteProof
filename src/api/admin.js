@@ -1,5 +1,5 @@
-import { jsonSuccess, jsonError } from "./response.js";
-import { AuthError } from "./auth-validation.js";
+import { jsonSuccess } from "./response.js";
+import { adminHandler } from "./admin-response.js";
 import { authDatabase, csrfToken } from "../lib/auth-session.js";
 import { AdminError, adminIdentity, adminCsrf, ELEVATED_ROLES } from "../lib/admin-identity.js";
 import { CASE_ID_PATTERN } from "../lib/case-keys.js";
@@ -8,14 +8,6 @@ import { adminPage, readReviewJson, UUID_PATTERN } from "./admin-validation.js";
 import { adminCases, adminCase, adminFiles, applyReview, auditLogs } from "../lib/admin-store.js";
 import { allowedMime, UPLOAD_LIMITS } from "./upload-validation.js";
 
-const adminHandler = action => async (env, url, request) => {
-  try { return await action(env, url, request); }
-  catch (e) {
-    if (e instanceof AdminError || e instanceof AuthError) return jsonError(e.status, e.code, e.message);
-    // No exception, binding, key, credential, URL or request-body logging.
-    return jsonError(503, "ADMIN_SERVICE_UNAVAILABLE", "Administrative service is unavailable");
-  }
-};
 const pathCaseId = url => {
   const id = url.pathname.split("/")[4];
   if (!CASE_ID_PATTERN.test(id ?? "")) throw caseNotFound();

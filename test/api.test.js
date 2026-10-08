@@ -37,8 +37,8 @@ test("health is exact, uncached and never accesses external services or secrets"
   assert.deepEqual(await response.json(), { ok: true, data: { service: "VoteProof API", status: "ok", version: "b1" } });
 });
 
-test("campaigns returns the empty contract without bindings", async () => {
-  const response = await worker.fetch(request("/api/campaigns"), {});
+test("campaigns reads an empty D1 registry and retains its public response contract", async () => {
+  const response = await worker.fetch(request("/api/campaigns"), { DB: { prepare() { return { bind() { return { all: async () => ({ results: [] }) }; } }; } } });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), { ok: true, data: { campaigns: [] } });

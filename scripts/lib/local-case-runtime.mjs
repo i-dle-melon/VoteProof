@@ -6,7 +6,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { unstable_splitSqlQuery } from "wrangler";
 
-export async function localCaseRuntime({ emailService, turnstileService } = {}) {
+export async function localCaseRuntime({ emailService, turnstileService, seedCampaign = true, migrationHook } = {}) {
   const emails = [];
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
@@ -40,7 +40,20 @@ export async function localCaseRuntime({ emailService, turnstileService } = {}) 
       // Static checked-in schema only; no user input or SQL interpolation.
       // Wrangler's splitter preserves trigger BEGIN/END bodies and SQL quotes.
       await db.batch(unstable_splitSqlQuery(migration).map(sql => db.prepare(sql)));
+      if (migrationHook) await migrationHook(db, name);
     }
+    // Explicit disposable fixture only. Migrations/Worker never seed Campaigns.
+    async function campaign({ campaign_id = "LOCAL-TEST", name = "Local fixture", category = "local", start_at = "2000-01-01T00:00:00.000Z",
+      end_at = "2100-01-01T00:00:00.000Z", campaign_timezone = "UTC", vote_start_date = "2000-01-01", vote_end_date = "2099-12-31",
+      points_per_proof = 0, daily_limit = 0, status = "active" } = {}) {
+      await db.prepare(`INSERT INTO campaigns (campaign_id, name, category, start_at, end_at, campaign_timezone,
+        vote_start_date, vote_end_date, points_per_proof, daily_limit, status, created_at, updated_at)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM campaigns WHERE campaign_id = ?)`)
+        .bind(campaign_id, name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
+          points_per_proof, daily_limit, status, new Date().toISOString(), new Date().toISOString(), campaign_id).run();
+      return campaign_id;
+    }
+    if (seedCampaign) await campaign();
     const fetch = (path, method = "GET", body, headers = {}) => runtime.dispatchFetch("https://voteproof.example" + path, {
       method, headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
       ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
@@ -75,7 +88,7 @@ export async function localCaseRuntime({ emailService, turnstileService } = {}) 
       db = await runtime.getD1Database("DB"); bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
     };
     return { runtime, get db() { return db; }, get bucket() { return bucket; },
-      fetch, upload, setQuerySecret, setAuthConfig, emails, get authSecret() { return options.bindings.AUTH_SECRET; }, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
+      fetch, upload, campaign, setQuerySecret, setAuthConfig, emails, get authSecret() { return options.bindings.AUTH_SECRET; }, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
   } catch (error) { await runtime.dispose(); throw error; }
 }
 

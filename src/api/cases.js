@@ -7,6 +7,7 @@ import { insertCase, guestCase, guestFiles } from "../lib/case-store.js";
 import { requestIdempotency, newQuerySeed, reconstructQueryKey, replayCase } from "../lib/case-idempotency.js";
 import { AuthError } from "./auth-validation.js";
 import { memberSession, memberCsrf } from "../lib/auth-session.js";
+import { requireCaseCampaign } from "../lib/campaign-policy.js";
 
 const errorResponse = error => error instanceof CaseError || error instanceof AuthError
   ? jsonError(error.status, error.code, error.message)
@@ -28,6 +29,7 @@ export async function createCase(env, _url, request) {
     db = caseDatabase(env);
     const replay = await replayCase(db, identity);
     if (replay) return jsonSuccess(replay, "no-store", 201);
+    input.campaignVersion = (await requireCaseCampaign(db, input)).version;
     const completed = await requireCompletedUpload(db, input.sessionId, input.keys);
     id = crypto.randomUUID();
     const now = new Date();

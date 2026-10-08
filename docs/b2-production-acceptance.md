@@ -37,12 +37,37 @@ voteProofB2.run(prompt("Production public Turnstile Site Key"))
 正常 token 直接提交到 prepare，由正式 Worker Siteverify；圖片由 canvas 產生無個資的真實 1px PNG。
 腳本測試 5 個 server staging keys、300 秒參數、Content-Type signing、正確 PUT／CORS ETag、正常 complete、錯誤 Content-Type、不存在／不同 session、實際超限刪除及混合批次。
 R2 拒絕測試必須讀到真正 HTTP 403；CORS network error 不當作簽名測試成功。
+R2 的 expired URL 回應不含 CORS headers，瀏覽器可能列為 `NEEDS_TERMINAL`；正常 PUT 的任何失敗仍是 FAIL。
 保持分頁開啟約 5 分鐘，等 `PUT rejected after 300 seconds` 顯示 PASS。
 
 可重新列出安全報告：
 
 ```javascript
 console.table(voteProofB2.report())
+```
+
+### 私下診斷新 URL／不受瀏覽器 CORS 限制的負向測試
+
+如正常 PUT 失敗，貼入 `docs/b2-production-diagnose.js`，執行以下程式並輸入公開 Site Key：
+
+```javascript
+voteProofB2Diagnose(prompt("Production public Turnstile Site Key"), copy)
+```
+
+手動完成官方 widget。此程式新簽發一個 server key，嘗試瀏覽器正常 PUT／complete，將安全的 HTTP 狀態同步到頁面 dataset，並只把新 PUT URL 複製到 clipboard，不印出 URL 或 token。
+Console 顯示 `B2 diagnostic finished` 後，在 300 秒內執行：
+
+```powershell
+Get-Clipboard | node scripts/production-presign-check.mjs --wait-expiry
+```
+
+此腳本使用 stdin 中的 URL 直接 PUT 真實 PNG，檢查正確 PUT／CORS／ETag、錯誤 MIME 必須 403 `SignatureDoesNotMatch`、PUT URL 當 GET 必須拒絕、匿名 GET 必須拒絕，以及 complete 的實際 metadata。正常 PUT 若失敗，依賴它的簽名測試標為 BLOCKED，避免錯誤憑證造成的 403 被誤認為安全限制通過。
+背景等待至 URL 簽發後 306 秒，再確認 PUT 回 403 `ExpiredRequest`。僅輸出狀態／錯誤 code，不輸出 URL、憑證或 R2 error body。
+若 URL 已過期，可只執行 `Get-Clipboard | node scripts/production-presign-check.mjs --expired`；這不代表正常 PUT 已通過。
+診斷 key 從以下 Console 程式取得，請納入下方的**當次測試**清理：
+
+```javascript
+JSON.parse(document.documentElement.dataset.voteproofB2Diagnostic).key
 ```
 
 ### PUT URL 不能作為公開 GET URL
@@ -91,4 +116,4 @@ Set-Clipboard -Value ''
 
 安全限制：標準 SigV4 URL 中 `X-Amz-Credential` 包含 Access Key ID（已獲使用者同意），不包含 Secret Access Key。API schema／source review 與拒絕測試可檢查洩漏風險，不能用未知 Secret 的黑箱掃描保證所有平台 logs 從未包含憑證。
 
-官方參考：[Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/)、[R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)。
+官方參考：[Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/)、[R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)、[R2 CORS 與 expired URL 回應](https://developers.cloudflare.com/r2/buckets/cors/)。

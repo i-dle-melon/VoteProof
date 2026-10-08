@@ -20,9 +20,15 @@
     else ensure(payload.ok === true, "API did not succeed");
     return payload;
   }
-  async function check(name, action) {
+  async function check(name, action, needsVisibleRejection = false) {
     try { await action(); record(name, "PASS"); }
-    catch { record(name, "FAIL (inspect HTTP status; do not share token/URL)"); }
+    catch (error) {
+      // R2 rejection responses can omit CORS headers (notably ExpiredRequest).
+      // A network error is neither proof of rejection nor a successful test.
+      record(name, needsVisibleRejection && error instanceof TypeError
+        ? "NEEDS_TERMINAL: read the real R2 status without browser CORS"
+        : "FAIL (inspect HTTP status; do not share token/URL)");
+    }
   }
   async function tokenFromWidget(sitekey) {
     if (!window.turnstile) {
@@ -94,7 +100,7 @@
         // A CORS network error alone does not prove signature rejection.
         const response = await put(normal, png, "image/jpeg");
         ensure(response.status === 403, "Expected visible R2 403");
-      });
+      }, true);
       await check("nonexistent object", () => complete([missing.key], 400, "UPLOAD_INCOMPLETE"));
       await check("different session rejected", () => complete([normal.key], 400, "INVALID_UPLOAD_REQUEST", crypto.randomUUID()));
       await check("actual oversize rejected + deleted", async () => {
@@ -112,7 +118,7 @@
       expiryTimer = setTimeout(() => check("PUT rejected after 300 seconds", async () => {
         const response = await put(expiry, png);
         ensure(response.status === 403, "Expired PUT must return visible 403");
-      }), Math.max(0, issued + 306000 - Date.now()));
+      }, true), Math.max(0, issued + 306000 - Date.now()));
       record("expiry timer", "WAIT: leave this tab open until expiry result appears");
       console.log("For GET/private checks and staging cleanup follow docs/b2-production-acceptance.md. Never share signed URLs/tokens.");
     } catch { record("real Turnstile / prepare", "FAIL: check widget and API status without sharing credentials"); }

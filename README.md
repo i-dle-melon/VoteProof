@@ -1,5 +1,12 @@
 # VoteProof API
 
+## B5A 管理員授權／案件審核（僅本機，未發布）
+
+B4 身份驗證方案已凍結，Email OTP／Resend 版本只作為本機 checkpoint。B5A 只依賴已驗證的 VoteProof session/member，不引用登入 provider 或 email 作授權。
+新增 RBAC、私人 proof stream、版本衝突檢查與 append-only audit，詳見 [docs/b5a-admin-review.md](docs/b5a-admin-review.md)。
+`0004_admin_review.sql` 只在本機驗證；無 Production admin／remote migration，無新 Secret、首頁改動或真實郵件。`npm run test:admin-smoke` 使用 disposable local fixtures。
+尚未 push／deploy，不進 B5B 積分／Campaign 或 B6；B4 後續 auth 評估另行處理。
+
 ## B4 Member identity（僅本機，未發布）
 
 Email OTP、D1 members/challenges/sessions/rate limits、HttpOnly cookies／CSRF、profile 與 owner-only cases API，見 [docs/b4-members.md](docs/b4-members.md)。

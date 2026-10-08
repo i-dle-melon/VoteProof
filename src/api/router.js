@@ -6,6 +6,7 @@ import { prepareUpload, completeUpload } from "./uploads.js";
 import { createCase, getCase } from "./cases.js";
 import { startLogin, verifyLogin, currentMember, logout } from "./auth.js";
 import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
+import { adminRoute } from "./admin.js";
 
 const routes = new Map([
   ["/api/health", { method: "GET", handler: getHealth }],
@@ -23,7 +24,7 @@ const routes = new Map([
 ]);
 
 export async function routeApi(request, env, url) {
-  const route = routes.get(url.pathname) ?? (/^\/api\/cases\/[^/]+$/.test(url.pathname)
+  const route = routes.get(url.pathname) ?? adminRoute(url.pathname) ?? (/^\/api\/cases\/[^/]+$/.test(url.pathname)
     ? { method: "GET", handler: getCase } : /^\/api\/me\/cases\/[^/]+$/.test(url.pathname)
       ? { method: "GET", handler: getMemberCase } : undefined);
   if (!route) {

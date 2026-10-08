@@ -4,6 +4,7 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { randomBytes } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { unstable_splitSqlQuery } from "wrangler";
 
 export async function localCaseRuntime({ emailService, turnstileService } = {}) {
   const emails = [];
@@ -37,7 +38,8 @@ export async function localCaseRuntime({ emailService, turnstileService } = {}) 
     for (const name of (await readdir(migrations)).filter(name => /^\d+_.+\.sql$/.test(name)).sort()) {
       const migration = await readFile(new URL(name, migrations), "utf8");
       // Static checked-in schema only; no user input or SQL interpolation.
-      await db.batch(migration.split(";").map(sql => sql.trim()).filter(Boolean).map(sql => db.prepare(sql)));
+      // Wrangler's splitter preserves trigger BEGIN/END bodies and SQL quotes.
+      await db.batch(unstable_splitSqlQuery(migration).map(sql => db.prepare(sql)));
     }
     const fetch = (path, method = "GET", body, headers = {}) => runtime.dispatchFetch("https://voteproof.example" + path, {
       method, headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },

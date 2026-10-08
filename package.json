@@ -7,6 +7,7 @@
     "test": "node --test",
     "test:smoke": "node scripts/smoke.mjs",
     "test:uploads-smoke": "node scripts/smoke-uploads.mjs",
+    "test:cases-smoke": "node scripts/smoke-cases.mjs",
     "check": "wrangler deploy --dry-run"
   },
   "devDependencies": {

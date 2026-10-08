@@ -1,4 +1,11 @@
-# VoteProof B1 API
+# VoteProof API
+
+## B3 本機開發
+
+D1 Guest 案件、upload consumption、私人 R2 archival、query key、migration 與手動 rollout，見 [docs/b3-cases.md](docs/b3-cases.md)。
+新增 `POST /api/cases` 與 `GET /api/cases/:caseId`；`npm run test:cases-smoke` 在本機 workerd/D1/R2 驗證案件流程。
+`DB` 的 database_id 目前是全零 placeholder，正式 D1 尚待使用者手動建立／migration；B3 不自行 push 或部署。
+首頁與所有現有 B1/B2 功能保留，這階段不做 email、會員或後台。
 
 ## B2 本機開發
 

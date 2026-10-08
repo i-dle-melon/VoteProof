@@ -1,5 +1,5 @@
-export function jsonSuccess(data, cacheControl = "no-store") {
-  return jsonResponse({ ok: true, data }, 200, { "cache-control": cacheControl });
+export function jsonSuccess(data, cacheControl = "no-store", status = 200) {
+  return jsonResponse({ ok: true, data }, status, { "cache-control": cacheControl });
 }
 
 export function jsonError(status, code, message, headers = {}) {

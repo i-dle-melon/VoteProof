@@ -27,6 +27,12 @@ const invalid = message => { throw new UploadError(400, "INVALID_UPLOAD_REQUEST"
 const isRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
 export const allowedMime = type => Object.hasOwn(MIME_EXTENSIONS, type);
 
+export function validUploadedObject(key, object) {
+  const type = object?.httpMetadata?.contentType;
+  return Number.isSafeInteger(object?.size) && object.size > 0 && object.size <= UPLOAD_LIMITS.maxFileBytes &&
+    allowedMime(type) && key.endsWith("." + MIME_EXTENSIONS[type]);
+}
+
 export async function readUploadJson(request) {
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
     throw new UploadError(400, "INVALID_JSON", "A JSON body is required");

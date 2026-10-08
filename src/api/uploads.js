@@ -1,7 +1,9 @@
 import { jsonSuccess, jsonError } from "./response.js";
-import { readUploadJson, validatePrepare, validateComplete, allowedMime, MIME_EXTENSIONS, UPLOAD_LIMITS, UploadError } from "./upload-validation.js";
+import { readUploadJson, validatePrepare, validateComplete, validUploadedObject, MIME_EXTENSIONS, UPLOAD_LIMITS, UploadError } from "./upload-validation.js";
 import { verifyTurnstile } from "./turnstile.js";
 import { readR2UploadConfig, presignPut } from "../lib/r2-presign.js";
+import { rememberCompletedUpload } from "../lib/completed-uploads.js";
+import { CaseError } from "./case-validation.js";
 
 export async function prepareUpload(env, _url, request) {
   try {
@@ -37,8 +39,7 @@ export async function completeUpload(env, _url, request) {
         const object = await env.PROOFS_BUCKET.head(key);
         if (!object) { missing = true; continue; }
         const type = object.httpMetadata?.contentType;
-        if (!Number.isSafeInteger(object.size) || object.size <= 0 || object.size > UPLOAD_LIMITS.maxFileBytes ||
-            !allowedMime(type) || !key.endsWith("." + MIME_EXTENSIONS[type])) {
+        if (!validUploadedObject(key, object)) {
           invalid = true;
           await env.PROOFS_BUCKET.delete(key);
           continue;
@@ -51,9 +52,10 @@ export async function completeUpload(env, _url, request) {
     if (storageError) throw new UploadError(502, "R2_UPLOAD_ERROR", "Upload storage is unavailable");
     if (invalid) throw new UploadError(400, "UPLOAD_VALIDATION_FAILED", "One or more uploaded files failed validation");
     if (missing) throw new UploadError(400, "UPLOAD_INCOMPLETE", "One or more uploaded files are missing");
+    await rememberCompletedUpload(env, sessionId, files);
     return jsonSuccess({ session_id: sessionId, files });
   } catch (error) {
-    if (error instanceof UploadError) return jsonError(error.status, error.code, error.message);
+    if (error instanceof UploadError || error instanceof CaseError) return jsonError(error.status, error.code, error.message);
     return jsonError(500, "INTERNAL_ERROR", "Upload request failed");
   }
 }

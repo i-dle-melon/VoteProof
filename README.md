@@ -7,6 +7,11 @@ D1 Guest 案件、upload consumption、私人 R2 archival、query key、migratio
 `DB` 的 database_id 目前是全零 placeholder，正式 D1 尚待使用者手動建立／migration；B3 不自行 push 或部署。
 首頁與所有現有 B1/B2 功能保留，這階段不做 email、會員或後台。
 
+B3.1 本機收尾加入持久化 `Idempotency-Key`，相同 normalized request 可重取原 HTTP 201、case_id 與 query credential；不同 payload 回 409。
+需另外手動設定專用 Worker Secret `CASE_QUERY_KEY_SECRET`（獨立安全隨機 32 bytes／64 字元 hex），不得重用 Turnstile／R2 secrets、提交 Git 或貼入聊天。
+新增 `0002_case_idempotency.sql`，未使用的 completed upload 固定 24 小時到期；成功 replay 不受 upload TTL 影響。R2 copy／D1 已知失敗會立即 best-effort cleanup，安全摘要不包含 keys 或錯誤原文。
+Schema、Secret 維護限制、replay contract 與清理例外，詳見上述 B3 文件。本次不 push／部署／建立 Production D1／執行 remote migration。
+
 ## B2 本機開發
 
 B2 私人 R2 上傳的 contract、Production 變數／secrets、CORS 與 lifecycle 說明見 [docs/b2-uploads.md](docs/b2-uploads.md)。

@@ -1,6 +1,9 @@
 import { CaseError } from "../api/case-validation.js";
 import { sha256 } from "./case-keys.js";
 
+export const COMPLETED_UPLOAD_TTL_SECONDS = 24 * 60 * 60;
+const expired = () => new CaseError(409, "UPLOAD_SESSION_EXPIRED", "Completed upload has expired; prepare a new upload");
+
 export function caseDatabase(env) {
   if (typeof env.DB?.prepare !== "function" || typeof env.DB?.batch !== "function") {
     throw new CaseError(503, "DB_NOT_CONFIGURED", "Case service is not configured");
@@ -12,7 +15,7 @@ export const manifestHash = files => sha256(JSON.stringify([...files].sort((a, b
   .map(({ key, size, type, etag }) => ({ key, size, type, etag }))));
 
 export const uploadState = (db, sessionId) => db.prepare(
-  "SELECT session_id, manifest_hash, consumed_case_id FROM completed_uploads WHERE session_id = ?"
+  "SELECT session_id, manifest_hash, consumed_case_id, expires_at FROM completed_uploads WHERE session_id = ?"
 ).bind(sessionId).first();
 
 export async function completedFiles(db, sessionId) {
@@ -29,9 +32,10 @@ export async function rememberCompletedUpload(env, sessionId, files) {
   try {
     if (files.some(file => typeof file.etag !== "string" || !file.etag)) throw new Error();
     const hash = await manifestHash(files);
+    const now = new Date();
     await db.batch([
-      db.prepare("INSERT INTO completed_uploads (session_id, manifest_hash, completed_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
-        .bind(sessionId, hash, new Date().toISOString()),
+      db.prepare("INSERT INTO completed_uploads (session_id, manifest_hash, completed_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
+        .bind(sessionId, hash, now.toISOString(), new Date(now.valueOf() + COMPLETED_UPLOAD_TTL_SECONDS * 1000).toISOString()),
       ...files.map(file => db.prepare(
         `INSERT INTO completed_upload_files (session_id, object_key, content_type, size, etag)
          SELECT ?, ?, ?, ?, ? FROM completed_uploads
@@ -41,6 +45,7 @@ export async function rememberCompletedUpload(env, sessionId, files) {
     ]);
     const state = await uploadState(db, sessionId);
     if (state?.consumed_case_id) throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
+    if (state?.expires_at <= new Date().toISOString()) throw expired();
     if (state?.manifest_hash !== hash || await manifestHash(await completedFiles(db, sessionId)) !== hash) {
       throw new CaseError(409, "UPLOAD_SESSION_CONFLICT", "Completed upload cannot be changed");
     }
@@ -54,6 +59,7 @@ export async function requireCompletedUpload(db, sessionId, keys) {
   const state = await uploadState(db, sessionId);
   if (!state) throw new CaseError(400, "UPLOAD_NOT_COMPLETED", "Upload must be completed first");
   if (state.consumed_case_id) throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
+  if (state.expires_at <= new Date().toISOString()) throw expired();
   const files = await completedFiles(db, sessionId);
   if (JSON.stringify(files.map(file => file.key).sort()) !== JSON.stringify([...keys].sort())) {
     throw new CaseError(400, "INVALID_UPLOAD_REFERENCE", "Files do not match the completed upload");

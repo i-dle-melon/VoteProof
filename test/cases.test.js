@@ -212,10 +212,14 @@ test("unverifiable D1 acknowledgement preserves possibly committed case files", 
   assert.ok(await local.bucket.head(file.object_key));
 });
 
-test("Idempotency-Key is explicitly rejected rather than pretending raw query keys can be replayed", async () => {
+test("Idempotency-Key creates a case and replays the same successful response", async () => {
   const reference = await local.upload();
-  await error(await local.fetch("/api/cases", "POST", guestBody(reference), { "Idempotency-Key": crypto.randomUUID() }), 400, "IDEMPOTENCY_NOT_SUPPORTED");
-  await create(reference);
+  const headers = { "Idempotency-Key": crypto.randomUUID() };
+  const first = await local.fetch("/api/cases", "POST", guestBody(reference), headers);
+  assert.equal(first.status, 201);
+  const replay = await local.fetch("/api/cases", "POST", guestBody(reference), headers);
+  assert.equal(replay.status, 201);
+  assert.deepEqual(await replay.json(), await first.json());
 });
 
 test("Guest lookup whitelists fields, excludes private metadata and supports safer header authentication", async () => {

@@ -3,7 +3,8 @@ import { localCaseRuntime, guestBody } from "./lib/local-case-runtime.mjs";
 const local = await localCaseRuntime();
 try {
   const reference = await local.upload({ count: 2 });
-  const created = await local.fetch("/api/cases", "POST", guestBody(reference));
+  const retryHeaders = { "Idempotency-Key": crypto.randomUUID() };
+  const created = await local.fetch("/api/cases", "POST", guestBody(reference), retryHeaders);
   assert.equal(created.status, 201);
   const data = (await created.json()).data;
   const found = await local.fetch(`/api/cases/${data.case_id}`, "GET", undefined, { "X-Case-Query-Key": data.query_key });
@@ -12,7 +13,11 @@ try {
   assert.equal(JSON.stringify(body).includes("object_key"), false);
   assert.equal((await local.fetch(`/api/cases/${data.case_id}?key=wrong`)).status, 404);
   assert.equal((await local.fetch("/api/cases", "POST", guestBody(reference))).status, 409);
+  const replay = await local.fetch("/api/cases", "POST", guestBody(reference), retryHeaders);
+  assert.equal(replay.status, 201); assert.deepEqual((await replay.json()).data, data);
+  const conflict = await local.fetch("/api/cases", "POST", { ...guestBody(reference), note: "changed" }, retryHeaders);
+  assert.equal(conflict.status, 409); assert.equal((await conflict.json()).error.code, "IDEMPOTENCY_CONFLICT");
   assert.equal((await local.fetch("/api/health")).status, 200);
-  console.log("Local workerd/D1/R2: complete persistence, case 201, Guest 200, wrong key 404, replay 409, health 200 passed.");
+  console.log("Local workerd/D1/R2: complete persistence, case/replay 201 with identical credential, Guest 200, wrong key 404, consumption/conflict 409, health 200 passed.");
   console.log("No Production database, migration, token or object was used.");
 } finally { await local.runtime.dispose(); }

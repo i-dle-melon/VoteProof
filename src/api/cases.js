@@ -4,6 +4,7 @@ import { caseDatabase, requireCompletedUpload, uploadState } from "../lib/comple
 import { newCaseId, newQueryKey, sha256, equalQueryHash, CASE_ID_PATTERN, QUERY_KEY_PATTERN } from "../lib/case-keys.js";
 import { archiveCaseFiles, cleanPrivateCopies } from "../lib/case-files.js";
 import { insertCase, guestCase, guestFiles } from "../lib/case-store.js";
+import { requestIdempotency, newQuerySeed, reconstructQueryKey, replayCase } from "../lib/case-idempotency.js";
 
 const errorResponse = error => error instanceof CaseError
   ? jsonError(error.status, error.code, error.message)
@@ -12,28 +13,38 @@ const notFound = () => jsonError(404, "CASE_NOT_FOUND", "Case not found");
 
 export async function createCase(env, _url, request) {
   const cleanupKeys = [];
-  let db, input, id, committed = false;
+  let db, input, id, identity, committed = false;
   try {
     input = validateCase(await readCaseJson(request));
-    // Full response replay would require retaining/recovering the once-only raw
-    // query key. B3 instead guarantees one case per completed session in D1.
-    if (request.headers.has("Idempotency-Key")) {
-      throw new CaseError(400, "IDEMPOTENCY_NOT_SUPPORTED", "Use completed upload consumption for retry protection");
-    }
+    identity = await requestIdempotency(request, input, env);
     db = caseDatabase(env);
+    const replay = await replayCase(db, identity);
+    if (replay) return jsonSuccess(replay, "no-store", 201);
     const completed = await requireCompletedUpload(db, input.sessionId, input.keys);
     id = crypto.randomUUID();
     const now = new Date();
     const caseId = newCaseId(now);
-    const queryKey = newQueryKey();
+    const seed = identity ? newQuerySeed() : null;
+    const queryKey = identity ? await reconstructQueryKey(identity, id, seed) : newQueryKey();
     const queryHash = await sha256(queryKey);
     const files = await archiveCaseFiles(env.PROOFS_BUCKET, id, completed.files, cleanupKeys);
-    await insertCase(db, input, { id, caseId, now: now.toISOString(), queryHash }, files, completed.hash);
+    await insertCase(db, input, { id, caseId, now: new Date().toISOString(), queryHash,
+      idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null }, files, completed.hash);
     committed = true;
     await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {
     if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);
+    // A competing atomic transaction may win after the initial replay lookup.
+    // Resolve its persistent response even when it already removed staging data.
+    if (db && identity) {
+      try {
+        const replay = await replayCase(db, identity);
+        if (replay) return jsonSuccess(replay, "no-store", 201);
+      } catch (replayError) {
+        if (replayError instanceof CaseError) return errorResponse(replayError);
+      }
+    }
     // If another request consumed the session while this one copied R2 data,
     // use the same conflict response even if its staging object is now missing.
     if (db && input && !error?.preserveArchives) {

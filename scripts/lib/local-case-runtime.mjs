@@ -2,30 +2,35 @@
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 export async function localCaseRuntime() {
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
-  const runtime = new Miniflare(convertV4MiniflareOptions({
+  const options = {
     name: "case-test", modules: true, script: bundle.outputFiles[0].text, compatibilityDate: "2026-10-07",
     d1Databases: ["DB"], r2Buckets: ["PROOFS_BUCKET"],
     bindings: {
       R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "local-case-test",
       R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
       TURNSTILE_SECRET_KEY: randomBytes(32).toString("hex"),
+      CASE_QUERY_KEY_SECRET: randomBytes(32).toString("hex"),
     },
     outboundService: async request => {
       if (request.url !== "https://challenges.cloudflare.com/turnstile/v0/siteverify") throw new Error("Unexpected test upstream");
       return Response.json({ success: true });
     },
-  }));
+  };
+  const runtime = new Miniflare(convertV4MiniflareOptions(options));
   try {
-    const db = await runtime.getD1Database("DB"), bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
-    const migration = await readFile(new URL("../../migrations/0001_cases.sql", import.meta.url), "utf8");
-    // Static checked-in schema only; no user input or SQL interpolation.
-    await db.batch(migration.split(";").map(sql => sql.trim()).filter(Boolean).map(sql => db.prepare(sql)));
+    let db = await runtime.getD1Database("DB"), bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
+    const migrations = new URL("../../migrations/", import.meta.url);
+    for (const name of (await readdir(migrations)).filter(name => /^\d+_.+\.sql$/.test(name)).sort()) {
+      const migration = await readFile(new URL(name, migrations), "utf8");
+      // Static checked-in schema only; no user input or SQL interpolation.
+      await db.batch(migration.split(";").map(sql => sql.trim()).filter(Boolean).map(sql => db.prepare(sql)));
+    }
     const fetch = (path, method = "GET", body, headers = {}) => runtime.dispatchFetch("https://voteproof.example" + path, {
       method, headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
       ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
@@ -45,7 +50,14 @@ export async function localCaseRuntime() {
       }
       return reference;
     }
-    return { runtime, db, bucket, fetch, upload };
+    const setQuerySecret = async secret => {
+      options.bindings.CASE_QUERY_KEY_SECRET = secret;
+      await runtime.setOptions(convertV4MiniflareOptions(options));
+      db = await runtime.getD1Database("DB");
+      bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
+    };
+    return { runtime, get db() { return db; }, get bucket() { return bucket; },
+      fetch, upload, setQuerySecret, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
   } catch (error) { await runtime.dispose(); throw error; }
 }
 

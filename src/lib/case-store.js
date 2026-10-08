@@ -11,7 +11,8 @@ export async function insertCase(db, input, record, files, manifest) {
         (id, case_id, created_at, updated_at, nickname, player_id, campaign_id, vote_type,
          vote_date, query_key_hash, note, upload_session_id)
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM completed_uploads
-        WHERE session_id = ? AND manifest_hash = ? AND consumed_case_id IS NULL`)
+        WHERE session_id = ? AND manifest_hash = ? AND consumed_case_id IS NULL
+        AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
         .bind(record.id, record.caseId, record.now, record.now, input.nickname, input.playerId,
           input.campaignId, input.voteType, input.voteDate, record.queryHash, input.note,
           input.sessionId, input.sessionId, manifest),
@@ -23,6 +24,11 @@ export async function insertCase(db, input, record, files, manifest) {
         WHERE session_id = ? AND manifest_hash = ? AND consumed_case_id IS NULL
         AND EXISTS (SELECT 1 FROM cases WHERE id = ?)`)
         .bind(record.id, record.now, input.sessionId, manifest, record.id),
+      ...(record.idempotency ? [db.prepare(`INSERT INTO case_idempotency
+        (key_hash, request_hash, case_id, query_seed, created_at)
+        SELECT ?, ?, ?, ?, ? FROM cases WHERE id = ?`)
+        .bind(record.idempotency.keyHash, record.idempotency.requestHash, record.id,
+          record.idempotency.seed, record.now, record.id)] : []),
     ]);
   } catch {
     // A lost acknowledgement can be ambiguous. Confirm the atomic batch's result
@@ -40,6 +46,10 @@ export async function insertCase(db, input, record, files, manifest) {
     throw new CaseError(500, "DATABASE_ERROR", "Case storage is unavailable");
   }
   if (results[0]?.meta?.changes !== 1) {
+    const state = await uploadState(db, input.sessionId);
+    if (state && !state.consumed_case_id && state.expires_at <= new Date().toISOString()) {
+      throw new CaseError(409, "UPLOAD_SESSION_EXPIRED", "Completed upload has expired; prepare a new upload");
+    }
     throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
   }
 }

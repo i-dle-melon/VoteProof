@@ -27,14 +27,17 @@ async function r2(method, type = "image/png", anonymous = false) {
   if (anonymous) target.search = "";
   const headers = method === "OPTIONS" ? {
     Origin: origin, "Access-Control-Request-Method": "PUT", "Access-Control-Request-Headers": "content-type",
-  } : { Origin: origin, "Content-Type": type };
+  } : anonymous ? { Origin: origin } : { Origin: origin, "Content-Type": type };
   try {
     const response = await fetch(target, {
       method, headers, ...(method === "PUT" ? { body: png } : {}), signal: AbortSignal.timeout(15000),
     });
     const text = await response.text();
+    const code = text.match(/<Code>([A-Za-z0-9]+)<\/Code>/)?.[1];
+    const message = text.match(/<Message>([^<]+)<\/Message>/)?.[1] ?? "";
     return {
-      status: response.status, code: text.match(/<Code>([A-Za-z0-9]+)<\/Code>/)?.[1],
+      status: response.status, code,
+      ...(anonymous ? { authenticationRejected: response.status === 400 && code === "InvalidArgument" && /\bauthorization\b|\bauthentication\b|\bcredentials\b/i.test(message) } : {}),
       originAllowed: response.headers.get("access-control-allow-origin") === origin,
       etagExposed: /(^|,)\s*etag\s*(,|$)/i.test(response.headers.get("access-control-expose-headers") ?? ""),
       etagPresent: Boolean(response.headers.get("etag")),
@@ -60,7 +63,9 @@ if (process.argv.includes("--expired")) {
     const signedGet = await r2("GET");
     record("PUT URL cannot authorize GET", signedGet.status === 403 && signedGet.code === "SignatureDoesNotMatch", signedGet);
     const anonymous = await r2("GET", "image/png", true);
-    record("uploaded private object cannot be read anonymously", [401, 403].includes(anonymous.status), anonymous);
+    // R2 also rejects unsigned S3 requests with 400 InvalidArgument for missing
+    // or invalid authorization. Accept only that authentication error, not any 400.
+    record("uploaded private object cannot be read anonymously", [401, 403].includes(anonymous.status) || anonymous.authenticationRejected === true, anonymous);
     try {
       const complete = await fetch(origin + "/api/uploads/complete", {
         method: "POST", headers: { "Content-Type": "application/json" },

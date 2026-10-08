@@ -81,11 +81,11 @@ copy(voteProofB2.getPutUrl())
 在 PowerShell 執行下列命令，URL 由 clipboard 透過 stdin 傳入，不印出也不存入檔案：
 
 ```powershell
-Get-Clipboard | node --input-type=module -e 'let u=""; for await (const c of process.stdin) u+=c; const url=new URL(u.trim()); const signed=await fetch(url,{headers:{"Content-Type":"image/png"}}); url.search=""; const anonymous=await fetch(url); console.log({signedPutUsedAsGet:signed.status,anonymousGet:anonymous.status}); if(signed.status!==403 || anonymous.status!==403) process.exitCode=1;'
+Get-Clipboard | node scripts/production-presign-check.mjs
 Set-Clipboard -Value ''
 ```
 
-預期兩個 GET 都是 403。直接跨來源 fetch 在瀏覽器可能被 CORS 阻擋，不能單靠該錯誤宣稱 bucket private。
+PUT 簽名 URL 用於 GET 預期為 403 `SignatureDoesNotMatch`。匿名 GET 預期被拒絕：401／403，或 R2 實際回傳的 400 `InvalidArgument` 且錯誤訊息指出 authorization／authentication／credentials 問題；工具只輸出判定布林值，不輸出完整 error body。不能把任意 400 當作通過。直接跨來源 fetch 在瀏覽器可能被 CORS 阻擋，不能單靠該錯誤宣稱 bucket private。
 
 ## D：實際不允許 MIME 與混合批次刪除
 

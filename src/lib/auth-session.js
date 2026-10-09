@@ -57,7 +57,7 @@ export async function memberSession(request, env, required = true) {
   if (!token) { if (required) throw authRequired(); return null; }
   const tokenHash = await sessionHash(token);
   const row = await authDatabase(env).prepare(`SELECT m.id, m.member_id, m.nickname, m.player_id, m.status,
-    m.created_at, m.updated_at, m.last_login_at, s.expires_at, s.elevated_until, s.reauthenticated_until FROM auth_sessions s
+    m.created_at, m.updated_at, m.last_login_at, s.expires_at, s.elevated_until, s.reauthenticated_until,s.auth_method,s.google_authenticated_until FROM auth_sessions s
     JOIN members m ON m.member_id = s.member_id WHERE s.token_hash = ? AND s.revoked_at IS NULL
     AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER) AND NOT EXISTS(SELECT 1 FROM auth_password_operations o WHERE o.member_id=m.member_id AND o.status='pending')`).bind(tokenHash).first();
   if (!row) throw authRequired();

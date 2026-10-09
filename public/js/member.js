@@ -10,16 +10,20 @@ const element = (tag, text, className) => {
   return node;
 };
 const statuses = { pending: "待審核", approved: "已通過", completed: "已完成", rejected: "未通過", duplicate: "重複投稿", revoked: "已撤銷" };
-const authViews = ["register", "login", "recover"];
+const authViews = ["register", "login", "recover", "google", "security"];
 
 export function memberUI({ changed = () => {} } = {}) {
   let view = "", epoch = 0, busy = false, controller = new AbortController();
   let registration = "email", challengeId = "", transactionId = "", deadline = 0, cooldown = 0;
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
+  let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
   const session = new MemberSession({ changed: member => {
     if (member) { $("account-status").hidden = true; $("account-status").textContent = ""; }
-    else if (wasLoggedIn) { $("account-status").textContent = "登入已失效，請重新登入。訪客投稿資料仍保留在此分頁。"; $("account-status").hidden = false; }
+    else if (wasLoggedIn) {
+      $("account-status").textContent = "登入已失效，請重新登入。訪客投稿資料仍保留在此分頁。"; $("account-status").hidden = false;
+      if (["security", "google"].includes(view)) resetAuth();
+    }
     wasLoggedIn = Boolean(member);
     $("login-entry").hidden = Boolean(member); $("member-entry").hidden = $("logout-button").hidden = !member;
     $("member-entry").textContent = "會員中心";
@@ -49,6 +53,7 @@ export function memberUI({ changed = () => {} } = {}) {
     $("register-resend").textContent = remaining ? `重新寄送（${remaining} 秒）` : "重新寄送";
     $("register-resend").disabled = busy || remaining > 0 || registration !== "code";
     $("registration-done").disabled = busy || !$("recovery-ack").checked;
+    $("security-done").disabled = busy || !$("security-recovery-ack").checked;
     const expiry = (id, time) => {
       $(id).textContent = !time ? "" : time <= Date.now() ? "本步驟已過期，請重新開始。" : `本步驟剩餘 ${Math.ceil((time - Date.now()) / 60000)} 分鐘。`;
     };
@@ -85,6 +90,12 @@ export function memberUI({ changed = () => {} } = {}) {
     $("login-form").hidden = false; $("login-totp-form").hidden = true;
     $("recover-proof-form").hidden = false; $("recover-password-form").hidden = $("recover-success").hidden = true;
     $("logout-button").disabled = false; challenge.clear();
+    googleTx = methodTx = ""; googleDeadline = methodDeadline = 0;
+    clearEnrollment($("security-qr")); $("security-key").textContent = "";
+    $("security-recovery-codes").replaceChildren(); $("security-recovery-ack").checked = false;
+    $("security-done").disabled = true; $("google-email").textContent = ""; $("google-message").textContent = "";
+    for (const id of ["google-confirm-form", "security-password-form", "security-recovery", "security-change-form", "security-link-notice", "security-link-confirm", "security-link-cancel", "security-add-notice", "security-add-confirm", "security-add-cancel"]) $(id).hidden = true;
+    for (const id of ["security-google", "security-password", "security-totp"]) $(id).textContent = "";
   }
   async function run(name, action) {
     if (busy) return;
@@ -115,6 +126,101 @@ export function memberUI({ changed = () => {} } = {}) {
   const expires = data => Date.now() + data.expires_in * 1000;
   const form = (id, name, action) => $(id).addEventListener("submit", event => { event.preventDefault(); void run(name, action); });
 
+  async function beginGoogle(current, purpose = "login") {
+    const data = await post("google/start", { purpose, ...(purpose !== "login" ? { confirmed: true } : {}) });
+    if (!current()) return;
+    const url = new URL(data.authorize_url);
+    if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/auth/v1/authorize" || url.searchParams.get("provider") !== "google") throw new PublicError("SERVICE_UNAVAILABLE");
+    // Full-page provider navigation only: no SDK, provider password, token
+    // storage or browser fetch to the provider.
+    location.assign(url.href);
+  }
+  for (const name of ["login", "register"]) $(name + "-google").addEventListener("click", () => void run(name, current => beginGoogle(current)));
+  async function loadGoogle() {
+    const current = epoch;
+    try {
+      await session.refresh().catch(() => {});
+      const data = await session.request("/api/auth/google/result", { signal: controller.signal });
+      if (current !== epoch || view !== "google") return;
+      if (data.purpose === "security") throw new PublicError("AUTH_STEP_UP_REQUIRED");
+      googleTx = data.transaction_id; googleDeadline = expires(data); googleProfile = data.status === "GOOGLE_PROFILE_REQUIRED";
+      $("google-email").textContent = data.email;
+      $("google-message").textContent = googleProfile ? "Google 已驗證信箱。請設定 VoteProof 資料，即可建立會員；不需要 VoteProof 密碼。" :
+        data.provider_already_linked && data.status === "GOOGLE_CONFIRM_REQUIRED" ? "這個 Google 帳號符合既有 VoteProof 會員。Supabase 已連結 provider identity。確認後啟用同一會員的 Google 登入；取消只停止 VoteProof 啟用，不會移除 provider identity。" : "Google 已驗證身份，繼續登入同一 VoteProof 會員。取消不會移除 provider identity。";
+      $("google-profile").hidden = !googleProfile; $("google-confirm-form").hidden = false;
+    } catch (error) { if (current === epoch && view === "google") $("google-error").textContent = authMessage(error); }
+  }
+  form("google-confirm-form", "google", async current => {
+    unexpired(googleDeadline);
+    const body = { transaction_id: googleTx, confirmed: true, remember_me: $("google-remember").checked };
+    if (googleProfile) { body.nickname = $("google-nickname").value.trim(); const player = $("google-player").value.trim(); if (player) body.player_id = player; }
+    const data = await post("google/confirm", body);
+    if (current()) { session.accept(data); googleTx = ""; location.hash = "member"; }
+  });
+  $("google-cancel").addEventListener("click", () => void run("google", async current => {
+    await post("google/cancel", { transaction_id: googleTx });
+    if (current()) { googleTx = ""; location.hash = session.member ? "member" : "login"; }
+  }));
+  async function loadSecurity() {
+    const current = epoch;
+    for (const id of ["security-connect", "security-reauth", "security-add", "security-change", "security-manage"]) $(id).hidden = true;
+    if (pendingEmailAdd) {
+      $("security-google").textContent = "信箱已驗證，屬於使用 Google 登入的既有會員。";
+      $("security-password").textContent = "你可以為同一會員新增密碼登入，不會建立第二個會員。";
+      $("security-add-notice").hidden = $("security-add-confirm").hidden = $("security-add-cancel").hidden = false;
+      return;
+    }
+    try {
+      await session.refresh(); if (current !== epoch || view !== "security") return;
+      const data = await session.request("/api/auth/login-security", { signal: controller.signal });
+      if (current !== epoch || view !== "security") return;
+      $("security-google").textContent = data.google.connected ? "Google · 已連結 · " + data.google.email : "Google · 尚未連結";
+      $("security-password").textContent = data.password.configured ? "信箱與密碼 · 已設定" : "信箱與密碼 · 尚未設定";
+      $("security-totp").textContent = data.authenticator.configured ? (data.password.configured ? "VoteProof Authenticator · 已設定，用於密碼登入與管理員安全驗證" : "VoteProof Authenticator · 已設定，用於額外安全驗證；一般 Google 登入不需要") : "VoteProof Authenticator · 一般 Google 登入不需要；新增密碼或管理員存取時必須設定";
+      $("security-connect").hidden = data.google.connected; $("security-reauth").hidden = !data.google.connected;
+      $("security-add").hidden = data.password.configured; $("security-change").hidden = !data.password.configured;
+      $("security-manage").hidden = !data.authenticator.configured;
+    } catch (error) { if (current === epoch && view === "security") $("security-error").textContent = authMessage(error); }
+  }
+  const explainLink = () => { $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = false; };
+  $("security-connect").addEventListener("click", explainLink); $("security-reauth").addEventListener("click", explainLink);
+  $("security-link-confirm").addEventListener("click", () => void run("security", current => beginGoogle(current, "connect")));
+  $("security-link-cancel").addEventListener("click", () => { $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = true; });
+  $("security-add").addEventListener("click", () => { $("security-add-notice").hidden = $("security-add-confirm").hidden = $("security-add-cancel").hidden = false; });
+  $("security-add-cancel").addEventListener("click", () => { pendingEmailAdd = null; $("security-add-notice").hidden = $("security-add-confirm").hidden = $("security-add-cancel").hidden = true; });
+  $("security-add-confirm").addEventListener("click", () => void run("security", async current => {
+    if (pendingEmailAdd) unexpired(pendingEmailAdd.deadline);
+    const data = await post("password/add/start", { confirmed: true, ...(pendingEmailAdd ? { transaction_id: pendingEmailAdd.transaction_id } : {}) });
+    if (!current()) return;
+    methodTx = data.transaction_id; methodDeadline = expires(data); pendingEmailAdd = null;
+    $("security-add-notice").hidden = $("security-add-confirm").hidden = $("security-add-cancel").hidden = true;
+    $("security-add").hidden = true; $("security-password-form").hidden = false;
+    clearEnrollment($("security-qr")); $("security-key").textContent = "";
+    $("security-qr").hidden = $("security-key").hidden = !data.otpauth_uri;
+    if (data.otpauth_uri) { drawEnrollment($("security-qr"), data.otpauth_uri); $("security-key").textContent = enrollmentKey(data.otpauth_uri); }
+    $("security-new-password").focus();
+  }));
+  form("security-password-form", "security", async current => {
+    unexpired(methodDeadline); const new_password = passwordValue($("security-new-password").value, $("security-confirm-password").value), code = codeValue($("security-code").value);
+    $("security-new-password").value = $("security-confirm-password").value = $("security-code").value = "";
+    const data = await post("password/add/verify", { transaction_id: methodTx, new_password, code });
+    if (!current()) return; session.accept(data);
+    clearEnrollment($("security-qr")); $("security-key").textContent = ""; methodTx = ""; methodDeadline = 0;
+    if (!Array.isArray(data.recovery_codes) || data.recovery_codes.length !== 10 || data.recovery_codes.some(c => !/^[A-Za-z0-9_-]{43}$/.test(c))) throw new PublicError("SERVICE_UNAVAILABLE");
+    $("security-recovery-codes").replaceChildren(...data.recovery_codes.map(c => element("li", c)));
+    $("security-password-form").hidden = true; $("security-recovery").hidden = false;
+  });
+  $("security-recovery-ack").addEventListener("change", () => { $("security-done").disabled = !$("security-recovery-ack").checked; });
+  $("security-done").addEventListener("click", () => { if ($("security-recovery-ack").checked) { $("security-recovery-codes").replaceChildren(); $("security-recovery").hidden = true; void loadSecurity(); } });
+  $("security-change").addEventListener("click", () => { $("security-change-form").hidden = false; $("security-current-password").focus(); });
+  form("security-change-form", "security", async current => {
+    const password = passwordValue($("security-current-password").value), code = codeValue($("security-change-code").value), new_password = passwordValue($("security-change-password").value, $("security-change-confirm").value);
+    $("security-change-form").reset(); await post("step-up", { password, code }); if (!current()) return;
+    const tx = await post("password/change/start", {}); if (!current()) return;
+    await post("password/change", { transaction_id: tx.transaction_id, new_password });
+    if (current()) { session.clear(); location.hash = "login"; }
+  });
+
   form("register-email-form", "register", async current => {
     const email = emailValue($("register-email").value);
     const availability = await session.request("/api/auth/registration-status", { signal: controller.signal });
@@ -137,7 +243,11 @@ export function memberUI({ changed = () => {} } = {}) {
   form("register-code-form", "register", async current => {
     unexpired(deadline); const code = codeValue($("register-code").value); $("register-code").value = "";
     const data = await post("register/verify-email", { challenge_id: challengeId, code });
-    if (current()) { transactionId = data.transaction_id; challengeId = ""; deadline = expires(data); registrationStep("password"); }
+    if (current()) {
+      transactionId = data.transaction_id; challengeId = ""; deadline = expires(data);
+      if (data.status === "ADD_PASSWORD_REQUIRED") { pendingEmailAdd = { transaction_id: data.transaction_id, deadline }; location.hash = "security"; }
+      else registrationStep("password");
+    }
   });
   form("register-password-form", "register", async current => {
     unexpired(deadline); const password = passwordValue($("register-password").value, $("register-confirm").value);
@@ -229,7 +339,7 @@ export function memberUI({ changed = () => {} } = {}) {
     try {
       await session.request("/api/auth/logout", { method: "POST", body: {} });
       $("logout-button").textContent = "登出";
-      session.clear(); resetAuth(); if (view === "member") location.hash = "login";
+      session.clear(); resetAuth(); if (["member", "security", "google"].includes(view)) location.hash = "login";
       $("account-status").textContent = "已登出。"; $("account-status").hidden = false;
     } catch (error) { $("account-status").textContent = authMessage(error); $("account-status").hidden = false; $("logout-button").textContent = "重試登出"; }
     finally { $("logout-button").disabled = false; }
@@ -312,6 +422,7 @@ export function memberUI({ changed = () => {} } = {}) {
   let ticker;
   function enter(next) {
     if (next === view) return;
+    if (!(next === "security" && view === "register")) pendingEmailAdd = null;
     if (authViews.includes(view)) {
       $("view-" + view).setAttribute("aria-busy", "false");
       resetAuth();
@@ -320,15 +431,19 @@ export function memberUI({ changed = () => {} } = {}) {
     if (authViews.includes(view)) ticker = setInterval(syncCooldown, 1000);
     if (view === "register") void mountRegistration();
     if (view === "member") void loadMember();
+    if (view === "google") void loadGoogle();
+    if (view === "security") void loadSecurity();
   }
   // One boot probe, independent of all public API loading. No polling/redirect
   // loop and no provider connection; failed auth leaves Guest untouched.
   void session.refresh().catch(() => {});
-  window.addEventListener("pagehide", () => { resetAuth(); clearInterval(ticker); });
+  window.addEventListener("pagehide", () => { pendingEmailAdd = null; resetAuth(); clearInterval(ticker); });
   window.addEventListener("pageshow", event => {
     if (!event.persisted) return;
     if (authViews.includes(view)) ticker = setInterval(syncCooldown, 1000);
     if (view === "register") void mountRegistration();
+    if (view === "google") void loadGoogle();
+    if (view === "security") void loadSecurity();
     if (view === "member") void loadMember(); else void session.refresh().catch(() => {});
   });
   return { session, enter };

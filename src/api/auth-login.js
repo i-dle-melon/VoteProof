@@ -120,7 +120,7 @@ export const passwordLogin = authHandler(async (env, _url, request) => {
   const record = await findIdentity(db, env, name);
   const verified = await verifyPassword(env, name, password);
   const locked = record ? await db.prepare("SELECT id FROM auth_password_operations WHERE member_id=? AND status='pending'").bind(record.member_id).first() : null;
-  if (!verified || !record || verified.id !== record.provider_subject || record.status !== "active" || locked) throw loginFailure();
+  if (!verified || !record || !record.password_enabled || !record.version || verified.id !== record.provider_subject || record.status !== "active" || locked) throw loginFailure();
   const member = { member_id: record.member_id };
   let token;
   try {

@@ -6,7 +6,7 @@ import { authHandler, authContext, createTransaction, readTransaction } from "./
 import { authDatabase, newAuthToken, browserHash, LOGIN_COOKIE, cookie, withCookies, readCookie, configuredAuthOrigin } from "../lib/auth-session.js";
 import { authNow, authAtomic, transactionGuard, throttle } from "../lib/auth-store.js";
 import { newTotp, encryptTotp } from "../lib/auth-crypto.js";
-import { emailHash, codeHash, sourceHash, encryptEmail, decryptEmail } from "../lib/auth-identity.js";
+import { emailHash, codeHash, sourceHash, encryptEmail, decryptEmail, findIdentity } from "../lib/auth-identity.js";
 import { supabaseConfig, adminCreateVerifiedUser, adminDeleteUser } from "../lib/supabase-auth.js";
 import { gmailConfig, sendVerificationEmail } from "../lib/gmail.js";
 import { EMAIL_LIMITS, emailBudget, reserveEmail } from "../lib/registration-quota.js";
@@ -72,8 +72,10 @@ export const registrationVerifyEmail = authHandler(async (env, _url, request) =>
   if (!next || typeof body.code !== "string" || !/^\d{6}$/.test(body.code) || !equalQueryHash(await codeHash(env, row.id, body.code), row.code_hash)) throw invalidVerification();
   const claimed = await db.prepare("UPDATE auth_email_challenges SET state='verified' WHERE id=? AND state='pending' AND code_hash=? AND expires_at>? RETURNING id").bind(row.id, row.code_hash, authNow()).first();
   if (!claimed) throw invalidVerification();
-  const tx = await createTransaction(db, "email_register", { challenge_id: row.id });
-  return withCookies(jsonSuccess({ transaction_id: tx.id, expires_in: AUTH_LIMITS.transactionSeconds, status: "EMAIL_VERIFIED" }, "no-store", 202), tx.cookies);
+  const identity = await findIdentity(db, env, await decryptEmail(env, row, row.id));
+  const add = Boolean(identity && !identity.password_enabled && identity.google_identity_id && identity.status === "active");
+  const tx = await createTransaction(db, "email_register", { challenge_id: row.id, ...(add ? { add_password: true } : {}) }, add ? identity.member_id : null);
+  return withCookies(jsonSuccess({ transaction_id: tx.id, expires_in: AUTH_LIMITS.transactionSeconds, status: add ? "ADD_PASSWORD_REQUIRED" : "EMAIL_VERIFIED" }, "no-store", 202), tx.cookies);
 });
 export const registrationCredentials = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env); supabaseConfig(env);

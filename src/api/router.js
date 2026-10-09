@@ -5,6 +5,8 @@ import { jsonError } from "./response.js";
 import { prepareUpload, completeUpload } from "./uploads.js";
 import { createCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
+import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
+import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
 import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
 import { campaignRoute } from "./admin-campaigns.js";
@@ -44,7 +46,18 @@ const routes = new Map([
   ["/api/uploads/complete", { method: "POST", handler: completeUpload }],
   ["/api/cases", { method: "POST", handler: createCase }],
   ["/api/auth/registration-status", { method: "GET", handler: registrationStatus }],
+  ["/api/auth/google/callback", { method: "GET", handler: googleCallback }],
+  ["/api/auth/google/result", { method: "GET", handler: googleResult }],
+  ["/api/auth/login-security", { method: "GET", handler: loginSecurity }],
   ...Object.entries({
+    "/api/auth/google/start": googleStart,
+    "/api/auth/google/confirm": googleConfirm,
+    "/api/auth/google/cancel": googleCancel,
+    "/api/auth/google/step-up": googleStepUp,
+    "/api/auth/password/add/start": addPasswordStart,
+    "/api/auth/password/add/verify": addPasswordVerify,
+    "/api/auth/google/totp/enroll/start": googleTotpEnrollStart,
+    "/api/auth/google/totp/enroll/verify": googleTotpEnrollVerify,
     "/api/auth/register/start": registrationStart,
     "/api/auth/register/resend": registrationResend,
     "/api/auth/register/verify-email": registrationVerifyEmail,

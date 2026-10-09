@@ -25,6 +25,10 @@ export async function memberFixture(page, options = {}) {
     state.puts++; await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
   });
   const session = () => ({ member: state.member, csrf_token: state.csrf, expires_in: options.shortSession ? .2 : 600 });
+  state.googleConnected = Boolean(options.googleOnly || options.dual); state.passwordConfigured = !options.googleOnly;
+  // WebKit cannot fulfill mocked 302 responses; the isolated provider fixture
+  // performs the same full-page return using a fixed local navigation.
+  await page.route("https://google-auth.local.example/auth/v1/authorize?provider=google", route => route.fulfill({ contentType: "text/html", body: '<script>location.replace("http://127.0.0.1:4173/#google")</script>' }));
   await page.route("**/api/**", async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, body = request.postData() ? request.postDataJSON() : undefined;
     state.calls.push({ path, method: request.method(), body, serialized: request.postData(), headers: request.headers() });
@@ -35,13 +39,29 @@ export async function memberFixture(page, options = {}) {
       if (state.delay && request.method() === "POST") await new Promise(resolve => setTimeout(resolve, 200));
     }
     const tx = () => ({ transaction_id: randomUUID(), expires_in: options.expired ? .1 : 600 });
+    if (path === "/api/auth/google/start") {
+      if (options.googleDown) return error("AUTH_PROVIDER_UNAVAILABLE", 502);
+      return reply({ authorize_url: "https://google-auth.local.example/auth/v1/authorize?provider=google", expires_in: 300 });
+    }
+    if (path === "/api/auth/google/result") return reply({ ...tx(), status: options.googleResult ?? "GOOGLE_PROFILE_REQUIRED", purpose: "login", email: options.googleEmail ?? "google@local.example", provider_already_linked: options.googleResult === "GOOGLE_CONFIRM_REQUIRED", cancel_unlinks_provider: false });
+    if (path === "/api/auth/google/confirm") { state.authenticated = true; state.googleConnected = true; return reply(session()); }
+    if (path === "/api/auth/google/cancel") return reply({ cancelled: true, provider_unlinked: false });
+    if (path === "/api/auth/login-security") return state.authenticated ? reply({ google: { connected: state.googleConnected, email: "google@local.example" }, password: { configured: state.passwordConfigured }, authenticator: { configured: state.passwordConfigured }, current_method: options.googleOnly ? "google" : "password" }) : error("AUTH_REQUIRED", 401);
+    if (path === "/api/auth/password/add/start") return reply({ ...tx(), status: "PASSWORD_MFA_REQUIRED", otpauth_uri: otp.toString() }, 202);
+    if (path === "/api/auth/password/add/verify") {
+      if (state.invalidTotp-- > 0) return error("AUTH_VERIFICATION_FAILED");
+      state.passwordConfigured = true; state.authenticated = true; return reply({ ...session(), recovery_codes: state.recoveryCodes });
+    }
+    if (path === "/api/auth/step-up") return reply({ reauthenticated_until: Date.now() / 1000 + 300 });
+    if (path === "/api/auth/password/change/start") return reply(tx(), 202);
+    if (path === "/api/auth/password/change") { state.authenticated = false; return reply({ password_changed: true, logged_out: true }); }
     if (path === "/api/auth/me") return state.authenticated && !state.revoked ? reply(session()) : error("AUTH_REQUIRED", 401);
     if (path === "/api/auth/registration-status") return reply({ registration_available: !options.unavailable });
     if (path === "/api/auth/register/start" || path === "/api/auth/register/resend") {
       if (options.rateLimited) return error("AUTH_RATE_LIMITED", 429);
       return reply({ challenge_id: randomUUID(), expires_in: options.expired ? .1 : 600 }, 202);
     }
-    if (path === "/api/auth/register/verify-email") return state.invalidCode-- > 0 ? error("AUTH_VERIFICATION_FAILED") : reply({ ...tx(), status: "EMAIL_VERIFIED" }, 202);
+    if (path === "/api/auth/register/verify-email") return state.invalidCode-- > 0 ? error("AUTH_VERIFICATION_FAILED") : reply({ ...tx(), status: options.emailMatchesGoogle ? "ADD_PASSWORD_REQUIRED" : "EMAIL_VERIFIED" }, 202);
     if (path === "/api/auth/register/credentials") return reply({ ...tx(), status: "MFA_ENROLLMENT_REQUIRED", otpauth_uri: otp.toString() }, 202);
     if (path === "/api/auth/register/verify-totp") {
       if (state.invalidTotp-- > 0) return error("AUTH_VERIFICATION_FAILED");

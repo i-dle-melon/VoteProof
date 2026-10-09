@@ -182,6 +182,7 @@ export async function issueSession(
     trust = false,
     tx,
     recoveryCodes,
+    method = "password",
   } = {},
 ) {
   const db = authDatabase(env),
@@ -209,7 +210,7 @@ export async function issueSession(
   statements.push(
     db
       .prepare(
-        `INSERT INTO auth_sessions(token_hash,member_id,created_at,expires_at,elevated_until,reauthenticated_until) VALUES(?,?,?,?,?,?)`,
+        `INSERT INTO auth_sessions(token_hash,member_id,created_at,expires_at,elevated_until,reauthenticated_until,auth_method,google_authenticated_until) VALUES(?,?,?,?,?,?,?,?)`,
       )
       .bind(
         hash,
@@ -218,6 +219,8 @@ export async function issueSession(
         now + ttl,
         mfa ? now + AUTH_LIMITS.elevationSeconds : 0,
         mfa ? now + AUTH_LIMITS.securitySeconds : 0,
+        method,
+        method === "google" ? now + AUTH_LIMITS.securitySeconds : 0,
       ),
   );
   if (trust) {

@@ -9,12 +9,12 @@ export function supabaseConfig(env) {
     throw new AuthError(503, "AUTH_NOT_CONFIGURED", "Authentication service is not configured");
   return url.origin;
 }
-async function call(env, path, method, body, admin = false) {
+async function call(env, path, method, body, admin = false, bearer) {
   const origin = supabaseConfig(env);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await fetch(origin + "/auth/v1" + path, { method, redirect: "manual", signal: controller.signal,
-      headers: { apikey: admin ? env.SUPABASE_SECRET_KEY : env.SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json", "User-Agent": "VoteProof-auth/1" },
+      headers: { apikey: admin ? env.SUPABASE_SECRET_KEY : env.SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json", "User-Agent": "VoteProof-auth/1", ...(bearer ? { Authorization: "Bearer " + bearer } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     // Never propagate provider errors or access/refresh tokens.
     if (!response.ok) {
@@ -50,4 +50,25 @@ export async function adminUpdatePassword(env, subject, password) {
 export async function adminDeleteUser(env, subject) {
   if (!uuid.test(subject)) throw unavailable();
   await call(env, "/admin/users/" + subject, "DELETE", { should_soft_delete: false }, true);
+}
+export async function googleAuthorization(env, redirect, verifier) {
+  const url = new URL(supabaseConfig(env) + "/auth/v1/authorize");
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  const challenge = btoa(String.fromCharCode(...digest)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  url.search = new URLSearchParams({ provider: "google", redirect_to: redirect, scopes: "openid email profile", code_challenge: challenge, code_challenge_method: "s256", prompt: "select_account" });
+  return url.href;
+}
+export async function exchangeGoogle(env, code, verifier) {
+  const result = await call(env, "/token?grant_type=pkce", "POST", { auth_code: code, code_verifier: verifier });
+  if (!result || typeof result.access_token !== "string" || result.access_token.length > 8192) throw invalidVerification();
+  // Get server-verified user; do not trust a browser JWT or metadata supplied by it.
+  const user = await call(env, "/user", "GET", undefined, false, result.access_token);
+  const google = user?.identities?.filter(i => i.provider === "google");
+  if (!user || !uuid.test(user.id ?? "") || !user.email_confirmed_at || google?.length !== 1 ||
+      !uuid.test(google[0].identity_id ?? google[0].id ?? "") || google[0].user_id !== user.id ||
+      google[0].identity_data?.email_verified !== true || typeof google[0].identity_data?.sub !== "string" || !/^[A-Za-z0-9._:-]{1,255}$/.test(google[0].identity_data.sub) ||
+      (result.user?.id !== user.id)) throw invalidVerification();
+  const email = normalizeEmail(google[0].identity_data.email);
+  if (normalizeEmail(user.email) !== email) throw new AuthError(409, "AUTH_IDENTITY_CONFLICT", "Identity cannot be linked; contact support");
+  return { id: user.id.toLowerCase(), identity_id: (google[0].identity_id ?? google[0].id).toLowerCase(), email };
 }

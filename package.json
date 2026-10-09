@@ -9,6 +9,7 @@
     "test:frontend-unit": "node --test test/frontend.test.js test/frontend-member.test.js",
     "test:frontend-smoke": "node scripts/smoke-frontend.mjs",
     "test:member-frontend-smoke": "node scripts/smoke-member-frontend.mjs",
+    "test:google-frontend-smoke": "node scripts/smoke-google-frontend.mjs",
     "build:frontend-qr": "node scripts/build-frontend-qr.mjs",
     "check:public-assets": "node scripts/check-public-assets.mjs",
     "check:frontend-sensitive": "node scripts/check-frontend-sensitive.mjs",

@@ -1,4 +1,4 @@
--- Unpublished B4S: Supabase password identity + mandatory VoteProof TOTP.
+-- Unpublished B4G: one Supabase UUID/member, independently activated methods.
 -- Existing local checkpoint databases must be recreated; Production has only 0001/0002.
 CREATE TABLE members (
  id TEXT PRIMARY KEY NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE member_credentials (
 );
 CREATE TABLE auth_transactions (
  id TEXT PRIMARY KEY NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN ('email_register','register','login','password_change','password_recovery','totp_recovery','totp_reset')),
+ kind TEXT NOT NULL CHECK(kind IN ('email_register','register','login','password_change','password_recovery','totp_recovery','totp_reset','google','add_password','totp_enroll')),
  member_id TEXT REFERENCES members(member_id),
  browser_hash TEXT NOT NULL CHECK(length(browser_hash)=64),
  payload TEXT NOT NULL,
@@ -34,6 +34,8 @@ CREATE TABLE auth_sessions (
  created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL CHECK(expires_at > created_at),
  elevated_until INTEGER NOT NULL DEFAULT 0,
  reauthenticated_until INTEGER NOT NULL DEFAULT 0,
+ auth_method TEXT NOT NULL DEFAULT 'password' CHECK(auth_method IN('password','google')),
+ google_authenticated_until INTEGER NOT NULL DEFAULT 0,
  revoked_at INTEGER
 );
 CREATE TABLE trusted_devices (
@@ -64,7 +66,9 @@ CREATE TABLE auth_identities (
  member_id TEXT NOT NULL UNIQUE REFERENCES members(member_id),
  email_lookup_hash TEXT NOT NULL UNIQUE CHECK(length(email_lookup_hash)=64),
  email_ciphertext TEXT NOT NULL, email_iv TEXT NOT NULL CHECK(length(email_iv)=24),
- email_key_version INTEGER NOT NULL CHECK(email_key_version>0), created_at INTEGER NOT NULL
+ email_key_version INTEGER NOT NULL CHECK(email_key_version>0), created_at INTEGER NOT NULL,
+ password_enabled INTEGER NOT NULL DEFAULT 1 CHECK(password_enabled IN(0,1)),
+ google_identity_id TEXT UNIQUE CHECK(google_identity_id IS NULL OR length(google_identity_id)=36)
 );
 CREATE TABLE auth_email_challenges (
  id TEXT PRIMARY KEY NOT NULL, email_lookup_hash TEXT NOT NULL CHECK(length(email_lookup_hash)=64),
@@ -110,3 +114,37 @@ CREATE INDEX idx_trusted_devices_member ON trusted_devices(member_id,expires_at)
 CREATE INDEX idx_recovery_codes_member ON recovery_codes(member_id,generation,used_at);
 CREATE INDEX idx_auth_rate_expiration ON auth_rate_limits(expires_at);
 CREATE INDEX idx_cases_member_cursor ON cases(member_id,created_at DESC,id DESC);
+CREATE TABLE auth_google_flows (
+ id TEXT PRIMARY KEY NOT NULL,
+ state_hash TEXT NOT NULL UNIQUE CHECK(length(state_hash)=64),
+ browser_hash TEXT NOT NULL CHECK(length(browser_hash)=64),
+ purpose TEXT NOT NULL CHECK(purpose IN('login','connect','security')),
+ member_id TEXT REFERENCES members(member_id), session_hash TEXT,
+ email_ciphertext TEXT NOT NULL, email_iv TEXT NOT NULL, email_key_version INTEGER NOT NULL,
+ created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL CHECK(expires_at>created_at), consumed_at INTEGER
+);
+CREATE INDEX idx_google_flow_expiry ON auth_google_flows(expires_at);
+-- Local password remains disabled until the TOTP/recovery batch succeeds.
+CREATE TABLE auth_method_setups (
+ member_id TEXT PRIMARY KEY NOT NULL REFERENCES members(member_id),
+ transaction_id TEXT NOT NULL UNIQUE, password_digest TEXT NOT NULL CHECK(length(password_digest)=64),
+ lease_owner TEXT, lease_until INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+);
+CREATE TABLE auth_identity_events (
+ id TEXT PRIMARY KEY NOT NULL, member_id TEXT REFERENCES members(member_id),
+ flow_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN('google_verified','google_enabled','google_cancelled','google_conflict','password_enabled','totp_enrolled','google_step_up')),
+ provider_subject TEXT CHECK(provider_subject IS NULL OR length(provider_subject)=36),
+ google_identity_id TEXT CHECK(google_identity_id IS NULL OR length(google_identity_id)=36),
+ created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_identity_events_member ON auth_identity_events(member_id,created_at);
+CREATE TRIGGER identity_events_no_update BEFORE UPDATE ON auth_identity_events BEGIN SELECT RAISE(ABORT,'Identity audit is immutable'); END;
+CREATE TRIGGER identity_events_no_delete BEFORE DELETE ON auth_identity_events BEGIN SELECT RAISE(ABORT,'Identity audit is immutable'); END;
+CREATE TRIGGER identity_events_no_replace BEFORE INSERT ON auth_identity_events WHEN EXISTS(SELECT 1 FROM auth_identity_events WHERE id=NEW.id) BEGIN SELECT RAISE(ABORT,'Identity audit is immutable'); END;
+CREATE TRIGGER identity_mapping_immutable BEFORE UPDATE ON auth_identities
+WHEN NEW.provider_subject != OLD.provider_subject OR NEW.member_id != OLD.member_id OR NEW.email_lookup_hash != OLD.email_lookup_hash
+ OR (OLD.google_identity_id IS NOT NULL AND NEW.google_identity_id IS NOT OLD.google_identity_id)
+BEGIN SELECT RAISE(ABORT,'Identity mapping is immutable'); END;
+CREATE TRIGGER identity_mapping_no_replace BEFORE INSERT ON auth_identities
+WHEN EXISTS(SELECT 1 FROM auth_identities WHERE provider_subject=NEW.provider_subject OR member_id=NEW.member_id OR email_lookup_hash=NEW.email_lookup_hash)
+BEGIN SELECT RAISE(ABORT,'Identity mapping conflict'); END;

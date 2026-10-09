@@ -1,5 +1,11 @@
 # VoteProof API
 
+## B4G / B6G Google + Password（本機，未發布）
+
+一個 Supabase user UUID 對應一個 VoteProof member_id。Google-only 不需 VoteProof 密碼/TOTP/復原碼；密碼登入維持 TOTP/trusted device，Admin elevation 不放寬。Supabase 相同已驗證 email 自動連結發生在返回前，UI 明確說明已連結狀態，取消只取消 VoteProof 啟用。
+
+實作、API、安全限制見 [dual auth contract](docs/b4g-dual-auth.md)、[provider assessment](docs/b4g-provider-assessment.md)。未來 Google Cloud/Supabase 設定與隔離 live 驗收見 [B4G-Live](docs/b4g-live-acceptance.md)，目前禁止執行 Production 設定/remote migration/push/deploy，B7 仍暫停。既有 B4S/B6 文件為歷史 checkpoint；新的身份政策以 B4G contract 為準。
+
 ## B6 公開／會員前端（本機，未發布）
 
 目前首頁保留原有 dark／CHIC VIOLET 視覺，加入 Worker API 會員註冊、登入、TOTP、信任裝置、復原碼、密碼復原與會員中心。Guest 投稿／查詢、活動、排行榜保持可用；可明確選擇 Guest 或會員投稿，會員重試固定原 owner。瀏覽器不直接呼叫 Supabase／Gmail；沒有 Admin UI。

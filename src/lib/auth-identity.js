@@ -23,11 +23,11 @@ export async function decryptEmail(env, row, context) {
 }
 export async function findIdentity(db, env, email) {
   return db.prepare(`SELECT i.*,c.version,c.recovery_generation,c.last_used_time_step,c.totp_ciphertext,c.totp_iv,c.totp_key_version,m.status
-    FROM auth_identities i JOIN members m USING(member_id) JOIN member_credentials c USING(member_id) WHERE i.email_lookup_hash=?`).bind(await emailHash(env, email)).first();
+    FROM auth_identities i JOIN members m USING(member_id) LEFT JOIN member_credentials c USING(member_id) WHERE i.email_lookup_hash=?`).bind(await emailHash(env, email)).first();
 }
 export async function verifyMemberPassword(db, env, memberId, password) {
   const row = await db.prepare("SELECT * FROM auth_identities WHERE member_id=?").bind(memberId).first();
-  if (!row) return false;
+  if (!row || !row.password_enabled) return false;
   const { verifyPassword } = await import("./supabase-auth.js");
   const verified = await verifyPassword(env, await decryptEmail(env, row, row.provider_subject), password);
   return verified?.id === row.provider_subject;

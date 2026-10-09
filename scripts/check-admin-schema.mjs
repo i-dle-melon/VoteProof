@@ -58,7 +58,7 @@ for (const name of ["idx_cases_admin_queue", "idx_cases_last_review", "idx_cases
 const triggers = rows[3].map(row => row.name);
 assert.deepEqual(triggers, ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "campaigns_immutable_id", "campaigns_no_delete", "campaigns_no_replace", "campaigns_update_policy", "cases_duplicate_insert", "cases_duplicate_update", "cases_guest_points_insert", "cases_guest_points_update", "points_case_binding", "points_exact_reversal", "points_no_delete", "points_no_replace", "points_no_update",
   "leaderboards_no_replace", "leaderboards_no_delete", "leaderboards_policy", "leaderboards_publish", "leaderboard_runs_no_replace", "leaderboard_runs_no_delete", "leaderboard_runs_update", "leaderboard_results_no_update", "leaderboard_results_no_delete", "leaderboard_results_insert",
-  "member_tiers_identity", "member_tiers_no_delete", "member_tiers_no_replace", "member_tiers_order_insert", "member_tiers_order_update"].sort());
+  "member_tiers_identity", "member_tiers_no_delete", "member_tiers_no_replace", "member_tiers_order_insert", "member_tiers_order_update", "identity_events_no_update", "identity_events_no_delete", "identity_events_no_replace", "identity_mapping_immutable", "identity_mapping_no_replace"].sort());
 const caseColumns = rows[4].map(row => row.name);
 for (const name of ["version", "status_reason", "status_updated_at", "status_updated_by", "duplicate_of_case_id", "reviewed_at", "reviewer_id", "last_review_id"]) assert.ok(caseColumns.includes(name));
 const membershipFks = rows[5];
@@ -96,5 +96,9 @@ for (const name of ['idx_enrollment_email','idx_password_operation_pending','idx
 assert.ok(!query('PRAGMA table_info(member_credentials)').some(row=>row.name==='password_record'));
 assert.ok(query('PRAGMA foreign_key_list(auth_identities)').some(row=>row.from==='member_id'&&row.table==='members'));
 for(const name of ['idx_auth_transactions_expiration','idx_auth_transactions_member','idx_auth_sessions_member','idx_auth_sessions_expiration','idx_trusted_devices_member','idx_recovery_codes_member','idx_auth_rate_expiration','idx_cases_member_cursor'])assert.ok(indexes.includes(name));
+for (const name of ['auth_google_flows','auth_method_setups','auth_identity_events']) assert.ok(tables.includes(name));
+for (const name of ['password_enabled','google_identity_id']) assert.ok(query('PRAGMA table_info(auth_identities)').some(r=>r.name===name));
+for (const name of ['auth_method','google_authenticated_until']) assert.ok(query('PRAGMA table_info(auth_sessions)').some(r=>r.name===name));
+for (const name of ['idx_google_flow_expiry','idx_identity_events_member']) assert.ok(indexes.includes(name));
 console.log(JSON.stringify({ auth_schema:'Supabase/Gmail/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
   fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

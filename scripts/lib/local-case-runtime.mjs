@@ -58,7 +58,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     }
     if (seedCampaign) await campaign();
     const fetch = (path, method = "GET", body, headers = {}) => runtime.dispatchFetch("https://voteproof.example" + path, {
-      method, headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
+      method, redirect: "manual", headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
       ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
     });
     async function upload({ count = 1, completed = true } = {}) {

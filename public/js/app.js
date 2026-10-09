@@ -281,7 +281,7 @@ $("theme-toggle").addEventListener("click", () => {
 function navigate(focus = true) {
   const requested = location.hash.slice(1);
   if (requested === "main") { $("main").focus(); return; }
-  const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member"].includes(requested) ? requested : "home";
+  const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security"].includes(requested) ? requested : "home";
   member.enter(view);
   for (const section of document.querySelectorAll("main > .view")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-view]")) {

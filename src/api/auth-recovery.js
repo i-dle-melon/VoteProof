@@ -17,7 +17,7 @@ const recoveryStart = kind => authHandler(async (env, _url, request) => {
   const record = await findIdentity(db, env, email), hash = await recoveryHash(record?.member_id ?? "missing", typeof body.recovery_code === "string" ? body.recovery_code : "invalid");
   const code = record && /^[A-Za-z0-9_-]{43}$/.test(body.recovery_code ?? "") ? await db.prepare("SELECT code_hash FROM recovery_codes WHERE member_id=? AND generation=? AND code_hash=? AND used_at IS NULL")
     .bind(record.member_id, record.recovery_generation, hash).first() : null;
-  let valid = !!code && record.status === "active", step;
+  let valid = !!code && record.status === "active" && Boolean(record.password_enabled), step;
   if (kind === "totp_recovery") {
     const verified = await verifyPassword(env, email, passwordInput(body.password));
     valid = valid && verified?.id === record.provider_subject;

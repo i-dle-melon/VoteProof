@@ -10,6 +10,7 @@ import { adminRoute } from "./admin.js";
 import { campaignRoute } from "./admin-campaigns.js";
 import { pointRoute } from "./points.js";
 import { leaderboardRoute } from "./admin-leaderboards.js";
+import { memberTierRoute } from "./member-tiers.js";
 
 const routes = new Map([
   ["/api/health", { method: "GET", handler: getHealth }],
@@ -27,7 +28,7 @@ const routes = new Map([
 ]);
 
 export async function routeApi(request, env, url) {
-  const route = routes.get(url.pathname) ?? adminRoute(url.pathname) ?? campaignRoute(url.pathname, request.method) ?? pointRoute(url.pathname) ?? leaderboardRoute(url.pathname,request.method) ?? (/^\/api\/cases\/[^/]+$/.test(url.pathname)
+  const route = routes.get(url.pathname) ?? adminRoute(url.pathname) ?? campaignRoute(url.pathname, request.method) ?? pointRoute(url.pathname) ?? leaderboardRoute(url.pathname,request.method) ?? memberTierRoute(url.pathname) ?? (/^\/api\/cases\/[^/]+$/.test(url.pathname)
     ? { method: "GET", handler: getCase } : /^\/api\/me\/cases\/[^/]+$/.test(url.pathname)
       ? { method: "GET", handler: getMemberCase } : undefined);
   if (!route) {

@@ -226,7 +226,8 @@ test("Manual positive/negative adjustments are append-only, audited and included
   assert.equal(row.case_id, null); assert.equal(row.category, "manual_adjustment"); assert.equal(row.created_by, admin.memberId);
   const audit = await local.db.prepare("SELECT * FROM admin_audit_logs WHERE target_id = ?").bind(data.transaction_id).first(); assert.equal(audit.action, "manual_adjustment");
   assert.equal(await memberTotal(member), 14);
-  assert.deepEqual((await (await get(`/api/admin/members/${member.memberId}/points`)).json()).data, { total_points: 14 });
+  const adminSummary = (await (await get(`/api/admin/members/${member.memberId}/points`)).json()).data;
+  assert.equal(adminSummary.total_points,14); assert.equal(adminSummary.tier.tier_id,'normal'); assert.equal(adminSummary.tier_configuration_ready,false);
 });
 test("Manual adjustment normalized replay returns same transaction, conflicting payload rejects and stores only hashes", async () => {
   const member = await h.identity(), key = randomUUID();

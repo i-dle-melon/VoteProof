@@ -1,5 +1,10 @@
 # VoteProof API
 
+## B5D Member Tier（本機 checkpoint，未發布）
+
+固定八階 identity 與 dynamic ledger-net tier/progress 已實作，見 [B5D 文件](docs/b5d-member-tiers.md)。0007 只設定普通0，其餘七階門檻null/disabled，等待明確批准；未完成設定時points API回普通與ready=false。
+Member/Admin points保留total_points並新增tier/progress；等級不改RBAC、獎勵倍率或leaderboard排名。只做本機，B4auth凍結，未push/deploy/remote migrate，無frontend/正式徽章。
+
 ## B5C D1 Leaderboard（本機 checkpoint，未發布）
 
 D1 leaderboard backend 已實作：以 append-only point_transactions 為唯一點數來源，原子 rebuild/publish、deterministic ranking、公開 snapshot API 與 admin RBAC。完整 schema、reached_at、scope、B1 contract 與切源差異見 [B5C 文件](docs/b5c-leaderboards.md)。

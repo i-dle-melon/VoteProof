@@ -25,7 +25,8 @@ try {
   const first = await adjust(), replay = await adjust(); assert.equal(first.status, 201); assert.equal(replay.status, 201);
   assert.deepEqual(await first.json(), await replay.json());
   const summary = await local.fetch("/api/me/points", "GET", undefined, member.headers); assert.equal(summary.status, 200);
-  assert.deepEqual((await summary.json()).data, { total_points: 7 });
+  const points = (await summary.json()).data;
+  assert.equal(points.total_points,7); assert.equal(points.tier.tier_id,'normal'); assert.equal(points.tier_configuration_ready,false);
   const guest = await h.makeCase({ metadata }); assert.equal((await h.review(reviewer, guest.case_id, "approve")).status, 200);
   assert.equal((await local.db.prepare("SELECT points_awarded FROM cases WHERE id = ?").bind(guest.id).first()).points_awarded, 0);
   assert.equal((await local.fetch(`/api/cases/${guest.case_id}`, "GET", undefined, { "X-Case-Query-Key": guest.query_key })).status, 200);

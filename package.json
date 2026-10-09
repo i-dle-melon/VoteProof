@@ -12,6 +12,7 @@
     "test:admin-smoke": "node scripts/smoke-admin.mjs",
     "test:points-smoke": "node scripts/smoke-points.mjs",
     "test:leaderboards-smoke": "node scripts/smoke-leaderboards.mjs",
+    "test:tiers-smoke": "node scripts/smoke-tiers.mjs",
     "check:admin-schema": "node scripts/check-admin-schema.mjs",
     "check": "wrangler deploy --dry-run"
   },

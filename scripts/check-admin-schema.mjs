@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const wrangler = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
-const persistTo = resolve(repository, ".wrangler", "b5c-schema-" + randomUUID());
+const persistTo = resolve(repository, ".wrangler", "b5d-schema-" + randomUUID());
 assert.equal(existsSync(persistTo), false, "Migration verification requires a fresh local directory");
 function run(args) {
   const result = spawnSync(process.execPath, [wrangler, ...args, "--local", "--persist-to", persistTo], {
@@ -40,20 +40,22 @@ const schemaQueries = [
   "SELECT (SELECT COUNT(*) FROM campaigns) + (SELECT COUNT(*) FROM point_transactions) AS n",
   "PRAGMA foreign_key_list(leaderboards)", "PRAGMA foreign_key_list(leaderboard_runs)", "PRAGMA foreign_key_list(leaderboard_results)",
   "SELECT (SELECT COUNT(*) FROM leaderboards) + (SELECT COUNT(*) FROM leaderboard_runs) + (SELECT COUNT(*) FROM leaderboard_results) AS n",
+  "SELECT tier_id,name,rank_order,min_points,icon_key,status FROM member_tiers ORDER BY rank_order", "PRAGMA foreign_key_list(member_tiers)",
 ];
 const results = JSON.parse(run(["d1", "execute", "voteproof-cases", "--command", schemaQueries.join(";\n"), "--json"]));
 assert.equal(results.length, schemaQueries.length);
 assert.ok(results.every(result => result.success));
 const rows = results.map(result => result.results);
 const applied = rows[0].map(row => row.name);
-assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql"]);
+assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql"]);
 const tables = rows[1].map(row => row.name);
-for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "auth_challenges", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results"]) assert.ok(tables.includes(name));
+for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "auth_challenges", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
 const indexes = rows[2].map(row => row.name);
 for (const name of ["idx_cases_admin_queue", "idx_cases_last_review", "idx_cases_duplicate_target", "idx_admin_audit_cursor", "idx_admin_audit_actor", "idx_admin_audit_target", "idx_campaigns_public", "idx_campaigns_admin", "idx_points_member_date", "idx_points_daily", "idx_points_case", "idx_points_case_award", "idx_points_reversal"]) assert.ok(indexes.includes(name));
 const triggers = rows[3].map(row => row.name);
 assert.deepEqual(triggers, ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "campaigns_immutable_id", "campaigns_no_delete", "campaigns_no_replace", "campaigns_update_policy", "cases_duplicate_insert", "cases_duplicate_update", "cases_guest_points_insert", "cases_guest_points_update", "points_case_binding", "points_exact_reversal", "points_no_delete", "points_no_replace", "points_no_update",
-  "leaderboards_no_replace", "leaderboards_no_delete", "leaderboards_policy", "leaderboards_publish", "leaderboard_runs_no_replace", "leaderboard_runs_no_delete", "leaderboard_runs_update", "leaderboard_results_no_update", "leaderboard_results_no_delete", "leaderboard_results_insert"].sort());
+  "leaderboards_no_replace", "leaderboards_no_delete", "leaderboards_policy", "leaderboards_publish", "leaderboard_runs_no_replace", "leaderboard_runs_no_delete", "leaderboard_runs_update", "leaderboard_results_no_update", "leaderboard_results_no_delete", "leaderboard_results_insert",
+  "member_tiers_identity", "member_tiers_no_delete", "member_tiers_no_replace", "member_tiers_order_insert", "member_tiers_order_update"].sort());
 const caseColumns = rows[4].map(row => row.name);
 for (const name of ["version", "status_reason", "status_updated_at", "status_updated_by", "duplicate_of_case_id", "reviewed_at", "reviewer_id", "last_review_id"]) assert.ok(caseColumns.includes(name));
 const membershipFks = rows[5];
@@ -75,4 +77,12 @@ assert.ok(rows[14].some(row => row.from === 'leaderboard_id' && row.table === 'l
 assert.ok(rows[15].some(row => row.from === 'run_id' && row.table === 'leaderboard_runs'));
 assert.ok(rows[15].some(row => row.from === 'member_id' && row.table === 'members'));
 assert.equal(rows[16][0].n,0);
-console.log(JSON.stringify({ result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0, production_used: false }, null, 2));
+const tierIds = ['normal','bronze','silver','gold','platinum','emerald','diamond','stellar'];
+assert.deepEqual(rows[17].map(row=>row.tier_id),tierIds);
+assert.deepEqual(rows[17].map(row=>row.rank_order),[1,2,3,4,5,6,7,8]);
+assert.deepEqual(rows[17].map(row=>row.min_points),[0,null,null,null,null,null,null,null]);
+assert.deepEqual(rows[17].map(row=>row.status),['active','disabled','disabled','disabled','disabled','disabled','disabled','disabled']);
+assert.ok(rows[17].every(row=>row.icon_key===row.tier_id));
+for (const from of ['created_by','updated_by']) assert.ok(rows[18].some(row=>row.from===from && row.table==='members'));
+console.log(JSON.stringify({ result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
+  fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

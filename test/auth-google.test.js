@@ -64,6 +64,43 @@ test("different Supabase UUID with same verified email never merges histories", 
 });
 test("existing second member selected during connect is rejected", async () => { const a = await googleMember(local), b = await googleMember(local), p = await googleProof(local, b.email, a); await expectError(p.callback, 409, "AUTH_IDENTITY_CONFLICT"); });
 test("Google callback replay rejected before provider exchange", async () => { const p = await googleProof(local), calls = local.provider.calls.length; await expectError(await local.fetch(p.oauth.path, "GET", undefined, { Cookie: p.browser }), 400, "AUTH_VERIFICATION_FAILED"); assert.equal(local.provider.calls.length, calls); });
+test("browser-bound provider denial consumes state, clears cookie and safely returns without a session", async () => {
+  const start = await post("google/start", {}), d = (await start.json()).data;
+  const callback = new URL(new URL(d.authorize_url).searchParams.get("redirect_to"));
+  callback.searchParams.set("error", "access_denied"); callback.searchParams.set("error_description", "untrusted-provider-message");
+  const path = callback.pathname + callback.search, headers = { Cookie: responseCookie(start, "__Host-vp-google") };
+  const before = [await count("members"), await count("auth_sessions"), await count("auth_transactions")], calls = local.provider.calls.length;
+  const r = await local.fetch(path, "GET", undefined, headers);
+  assert.equal(r.status, 303); assert.equal(r.headers.get("location"), callback.origin + "/?auth_notice=google_cancelled#login");
+  assert.equal(r.headers.get("cache-control"), "no-store"); assert.equal(r.headers.get("referrer-policy"), "no-referrer");
+  assert.match(r.headers.get("set-cookie"), /__Host-vp-google=;.*Max-Age=0/); assert.ok(!r.headers.get("set-cookie").includes(SESSION_COOKIE));
+  assert.deepEqual([await count("members"), await count("auth_sessions"), await count("auth_transactions")], before);
+  await expectError(await local.fetch(path, "GET", undefined, headers), 400, "AUTH_VERIFICATION_FAILED"); assert.equal(local.provider.calls.length, calls);
+});
+test("provider denial requires the initiating browser and unexpired unique state", async () => {
+  const start = await post("google/start", {}), d = (await start.json()).data, callback = new URL(new URL(d.authorize_url).searchParams.get("redirect_to"));
+  callback.searchParams.set("error", "access_denied"); const path = callback.pathname + callback.search, headers = { Cookie: responseCookie(start, "__Host-vp-google") };
+  await expectError(await local.fetch(path), 400, "AUTH_VERIFICATION_FAILED");
+  await expectError(await local.fetch(path + "&code=ambiguous", "GET", undefined, headers), 400, "AUTH_VERIFICATION_FAILED");
+  await expectError(await local.fetch(path + "&error=duplicate", "GET", undefined, headers), 400, "AUTH_VERIFICATION_FAILED");
+  assert.equal((await local.fetch(path, "GET", undefined, headers)).status, 303);
+  const s = await post("google/start", {}), url = new URL(new URL((await s.json()).data.authorize_url).searchParams.get("redirect_to")); url.searchParams.set("error", "access_denied");
+  await local.db.prepare("UPDATE auth_google_flows SET created_at=1,expires_at=2 WHERE consumed_at IS NULL").run();
+  await expectError(await local.fetch(url.pathname + url.search, "GET", undefined, { Cookie: responseCookie(s, "__Host-vp-google") }), 400, "AUTH_VERIFICATION_FAILED");
+});
+test("provider error descriptions are never reflected into a redirect", async () => {
+  const s = await post("google/start", {}), url = new URL(new URL((await s.json()).data.authorize_url).searchParams.get("redirect_to"));
+  url.searchParams.set("error", "server_error"); url.searchParams.set("error_description", "https://untrusted.example/secret");
+  const r = await local.fetch(url.pathname + url.search, "GET", undefined, { Cookie: responseCookie(s, "__Host-vp-google") });
+  assert.equal(r.status, 303); assert.equal(r.headers.get("location"), url.origin + "/?auth_notice=google_failed#login");
+});
+test("denying a bound provider connection preserves the existing member session", async () => {
+  const m = await login(local), start = await post("google/start", { purpose: "connect", confirmed: true }, m.headers);
+  const url = new URL(new URL((await start.json()).data.authorize_url).searchParams.get("redirect_to")); url.searchParams.set("error", "access_denied");
+  const r = await local.fetch(url.pathname + url.search, "GET", undefined, { ...m.headers, Cookie: m.cookie + "; " + responseCookie(start, "__Host-vp-google") });
+  assert.equal(r.status, 303); assert.ok(!r.headers.get("set-cookie").includes(SESSION_COOKIE));
+  const me = await local.fetch("/api/auth/me", "GET", undefined, m.headers); assert.equal(me.status, 200); assert.equal((await me.json()).data.member.member_id, m.member.member_id);
+});
 test("Google callback requires state, initiating browser, exact path and one code", async () => {
   const p = await googleProof(local); for (const path of ["/api/auth/google/callback", p.oauth.path + "&code=duplicate", p.oauth.path.replace(/state=[^&]+/, "state=wrong")]) await expectError(await local.fetch(path), 400, "AUTH_VERIFICATION_FAILED");
 });

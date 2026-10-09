@@ -428,6 +428,15 @@ export function memberUI({ changed = () => {} } = {}) {
       resetAuth();
     }
     memberEpoch++; view = next; clearInterval(ticker);
+    if (view === "login") {
+      const url = new URL(location.href), notice = url.searchParams.get("auth_notice");
+      const messages = { google_cancelled: "Google 登入已取消；沒有建立新的 VoteProof 登入。你仍可使用訪客功能或重新登入。",
+        google_failed: "Google 登入未完成；請稍後重試。訪客功能仍可使用。" };
+      if (Object.hasOwn(messages, notice)) $("login-error").textContent = messages[notice];
+      if (url.searchParams.has("auth_notice")) {
+        url.searchParams.delete("auth_notice"); history.replaceState(null, "", url.pathname + url.search + url.hash);
+      }
+    }
     if (authViews.includes(view)) ticker = setInterval(syncCooldown, 1000);
     if (view === "register") void mountRegistration();
     if (view === "member") void loadMember();

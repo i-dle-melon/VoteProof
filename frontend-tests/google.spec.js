@@ -1,6 +1,19 @@
 import { test, expect } from "@playwright/test";
 import { memberFixture } from "./member-fixture.mjs";
 const submit = (page, id) => page.locator(`#${id} button[type='submit']`).click();
+test("provider cancellation returns to usable login and removes the fixed notice from URL", async ({ page }) => {
+  const state = await memberFixture(page); await page.goto("/?auth_notice=google_cancelled#login");
+  await expect(page.locator("#login-error")).toContainText("Google 登入已取消");
+  await expect(page).toHaveURL(/\/#login$/); expect(state.authenticated).toBe(false);
+  await page.goto("/#home"); await expect(page.locator("#view-home")).toBeVisible();
+});
+test("unknown provider notice cannot reflect untrusted text", async ({ page }) => {
+  await memberFixture(page);
+  for (const notice of ["untrusted-provider-message", "toString", "__proto__"]) {
+    await page.goto("/?auth_notice=" + notice + "#login");
+    await expect(page.locator("#login-error")).toHaveText(""); await expect(page).toHaveURL(/\/#login$/);
+  }
+});
 test("login and registration expose two distinct authentication choices", async ({ page }) => {
   await memberFixture(page); await page.goto("/#login"); await expect(page.locator("#login-google")).toBeVisible(); await expect(page.locator("#login-form")).toBeVisible();
   await page.goto("/#register"); await expect(page.locator("#register-google")).toBeVisible(); await expect(page.locator("#view-register")).toContainText("不需要 VoteProof 密碼");

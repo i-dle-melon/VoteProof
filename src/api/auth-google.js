@@ -49,14 +49,26 @@ export async function mapGoogle(db, env, verified) {
 export const googleCallback = authHandler(async (env, url, request) => {
   // Browser navigation cannot supply Origin/custom CSRF; state + cookie + PKCE
   // replace that check here. Every later mutation uses normal exact Origin.
+  const denied = url.searchParams.has("error");
   if (url.origin !== configuredAuthOrigin(env) || url.searchParams.getAll("state").length !== 1 ||
-      !QUERY_KEY_PATTERN.test(url.searchParams.get("state") ?? "") || url.searchParams.getAll("code").length !== 1 ||
-      !/^[A-Za-z0-9._~-]{1,2048}$/.test(url.searchParams.get("code") ?? "") || url.searchParams.has("error")) throw invalidVerification();
+      !QUERY_KEY_PATTERN.test(url.searchParams.get("state") ?? "") ||
+      (denied ? url.searchParams.getAll("error").length !== 1 || url.searchParams.has("code") :
+        url.searchParams.getAll("code").length !== 1 || !/^[A-Za-z0-9._~-]{1,2048}$/.test(url.searchParams.get("code") ?? ""))) throw invalidVerification();
   const db = authDatabase(env), browser = readCookie(request, GOOGLE_COOKIE);
   if (!browser) throw invalidVerification();
   const row = await db.prepare(`UPDATE auth_google_flows SET consumed_at=? WHERE state_hash=? AND browser_hash=? AND consumed_at IS NULL AND expires_at>? RETURNING *`)
     .bind(authNow(), await sha256("VoteProof/oauth-state/v1:" + url.searchParams.get("state")), await browserHash(browser), authNow()).first();
   if (!row) throw invalidVerification();
+  // A provider denial is still a browser-bound, one-use callback. Consume it
+  // without exchanging tokens or creating a login transaction/session. Never
+  // reflect provider descriptions (or callback parameters) into the frontend.
+  if (denied) {
+    const notice = url.searchParams.get("error") === "access_denied" ? "google_cancelled" : "google_failed";
+    return withCookies(new Response(null, { status: 303, headers: {
+      Location: configuredAuthOrigin(env) + "/?auth_notice=" + notice + "#login",
+      "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+    } }), [cookie(GOOGLE_COOKIE, "", 0)]);
+  }
   const verified = await exchangeGoogle(env, url.searchParams.get("code"), await decryptEmail(env, row, "oauth-pkce:" + row.id));
   let mapping;
   try {

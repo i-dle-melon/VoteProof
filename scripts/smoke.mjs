@@ -118,8 +118,20 @@ try {
     for (const path of ["/", "/index.html"]) {
       const response = await fetch(base + path);
       assert.equal(response.status, 200);
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      assert.match(response.headers.get("content-security-policy"), /frame-ancestors 'none'/);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), homepage);
       console.log(`${path} -> 200, homepage bytes unchanged`);
+    }
+    for (const path of ["css/app.css", "js/app.js", "js/api.js", "js/submission.js", "js/turnstile.js"]) {
+      const response = await fetch(base + "/" + path);
+      assert.equal(response.status, 200);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), await readFile(new URL("../public/" + path, import.meta.url)));
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    }
+    for (const path of ["/scripts/password-kdf-benchmark.mjs", "/docs/password-kdf-benchmark.json", "/.wrangler/state.sqlite"]) {
+      assert.equal((await fetch(base + path)).status, 404, "Developer artifacts must not be assets");
     }
     assert.equal((await fetch(base + "/nonexistent-static-file.txt")).status, 404);
     console.log("Missing static asset -> Assets 404");

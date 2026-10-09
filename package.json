@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "test": "node --test",
+    "test:frontend": "playwright test",
+    "test:frontend-unit": "node --test test/frontend.test.js",
+    "test:frontend-smoke": "node scripts/smoke-frontend.mjs",
+    "check:public-assets": "node scripts/check-public-assets.mjs",
     "benchmark:auth-kdf": "node scripts/benchmark-auth-kdf.mjs",
     "benchmark:password-kdf": "node scripts/password-kdf-benchmark.mjs",
     "test:smoke": "node scripts/smoke.mjs",
@@ -19,6 +23,7 @@
     "check": "wrangler deploy --dry-run"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "wrangler": "^4"
   },
   "dependencies": {

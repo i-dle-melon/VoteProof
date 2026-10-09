@@ -1,5 +1,25 @@
 # VoteProof API
 
+## 現行方向：B6A-Free Guest / Public first（本機，未發布）
+
+第一版以 **固定成本 $0／月** 為硬性設計前提，使用 Cloudflare Free tier 與 R2／D1 free allowance；不要求 Workers Paid、付費第三方、密碼登入或 Admin auth 才能發布公開網站。這不是無限免費：R2 超過免費額度可能計費；D1 Free 超過每日讀寫或儲存限制會拒絕操作，需監測用量。
+
+B4.x 密碼／TOTP／Trusted Device／Recovery Codes 保留為凍結的本機可選功能，安全 scrypt 參數不降級，也不作為第一版 Production 前提。以下 B1～B5 文件是各階段紀錄；目前發布方向以本節與 [B6A-Free 文件](docs/b6a-free-frontend.md) 為準。
+
+公開前端改為 Cloudflare Assets 提供的 HTML／CSS／ES modules：首頁、Guest 投稿與查詢、API Campaign、公開排行榜、深／淺色及說明。沒有 Member／Admin UI、SSR、Worker 圖片處理或新增 Production binding；B4/B5 後端保留。
+
+```sh
+npm test
+npm run test:frontend
+npm run test:frontend-smoke
+npm run check:public-assets
+npm run check
+```
+
+瀏覽器測試使用本機 Chrome 與 Playwright WebKit；需安裝 Chrome 並執行 `npx playwright install webkit`。Android／iPhone 採裝置模擬，實機驗收另列 TODO。測試、benchmark、DB、截圖與 fixture 都在 `public/` 外。
+
+B6A 只完成本機驗收與 commit；不 push／deploy／remote migration，不進 B6B。正式切換前仍需明確批准 B5 migration／D1 Campaign 與 leaderboard source rollout，並驗收真實 Turnstile、R2 CORS 與 Free 用量；目前不執行這些操作。
+
 ## B5D Member Tier（本機 checkpoint，未發布）
 
 固定八階 identity 與 dynamic ledger-net tier/progress 已實作，見 [B5D 文件](docs/b5d-member-tiers.md)。0007 只設定普通0，其餘七階門檻null/disabled，等待明確批准；未完成設定時points API回普通與ready=false。

@@ -111,8 +111,8 @@ try {
     const campaigns = await get(base, "/api/campaigns", 200);
     assert.deepEqual(campaigns.body, { ok: true, data: { campaigns: [] } });
     assert.equal(campaigns.response.headers.get("cache-control"), "no-store");
-    const missing = await get(base, "/api/leaderboards", 503);
-    assert.equal(missing.body.error.code, "UPSTREAM_NOT_CONFIGURED");
+    const missing = await get(base, "/api/leaderboards", 200);
+    assert.deepEqual(missing.body.data, { generated_at: null, leaderboards: [] });
     const unknown = await get(base, "/api/unknown", 404);
     assert.equal(unknown.body.error.code, "NOT_FOUND");
     for (const path of ["/", "/index.html"]) {
@@ -126,19 +126,13 @@ try {
   });
   await withWorker(true, async base => {
     const all = await get(base, "/api/leaderboards", 200);
-    assert.equal(all.body.data.leaderboards.length, 2);
-    assert.equal(all.response.headers.get("cache-control"), "public, max-age=30");
+    assert.deepEqual(all.body.data, { generated_at: null, leaderboards: [] });
+    assert.equal(all.response.headers.get("cache-control"), "public, max-age=15, must-revalidate");
     const solo = await get(base, "/api/leaderboards?id=LB-SOLO", 200);
-    assert.deepEqual(solo.body.data.leaderboards.map(b => b.leaderboard_id), ["LB-SOLO"]);
-    const filteredQuery = seenQueries.find(query => query.get("id") === "LB-SOLO");
-    assert.equal(filteredQuery.get("action"), "leaderboards");
-    for (const id of ["HTTP-ERROR", "HTML-ERROR", "TIMEOUT"]) {
-      const result = await get(base, "/api/leaderboards?id=" + id, 502);
-      assert.equal(result.body.error.code, "UPSTREAM_ERROR");
-      assert.equal(result.response.headers.get("cache-control"), "no-store");
-    }
+    assert.deepEqual(solo.body.data.leaderboards, []);
+    assert.equal(seenQueries.length, 0, "D1 Worker must never request legacy Google fixture");
   });
-  console.log("Wrangler HTTP smoke checks passed. Google upstream was a local fixture, not production.");
+  console.log("Wrangler HTTP smoke checks passed. D1 empty-registry contract passed; Google fixture was never accessed.");
 } finally {
   fixture.closeAllConnections();
   await new Promise(resolve => fixture.close(resolve));

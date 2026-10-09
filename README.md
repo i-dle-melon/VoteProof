@@ -1,5 +1,12 @@
 # VoteProof API
 
+## B5C D1 Leaderboard（本機 checkpoint，未發布）
+
+D1 leaderboard backend 已實作：以 append-only point_transactions 為唯一點數來源，原子 rebuild/publish、deterministic ranking、公開 snapshot API 與 admin RBAC。完整 schema、reached_at、scope、B1 contract 與切源差異見 [B5C 文件](docs/b5c-leaderboards.md)。
+
+只做本機；B4 auth 凍結，未 push/deploy/remote migrate。Production Apps Script 舊來源未切換。
+
+
 ## B5B Campaign／Point Ledger（本機 checkpoint，未發布）
 
 正式 D1 Campaign、append-only Point Ledger、member/campaign/vote_date daily limit、atomic approve/revoke/audit、idempotent manual adjustments 與 ledger SUM，見 [docs/b5b-campaign-points.md](docs/b5b-campaign-points.md)。

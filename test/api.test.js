@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import worker from "../src/index.js";
+import { getLeaderboards as legacyLeaderboards } from "../src/lib/legacy-leaderboards.js";
+// Historical B1 adapter contract tests remain; actual Worker uses D1 (B5C tests).
+const historicalB1 = { fetch: (request, env) => legacyLeaderboards(env, new URL(request.url)) };
 
 const request = (path, method = "GET") => new Request("https://voteproof.example" + path, { method });
 const fixture = {
@@ -47,7 +50,7 @@ test("campaigns reads an empty D1 registry and retains its public response contr
 for (const value of [undefined, "", "   "]) {
   test(`missing/empty upstream configuration returns 503 (${JSON.stringify(value)})`, async t => {
     t.mock.method(globalThis, "fetch", () => { assert.fail("must not fetch"); });
-    await assertError(await worker.fetch(request("/api/leaderboards"), { GOOGLE_PUBLIC_API_URL: value }),
+    await assertError(await historicalB1.fetch(request("/api/leaderboards"), { GOOGLE_PUBLIC_API_URL: value }),
       503, "UPSTREAM_NOT_CONFIGURED");
   });
 }
@@ -62,7 +65,7 @@ test("normalizes public leaderboard fields and uses a 30 second cache", async t 
     assert.ok(options.signal instanceof AbortSignal);
     return Response.json(fixture);
   });
-  const response = await worker.fetch(request("/api/leaderboards?ignored=private"), upstreamEnv);
+  const response = await historicalB1.fetch(request("/api/leaderboards?ignored=private"), upstreamEnv);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "public, max-age=30");
   const body = await response.json();
@@ -82,7 +85,7 @@ test("id is safely forwarded and results are filtered even if upstream returns a
     assert.deepEqual(url.searchParams.getAll("action"), ["leaderboards"]);
     return Response.json(fixture);
   });
-  const response = await worker.fetch(request("/api/leaderboards?id=LB-SOLO"), upstreamEnv);
+  const response = await historicalB1.fetch(request("/api/leaderboards?id=LB-SOLO"), upstreamEnv);
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).data.leaderboards.map(b => b.leaderboard_id), ["LB-SOLO"]);
 });
@@ -96,7 +99,7 @@ test("special characters in id cannot inject query parameters", async t => {
   });
   const url = new URL("https://voteproof.example/api/leaderboards");
   url.searchParams.set("id", id);
-  const response = await worker.fetch(new Request(url), upstreamEnv);
+  const response = await historicalB1.fetch(new Request(url), upstreamEnv);
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).data.leaderboards, []);
 });
@@ -106,7 +109,7 @@ test("accepts numeric strings and empty boards from the public API", async t => 
   Object.assign(payload.leaderboards[0].rankings[0], { rank: "1", points: "10", proof_count: "1", reached_at: null });
   payload.leaderboards[1].rankings = [];
   t.mock.method(globalThis, "fetch", () => Response.json(payload));
-  const response = await worker.fetch(request("/api/leaderboards"), upstreamEnv);
+  const response = await historicalB1.fetch(request("/api/leaderboards"), upstreamEnv);
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.data.leaderboards[0].rankings[0].points, 10);
@@ -125,13 +128,13 @@ for (const [name, makeResponse] of [
 ]) {
   test(`${name} returns a concise JSON 502 without upstream details`, async t => {
     t.mock.method(globalThis, "fetch", makeResponse);
-    const body = await assertError(await worker.fetch(request("/api/leaderboards"), upstreamEnv), 502, "UPSTREAM_ERROR");
+    const body = await assertError(await historicalB1.fetch(request("/api/leaderboards"), upstreamEnv), 502, "UPSTREAM_ERROR");
     assert.equal(JSON.stringify(body).includes("Sensitive"), false);
   });
 }
 
 test("invalid configured URL returns sanitized 502", async () => {
-  await assertError(await worker.fetch(request("/api/leaderboards"), { GOOGLE_PUBLIC_API_URL: "not a URL" }), 502, "UPSTREAM_ERROR");
+  await assertError(await historicalB1.fetch(request("/api/leaderboards"), { GOOGLE_PUBLIC_API_URL: "not a URL" }), 502, "UPSTREAM_ERROR");
 });
 
 for (const stage of ["fetch", "response body"]) {
@@ -145,7 +148,7 @@ for (const stage of ["fetch", "response body"]) {
       });
       return stage === "fetch" ? stalled() : { ok: true, json: stalled };
     });
-    const pending = worker.fetch(request("/api/leaderboards"), upstreamEnv);
+    const pending = historicalB1.fetch(request("/api/leaderboards"), upstreamEnv);
     await Promise.resolve();
     await Promise.resolve();
     t.mock.timers.tick(8000);

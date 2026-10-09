@@ -67,3 +67,14 @@ test("Gmail prevents header injection and missing configuration", async () => {
   await assert.rejects(sendVerificationEmail({ ...f.config, GMAIL_REFRESH_TOKEN: undefined }, "member@local.example", "123456"), { code: "AUTH_NOT_CONFIGURED" });
   await assert.rejects(sendVerificationEmail(f.config, "member@local.example\r\nBcc: attacker@local.example", "123456"), { code: "INVALID_AUTH_REQUEST" });
 });
+test("Gmail internal test subject is labeled, bounded and does not change the default API", async t => {
+  const f = authProviderFixture(), subject = "VoteProof B4S Live Verification Test";
+  t.mock.method(globalThis, "fetch", async (url, init) => f.fetch(new Request(url, init)));
+  await sendVerificationEmail(f.config, "member@local.example", "123456", { subject });
+  const encoded = f.mails[0].raw.match(/Subject: =\?UTF-8\?B\?([^?]+)\?=/)[1];
+  assert.equal(Buffer.from(encoded, "base64").toString("utf8"), subject);
+  for (const subject of ["", "x".repeat(121), "test\r\nBcc: attacker@local.example"]) {
+    await assert.rejects(sendVerificationEmail(f.config, "member@local.example", "123456", { subject }), { code: "AUTH_EMAIL_UNAVAILABLE" });
+  }
+  assert.equal(f.mails.length, 1);
+});

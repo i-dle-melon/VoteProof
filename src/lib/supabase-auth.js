@@ -38,8 +38,10 @@ export async function verifyPassword(env, email, password) {
   return result ? identity(result.user, email) : null;
 }
 export async function adminCreateVerifiedUser(env, email, password, enrollmentId) {
+  // Called only after the Worker validates a browser-bound verified-email proof.
+  // Never accept this marker from client/user_metadata or expose it as VP auth.
   const result = await call(env, "/admin/users", "POST", { email, password, email_confirm: true,
-    app_metadata: { voteproof_enrollment_id: enrollmentId } }, true);
+    app_metadata: { voteproof_enrollment_id: enrollmentId, voteproof_verified_signup: true } }, true);
   return identity(result?.user ?? result, email).id;
 }
 export async function adminUpdatePassword(env, subject, password) {

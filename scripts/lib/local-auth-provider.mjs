@@ -1,6 +1,6 @@
 // Developer-only upstream fixture. All credentials/passwords are ephemeral.
 import { randomBytes, randomUUID, createHash } from "node:crypto";
-export function authProviderFixture() {
+export function authProviderFixture({ beforeUserCreated, adminCreateHook = false } = {}) {
   const users = new Map(), mails = [], calls = [], tokens = [], failures = new Map(), oauthCodes = new Map(), accessUsers = new Map();
   const config = { SUPABASE_URL: "https://local-auth.supabase.example", SUPABASE_PUBLISHABLE_KEY: randomBytes(32).toString("hex"), SUPABASE_SECRET_KEY: randomBytes(32).toString("hex"),
     GMAIL_CLIENT_ID: randomBytes(32).toString("hex"), GMAIL_CLIENT_SECRET: randomBytes(32).toString("hex"), GMAIL_REFRESH_TOKEN: randomBytes(32).toString("hex"), GMAIL_SENDER_EMAIL: "sender@local.example", GMAIL_SENDER_NAME: "VoteProof" };
@@ -9,13 +9,22 @@ export function authProviderFixture() {
       const url = new URL(authorizeUrl); email = email.trim().toLowerCase();
       let user = [...users.values()].find(u => u.email === email);
       if (options.newSubject) user = null;
-      if (!user) { user = { id: randomUUID(), email, confirmed: true, identities: [] }; users.set(user.id, user); }
+      if (!user) { user = { id: randomUUID(), email, confirmed: true, is_anonymous: false,
+        app_metadata: { provider: "google", providers: ["google"] }, identities: [] }; users.set(user.id, user); }
       user.identities ??= [];
       if (!user.identities.some(i => i.provider === "google")) user.identities.push({ provider: "google", id: randomUUID(), user_id: user.id, identity_data: { sub: randomUUID(), email, email_verified: !options.unverified } });
       const code = randomBytes(32).toString("base64url");
       oauthCodes.set(code, { user, challenge: url.searchParams.get("code_challenge") });
       const callback = new URL(url.searchParams.get("redirect_to")); callback.searchParams.set("code", code);
       return { user, code, path: callback.pathname + callback.search };
+    },
+    async oauthWithPolicy(authorizeUrl, email, options = {}) {
+      if (beforeUserCreated && (options.newSubject || ![...users.values()].some(u => u.email === email.trim().toLowerCase()))) {
+        const policy = await beforeUserCreated({ user: { email, is_anonymous: false,
+          app_metadata: { provider: "google", providers: ["google"] } } });
+        if (policy.error) throw new Error("Fixture Google signup policy rejected creation");
+      }
+      return this.oauth(authorizeUrl, email, options);
     },
     codeFor(email) { return mails.filter(m => m.email === email.trim().toLowerCase()).at(-1)?.code; },
     async fetch(request) {
@@ -36,6 +45,15 @@ export function authProviderFixture() {
       const admin = path.startsWith("/auth/v1/admin/"), key = request.headers.get("apikey");
       if (key !== (admin ? config.SUPABASE_SECRET_KEY : config.SUPABASE_PUBLISHABLE_KEY)) return Response.json({}, { status: 401 });
       const publicUser = user => ({ id: user.id, email: user.email, email_confirmed_at: user.confirmed ? new Date().toISOString() : null, app_metadata: user.app_metadata, identities: user.identities ?? [] });
+      if (path === "/auth/v1/signup" && request.method === "POST") {
+        // Upstream SignupParams accepts data/user_metadata, NOT app_metadata.
+        // Ignore forged root/nested app_metadata; provider comes from the API.
+        const user = { id: randomUUID(), email: body.email, confirmed: false, is_anonymous: !body.email,
+          app_metadata: { provider: "email", providers: ["email"] }, user_metadata: body.data ?? {} };
+        const policy = beforeUserCreated ? await beforeUserCreated({ user }) : {};
+        if (policy.error) return Response.json(policy, { status: policy.error.http_code });
+        users.set(user.id, user); return Response.json(publicUser(user));
+      }
       if (path === "/auth/v1/user") { const user = accessUsers.get(request.headers.get("Authorization")?.slice(7)); return Response.json(user ? publicUser(user) : {}, { status: user ? 200 : 401 }); }
       if (path === "/auth/v1/token") {
         if (url.searchParams.get("grant_type") === "pkce") {
@@ -52,7 +70,12 @@ export function authProviderFixture() {
       }
       if (path === "/auth/v1/admin/users" && request.method === "POST") {
         if ([...users.values()].some(u => u.email === body.email)) return Response.json({}, { status: 422 });
-        const user = { id: randomUUID(), email: body.email, password: body.password, confirmed: body.email_confirm === true, app_metadata: body.app_metadata };
+        const user = { id: randomUUID(), email: body.email, password: body.password, confirmed: body.email_confirm === true,
+          is_anonymous: false, app_metadata: { provider: "email", providers: ["email"], ...body.app_metadata } };
+        // Official upstream Admin create bypasses the hook. The opt-in mode
+        // proves compatibility if a hosted version supplies metadata to it.
+        const policy = adminCreateHook && beforeUserCreated ? await beforeUserCreated({ user }) : {};
+        if (policy.error) return Response.json(policy, { status: policy.error.http_code });
         users.set(user.id, user); return Response.json(publicUser(user));
       }
       const id = path.split("/").at(-1), user = users.get(id);

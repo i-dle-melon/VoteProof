@@ -8,9 +8,9 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, migrationHook } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, migrationHook, providerOptions } = {}) {
   const unexpectedUpstreams = [];
-  const provider = authProviderFixture();
+  const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
   const options = {

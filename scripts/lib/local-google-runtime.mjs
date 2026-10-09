@@ -8,7 +8,7 @@ export async function googleProof(local, email = randomUUID() + "@local.example"
   const headers = member?.headers ?? loginHeaders();
   const start = await local.fetch("/api/auth/google/start", "POST", { purpose, ...(member ? { confirmed: true } : {}) }, headers);
   assert.equal(start.status, 200); const data = (await start.json()).data;
-  const oauth = local.provider.oauth(data.authorize_url, email, options);
+  const oauth = await local.provider.oauthWithPolicy(data.authorize_url, email, options);
   const browser = responseCookie(start, GOOGLE_COOKIE);
   const callback = await local.fetch(oauth.path, "GET", undefined, { Cookie: browser + (member ? "; " + member.cookie : "") });
   if (callback.status !== 303) return { start, callback, oauth, data, browser };

@@ -2,6 +2,8 @@
 
 Production remains paused. No push/deploy/provider change/remote migration is part of this checkpoint. Read [provider assessment](b4g-provider-assessment.md) before changing hosted settings, then follow [separate Live acceptance](b4g-live-acceptance.md).
 
+B4G.1 updates the signup compatibility policy: approved creation is Google OR server verified-email Admin create, with trusted `app_metadata.voteproof_verified_signup: true` for the email path. See [assessment](b4g-signup-policy.md) and the single canonical [Postgres hook SQL](voteproof-signup-policy.sql). Public email signup remains denied; no hosted hook has been changed.
+
 ## Model and schema
 
 Unpublished `0003_member_identity.sql` extends the existing one-row Supabase UUID → unique VoteProof member mapping. It adds `password_enabled` (default 1 for accepted password inserts), nullable unique `google_identity_id`, immutable mapping triggers, session `auth_method` and short `google_authenticated_until`. Google-only inserts explicitly use password_enabled=0 and NO credential/recovery row.

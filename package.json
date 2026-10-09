@@ -27,6 +27,7 @@
     "check": "wrangler deploy --dry-run"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@playwright/test": "^1.64.0",
     "wrangler": "^4"
   },

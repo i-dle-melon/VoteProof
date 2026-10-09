@@ -16,26 +16,12 @@ Do not execute these operator steps until a separately authorized Live phase. B7
 1. Google provider: enable, configure that separate client ID/secret, retain nonce verification; do not enable unrelated scopes/provider options.
 2. Auth URL Configuration: Site URL = exact VoteProof application origin. Redirect allowlist = `https://voteproof.i-dle-melon.workers.dev/api/auth/google/callback?state=*` for future Production (the star matches only the app-generated 256-bit state). Add only the corresponding EXACT local HTTPS host/path rule for isolated Live. Never add a whole-domain `/**` or third-party redirect wildcard. Verify the hosted matcher includes query strings and accepts the generated URL; do not silently fall back to Site URL.
 3. Allow new users signup = ON for new Google accounts. Email provider = ON for password grant. Confirm Email = ON; anonymous = OFF. Manual identity linking need not be enabled: v1 intentionally uses same-email automatic linking and exact UUID reconciliation, not `linkIdentity` or different-email linking.
-4. Before User Created hook: reject public non-Google signup using trusted `user.app_metadata.provider`, not editable user_metadata. This hook is listed as available on Free/Pro in [Supabase Auth Hooks](https://supabase.com/docs/guides/auth/auth-hooks). Install the following **operator-reviewed Postgres hook** using SQL Editor and select it under Authentication → Hooks → Before User Created. It is not a D1 migration and Codex has not executed it:
-
-```sql
-create or replace function public.voteproof_signup_policy(event jsonb)
-returns jsonb language plpgsql security invoker set search_path = '' as $$
-begin
-  if event #>> '{user,app_metadata,provider}' = 'google'
-     and coalesce((event #>> '{user,is_anonymous}')::boolean, false) = false then
-    return '{}'::jsonb;
-  end if;
-  return jsonb_build_object('error', jsonb_build_object(
-    'http_code', 403, 'message', 'Use the application registration flow'));
-end;
-$$;
-revoke execute on function public.voteproof_signup_policy(jsonb) from public, anon, authenticated;
-grant usage on schema public to supabase_auth_admin;
-grant execute on function public.voteproof_signup_policy(jsonb) to supabase_auth_admin;
-```
-
-5. Before enabling signup, verify on the disposable project that direct public email signup is rejected, new Google signup succeeds, existing password grant succeeds, and VoteProof verified-email Admin API create still succeeds. Upstream Admin create bypasses the public signup hook; hosted behavior must be proven. If this combination is unavailable, FAIL CLOSED and leave rollout paused. Do not turn off Confirm Email to make it work.
+4. Before User Created hook: use the exact [operator SQL](voteproof-signup-policy.sql). After separate authorization, install that file in SQL Editor, then select Authentication → Auth Hooks → Before User Created → Postgres function → schema `public` → function `voteproof_signup_policy` → Enabled. It is not a D1 migration and Codex has not executed it on a hosted project. This hook is listed as available on Free/Pro in [Supabase Auth Hooks](https://supabase.com/docs/guides/auth/auth-hooks).
+   - Require `user.is_anonymous` to be the JSON boolean `false` (missing/malformed flags reject).
+   - Allow trusted `user.app_metadata.provider = 'google'`.
+   - Also allow provider `email` ONLY with trusted `user.app_metadata.voteproof_verified_signup` equal to JSON boolean `true`. The Worker sets it solely on Admin create after its verified-email proof; it is never accepted from client input.
+   - Deny everything else with 403, including public email signup, forged `user_metadata`, other providers and anonymous signup. Do not use `user_metadata` for authorization. Only `supabase_auth_admin` gets function execution; public/anon/authenticated do not.
+5. Before enabling global signup, install/enable this hook and verify on the disposable project that direct public email signup (including root/nested forged app_metadata) is rejected, new Google signup succeeds, existing password grant succeeds, and VoteProof verified-email Admin API create still succeeds. The pinned official upstream Admin endpoint bypasses the hook, but the public docs do not guarantee that exception across hosted versions. B4G.1 explicitly supports a hook payload containing the approved email marker as well. Hosted behavior must be proven; do not infer it from mocks or assume a future pre-insert hook will receive custom metadata before Admin merges it. See [compatibility assessment](b4g-signup-policy.md). If this combination is unavailable, FAIL CLOSED and leave rollout paused. Do not turn off Confirm Email to make it work.
 6. No new VoteProof Worker secrets; existing SUPABASE/AUTH/GMAIL settings remain server-only. Set local AUTH_ORIGIN to the chosen exact HTTPS origin. Use local trusted TLS so Secure __Host cookies survive the cross-site redirect; do not remove Secure for development. Dashboard values must be entered privately, not committed.
 
 ## Live test matrix after separate authorization

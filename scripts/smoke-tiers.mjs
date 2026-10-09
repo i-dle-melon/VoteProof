@@ -15,6 +15,6 @@ try {
   assert.equal((await h.review(admin,proof.case_id,'revoke',2,{reason:'Local smoke'})).status,200); assert.equal((await points()).tier.tier_id,'normal');
   const adjustment = await local.fetch('/api/admin/points/adjustments','POST',{member_id:member.memberId,points:500,reason:'Local smoke'},
     {...admin.headers,'Idempotency-Key':randomUUID()}); assert.equal(adjustment.status,201); assert.equal((await points()).tier.tier_id,'silver');
-  assert.deepEqual((await local.db.prepare('PRAGMA foreign_key_check').all()).results,[]); assert.equal(local.emails.length,0);
+  assert.deepEqual((await local.db.prepare('PRAGMA foreign_key_check').all()).results,[]); assert.equal(local.unexpectedUpstreams.length,0);
   console.log('B5D smoke PASS: pending config fallback, explicit local thresholds, ledger promotion/revoke demotion, completion, manual adjustment, progress; no Production resources');
 } finally { await local.runtime.dispose(); }

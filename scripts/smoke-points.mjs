@@ -30,6 +30,6 @@ try {
   const guest = await h.makeCase({ metadata }); assert.equal((await h.review(reviewer, guest.case_id, "approve")).status, 200);
   assert.equal((await local.db.prepare("SELECT points_awarded FROM cases WHERE id = ?").bind(guest.id).first()).points_awarded, 0);
   assert.equal((await local.fetch(`/api/cases/${guest.case_id}`, "GET", undefined, { "X-Case-Query-Key": guest.query_key })).status, 200);
-  assert.deepEqual((await local.db.prepare("PRAGMA foreign_key_check").all()).results, []); assert.equal(local.emails.length, 0);
+  assert.deepEqual((await local.db.prepare("PRAGMA foreign_key_check").all()).results, []); assert.equal(local.unexpectedUpstreams.length, 0);
   console.log("B5B smoke PASS: Campaign API, daily-slot contention, completion, exact reversal/capacity recovery, idempotent adjustment, ledger SUM and Guest compatibility");
 } finally { await local.runtime.dispose(); }

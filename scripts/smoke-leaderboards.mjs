@@ -15,6 +15,6 @@ try {
   const last = await h.snapshot(board); const row = last.rankings.find(r => r.member_id === member.memberId);
   assert.equal(row.points,3); assert.equal(row.proof_count,0);
   assert.deepEqual((await h.local.db.prepare('PRAGMA foreign_key_check').all()).results,[]);
-  assert.equal(h.local.emails.length,0);
+  assert.equal(h.local.unexpectedUpstreams.length,0);
   console.log('B5C smoke PASS: ledger source, immutable snapshots, exact reversal, manual adjustment, atomic publish, concurrent CAS and public contract');
 } finally { await h.local.runtime.dispose(); }

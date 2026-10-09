@@ -1,7 +1,7 @@
 # B5A：管理員授權與案件審核後端（僅本機）
 
-B4 Email OTP／Resend 版本已保存為本機 checkpoint，身份驗證方案凍結。
-未來 password／TOTP／trusted device／recovery／passkey 的評估不在本次範圍。
+B4.x已改為password/TOTP/trusted devices，詳見[B4.x](b4-members.md)；admin session須有1小時recent MFA elevation。
+登入實作由B4.x提供；此文件記載審核與RBAC。
 本次不 push、不 deploy、不 remote migration、不建立 Production admin、不寄送真實郵件、不做首頁或 admin login UI。
 Production 仍使用 B3；0003、0004 尚未遠端套用。B5A 不開展 B5B points/campaign 或 B6。
 
@@ -9,7 +9,7 @@ Production 仍使用 B3；0003、0004 尚未遠端套用。B5A 不開展 B5B poi
 
 `admin-identity.js` 只使用 VoteProof 的 `memberSession`／`memberCsrf`：
 verified session → active member → D1 active membership → server role。
-沒有引用 auth login API、OTP、Resend、email address。日後登入 provider 更換時維持這個界線即可。
+只引用已驗證session/member與recent MFA，不把login_name作授權。日後登入 provider 更換時維持這個界線即可。
 每次已知 admin endpoint request 都重新查 D1；過期、撤銷、偽造 session 回 401，suspended member 回 403，無有效 role 回 403 `ADMIN_FORBIDDEN`。
 client role／member_id／headers 不能賦予權限。
 
@@ -21,7 +21,7 @@ client role／member_id／headers 不能賦予權限。
 | audit logs | 拒絕 | 可 | 可 |
 
 未實作 membership 管理 API；super_admin 的未來管理權限只由本次 schema 留待擴充。
-不新增 Secret／Variable；使用現有 session/CSRF 契約的 `AUTH_SECRET`／`AUTH_ORIGIN`，不依賴 email provider 設定。
+不新增 Secret／Variable；使用現有 session/CSRF 契約的 `AUTH_SECRET`／`AUTH_ORIGIN`，獨立於登入provider；須有recent MFA。
 所有 JSON response 使用 B1 helper、`Cache-Control: no-store`，錯誤沒有 stack、內部 SQL、R2 key 或 env。
 review 使用 HttpOnly host cookie，必須 exact `Origin: AUTH_ORIGIN` + `X-CSRF-Token`，拒絕 cross-site Fetch Metadata。
 SameSite=Lax 作輔助；GET 不改資料。沒有 permissive CORS。
@@ -117,13 +117,13 @@ Worker 驗證身份/RBAC，D1 JOIN 檢查 file 屬於 case，再透過 `PROOFS_B
 4. 用 UNIQUE member_id 防止重複／覆蓋；任何 INSERT/audit 失敗整批 rollback。先在 disposable local DB 驗證。不使用 INSERT OR REPLACE、預設 member_id、password 或 hidden endpoint。
 5. 保存維運執行紀錄；操作後查 role/audit/FK。後續 membership 異動亦需獨立可審計流程，本次不提供管理 API。
 
-沒有提供可直接執行 Production 的 bootstrap script；不建立任何 Production admin。本機 fixtures 只寫 disposable DB，不觸發 login/OTP/Resend。
+沒有提供可直接執行 Production 的 bootstrap script；不建立任何 Production admin。本機 fixtures 只寫 disposable DB，透過disposable fixture提供已驗證MFA session。
 
 ## 本機驗證與後續
 
 `npm test` 保留 B1/B2/B3/B4；新增 B5A authorization、review race/atomic audit rollback、duplicate、pagination、CSRF、proof、Guest/Member regression。
-`npm run test:admin-smoke` 透過實際 local workerd/D1/R2 執行，email adapter 一旦被使用便失敗。
-B4 既有 tests/smoke 只用本機 mocked email，沒有呼叫外部 Resend。
+`npm run test:admin-smoke`透過實際local workerd/D1/R2執行，只允許Turnstile測試upstream。
+B4.x tests/smoke使用本機password/TOTP，不接Production。
 test migration loader 使用 Wrangler SQL splitter 保留 trigger BEGIN/END；empty local DB 另由 Wrangler 正式 migration runner 驗證。
 `npm run check:admin-schema` 每次建立全新的 ignored local D1，驗證空 DB → 0001..0004、indexes/FK/triggers/quick_check、業務 tables 零資料；不使用 --remote。
 

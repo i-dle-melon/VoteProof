@@ -1,7 +1,7 @@
 import { AuthError, AUTH_LIMITS, suspended } from "../api/auth-validation.js";
 import { newQueryKey, sha256, equalQueryHash } from "./case-keys.js";
 
-export const SESSION_COOKIE = "__Host-vp-session", LOGIN_COOKIE = "__Host-vp-login";
+export const SESSION_COOKIE = "__Host-vp-session", LOGIN_COOKIE = "__Host-vp-login", DEVICE_COOKIE = "__Host-voteproof_device";
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 export const newAuthToken = newQueryKey;
 export const sessionHash = token => sha256("VoteProof/member-session/v1:" + token);
@@ -53,7 +53,7 @@ export async function memberSession(request, env, required = true) {
   if (!token) { if (required) throw authRequired(); return null; }
   const tokenHash = await sessionHash(token);
   const row = await authDatabase(env).prepare(`SELECT m.id, m.member_id, m.nickname, m.player_id, m.status,
-    m.created_at, m.updated_at, m.last_login_at, s.expires_at FROM auth_sessions s
+    m.created_at, m.updated_at, m.last_login_at, s.expires_at, s.elevated_until, s.reauthenticated_until FROM auth_sessions s
     JOIN members m ON m.member_id = s.member_id WHERE s.token_hash = ? AND s.revoked_at IS NULL
     AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER)`).bind(tokenHash).first();
   if (!row) throw authRequired();
@@ -69,4 +69,4 @@ export async function memberCsrf(request, env, member) {
 }
 export const publicMember = member => ({ member_id: member.member_id, nickname: member.nickname, player_id: member.player_id,
   status: member.status, created_at: member.created_at, updated_at: member.updated_at, last_login_at: member.last_login_at });
-export const sessionCookie = token => cookie(SESSION_COOKIE, token, AUTH_LIMITS.sessionSeconds);
+export const sessionCookie = (token, seconds = AUTH_LIMITS.sessionSeconds) => cookie(SESSION_COOKIE, token, seconds);

@@ -173,7 +173,7 @@ test('0007 preserves existing B5C audit/run while adding only identity seeds',as
   const member='M-'+randomUUID(),audit=randomUUID(),run=randomUUID();
   const sandbox=await localCaseRuntime({seedCampaign:false,migrationHook:async(db,name)=>{
     if(name!=='0006_leaderboards.sql')return;const now=new Date().toISOString();
-    await db.batch([db.prepare(`INSERT INTO members(id,member_id,email,nickname,status,created_at,updated_at,last_login_at) VALUES(?,?,?,'Local','active',?,?,?)`).bind(randomUUID(),member,randomUUID()+'@example.test',now,now,now),
+    await db.batch([db.prepare(`INSERT INTO members(id,member_id,login_name,nickname,status,created_at,updated_at,last_login_at) VALUES(?,?,?,'Local','active',?,?,?)`).bind(randomUUID(),member,randomUUID().replaceAll('-',''),now,now,now),
       db.prepare(`INSERT INTO leaderboards(leaderboard_id,name,type,top_n,is_public,status,created_at,updated_at,created_by,updated_by)
         VALUES('LOCAL-UPGRADE','Local snapshot','all_time',10,1,'active',?,?,?,?)`).bind(now,now,member,member),
       db.prepare(`INSERT INTO leaderboard_runs(run_id,leaderboard_id,generated_at,definition_version,source_count,status,definition_json,integrity_errors)

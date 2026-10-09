@@ -306,15 +306,15 @@ test("Campaign/adjustment mutations reject missing Origin/CSRF; unknown ledger m
     await error(await local.fetch("/api/admin/point-transactions/" + randomUUID(), method, {}, admin.headers), 404, "NOT_FOUND");
   }
   await error(await local.fetch("/api/admin/campaigns", "PATCH", {}, admin.headers), 405, "METHOD_NOT_ALLOWED");
-  assert.equal(local.emails.length, 0);
+  assert.equal(local.unexpectedUpstreams.length, 0);
 });
 test("0005 preserves existing B5A audit rows and re-establishes append-only protection", async () => {
   const auditId = randomUUID(), memberId = "M-" + randomUUID(), now = new Date().toISOString();
   const runtime = await localCaseRuntime({ seedCampaign: false, async migrationHook(db, name) {
     if (name !== "0004_admin_review.sql") return;
     await db.batch([
-      db.prepare("INSERT INTO members (id, member_id, email, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(randomUUID(), memberId, randomUUID() + "@example.test", now, now, now),
+      db.prepare("INSERT INTO members (id, member_id, login_name, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(randomUUID(), memberId, randomUUID().replaceAll("-", ""), now, now, now),
       db.prepare(`INSERT INTO admin_audit_logs (id, created_at, admin_member_id, admin_role, action, target_type, target_id, before_json, after_json, reason)
         VALUES (?, ?, ?, 'super_admin', 'bootstrap_membership', 'admin_membership', ?, '{}', '{}', 'local migration fixture')`)
         .bind(auditId, now, memberId, randomUUID()),

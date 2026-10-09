@@ -248,8 +248,8 @@ test('0006 preserves populated B5B ledger/audit and historical migration protect
   const sandbox = await localCaseRuntime({seedCampaign:false,migrationHook:async (db,name) => {
     if (name !== '0005_campaign_point_ledger.sql') return;
     await db.batch([
-      db.prepare(`INSERT INTO members(id,member_id,email,nickname,status,created_at,updated_at,last_login_at)
-        VALUES(?,?,?,'Local migration','active',?,?,?)`).bind(randomUUID(),member,randomUUID()+'@example.test',timestamp,timestamp,timestamp),
+      db.prepare(`INSERT INTO members(id,member_id,login_name,nickname,status,created_at,updated_at,last_login_at)
+        VALUES(?,?,?,'Local migration','active',?,?,?)`).bind(randomUUID(),member,randomUUID().replaceAll('-',''),timestamp,timestamp,timestamp),
       db.prepare(`INSERT INTO point_transactions(transaction_id,created_at,member_id,category,points,reason,created_by,idempotency_hash,request_hash)
         VALUES(?,?,?,'manual_adjustment',7,'Local migration',?,?,?)`).bind(transaction,timestamp,member,member,randomUUID().replaceAll('-','').repeat(2),randomUUID().replaceAll('-','').repeat(2)),
       db.prepare(`INSERT INTO admin_audit_logs(id,created_at,admin_member_id,admin_role,action,target_type,target_id,target_version,before_json,after_json)

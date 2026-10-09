@@ -1,6 +1,6 @@
 # B5B Campaign + Point Ledger（本機 checkpoint）
 
-B4 auth 繼續凍結。B5A checkpoint：`cd6a5a31d79a11fab0dcdc9831dfc20d22034129`。
+B4.x auth僅本機。B5A checkpoint：`cd6a5a31d79a11fab0dcdc9831dfc20d22034129`。
 本次只做正式 Campaign／append-only 點數帳本後端；不 push、deploy、remote migrate、不改首頁、登入 provider 或 Admin UI，不進 B5C/B6。
 不新增 Secret／Variable。Admin/Member APIs 只依賴既有 verified session/member 與 CSRF。
 Google Sheet/Apps Script 不寫入、不做雙向同步；既有 B1 leaderboard 讀取保留，新 leaderboard 留 B5C。
@@ -118,9 +118,9 @@ Summary 直接 SUM ledger，包括撤銷與正/負 manual adjustments，可為�
 Campaign create/update、manual adjustment、approve/revoke 都記 audit。Ledger/audit 失敗使整批 status/config/points 回滾。
 不從 headers/env 產生紀錄，不 log exception/body/key；摘要沒有 query key/hash、token、presigned URL 或 credentials。
 人工 reason/note 僅應填業務原因，不能貼 credentials；API 不會主動取用/複製任何 Secret。
-No auth provider changes、Resend outbound、points 雙 source-of-truth。B4 regression 的 email 僅由本機 mocks 處理。
+Point ledger維持唯一source-of-truth；B4.x regression只在disposable local runtime。
 
-Production rollout 暫停：B4 方案確認前不套 0003..0005；未建立 admin 或 Campaign。
+Production rollout 暫停：B4.x完成正式rollout驗收前不套0003..0007；未建立 admin 或 Campaign。
 既有 legacy case 若 campaign_id 尚無正式 registry 不會默默核准給分，需日後經 review 的 Campaign 資料銜接政策，不能用假資料補足。
 沒有歷史 award backfill、leaderboard（B5C）、UI、Google 雙向同步、補交/reopen、revoked restoration、自動 orphan reconciliation。
 現有 admin bootstrap 仍依 B5A 文件，未執行。
@@ -132,7 +132,7 @@ B1 HTTP smoke 先建立 disposable 空 D1 再套 migrations，維持 empty Campa
 六套 smoke：test:smoke / test:uploads-smoke / test:cases-smoke / test:auth-smoke / test:admin-smoke / test:points-smoke。
 `check:admin-schema` 從全新 local DB 套 0001..0005，檢查 tables/indexes/16 triggers/FK/quick_check 與零業務資料；沒有 --remote。
 另測帶既有 audit rows 的 0004→0005 升級，紀錄保留與不可修改保護通過。
-Wrangler dry-run 113.54 KiB / gzip 28.02 KiB。首頁、wrangler.jsonc、lockfile、0001..0004、frozen auth modules 保持原樣。
+Wrangler dry-run 113.54 KiB / gzip 28.02 KiB。首頁、wrangler.jsonc、lockfile、0001..0004、當時的auth modules 保持原樣。
 
 修改：README.md、package.json、scripts/check-admin-schema.mjs、scripts/lib/local-admin-runtime.mjs、scripts/lib/local-case-runtime.mjs、scripts/smoke.mjs、src/api/admin-validation.js、src/api/admin.js、src/api/campaigns.js、src/api/case-validation.js、src/api/cases.js、src/api/router.js、src/lib/admin-identity.js、src/lib/admin-store.js、src/lib/case-review.js、src/lib/case-store.js、test/admin.test.js、test/api.test.js。
 

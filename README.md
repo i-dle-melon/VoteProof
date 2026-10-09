@@ -3,13 +3,13 @@
 ## B5D Member Tier（本機 checkpoint，未發布）
 
 固定八階 identity 與 dynamic ledger-net tier/progress 已實作，見 [B5D 文件](docs/b5d-member-tiers.md)。0007 只設定普通0，其餘七階門檻null/disabled，等待明確批准；未完成設定時points API回普通與ready=false。
-Member/Admin points保留total_points並新增tier/progress；等級不改RBAC、獎勵倍率或leaderboard排名。只做本機，B4auth凍結，未push/deploy/remote migrate，無frontend/正式徽章。
+Member/Admin points保留total_points並新增tier/progress；等級不改RBAC、獎勵倍率或leaderboard排名。只做本機，B4.x auth僅本機，未push/deploy/remote migrate，無frontend/正式徽章。
 
 ## B5C D1 Leaderboard（本機 checkpoint，未發布）
 
 D1 leaderboard backend 已實作：以 append-only point_transactions 為唯一點數來源，原子 rebuild/publish、deterministic ranking、公開 snapshot API 與 admin RBAC。完整 schema、reached_at、scope、B1 contract 與切源差異見 [B5C 文件](docs/b5c-leaderboards.md)。
 
-只做本機；B4 auth 凍結，未 push/deploy/remote migrate。Production Apps Script 舊來源未切換。
+只做本機；B4.x auth僅本機，未 push/deploy/remote migrate。Production Apps Script 舊來源未切換。
 
 
 ## B5B Campaign／Point Ledger（本機 checkpoint，未發布）
@@ -17,21 +17,21 @@ D1 leaderboard backend 已實作：以 append-only point_transactions 為唯一�
 正式 D1 Campaign、append-only Point Ledger、member/campaign/vote_date daily limit、atomic approve/revoke/audit、idempotent manual adjustments 與 ledger SUM，見 [docs/b5b-campaign-points.md](docs/b5b-campaign-points.md)。
 新增 0005；0001..0004 未改。`test:points-smoke` 驗證流程，`check:admin-schema` 從空 local DB 驗證 0001..0005。
 Campaign timezone 固定、closed 不接受新投稿，Guest 永遠零分；不重算歷史交易，不寫 Google Sheets，不做 B5C leaderboard。
-B4 auth 仍凍結，B4/B5 不 remote migrate／push／deploy，首頁與登入 provider 保持原樣。
+B4.x auth已在本機完成，B4/B5 不 remote migrate／push／deploy，首頁保持原樣。
 
 ## B5A 管理員授權／案件審核（僅本機，未發布）
 
-B4 身份驗證方案已凍結，Email OTP／Resend 版本只作為本機 checkpoint。B5A 只依賴已驗證的 VoteProof session/member，不引用登入 provider 或 email 作授權。
+B4.x會員身份方案見下方最終auth。B5A 只依賴已驗證的 VoteProof session/member，不引用登入 provider 或 email 作授權。
 新增 RBAC、私人 proof stream、版本衝突檢查與 append-only audit，詳見 [docs/b5a-admin-review.md](docs/b5a-admin-review.md)。
-`0004_admin_review.sql` 只在本機驗證；無 Production admin／remote migration，無新 Secret、首頁改動或真實郵件。`npm run test:admin-smoke` 使用 disposable local fixtures。
-尚未 push／deploy，不進 B5B 積分／Campaign 或 B6；B4 後續 auth 評估另行處理。
+`0004_admin_review.sql` 只在本機驗證；無 Production admin／remote migration，無首頁改動或Production操作。`npm run test:admin-smoke` 使用 disposable local fixtures。
+尚未 push／deploy，不進 B5B 積分／Campaign 或 B6；B4.x 最終auth僅本機。
 
-## B4 Member identity（僅本機，未發布）
+## B4.x final Member auth（本機，未發布）
 
-Email OTP、D1 members/challenges/sessions/rate limits、HttpOnly cookies／CSRF、profile 與 owner-only cases API，見 [docs/b4-members.md](docs/b4-members.md)。
-`0003_member_identity.sql` 只在本機 apply；新 Secrets 為 `AUTH_SECRET`／`AUTH_EMAIL_API_KEY`，Variables 為 `AUTH_ORIGIN`／`AUTH_EMAIL_FROM`，Production 必須由使用者手動設定。
-`npm run test:auth-smoke` 使用 disposable local workerd/D1/R2 與 mock email，沒有寄送真實郵件或 Production bypass。
-首頁保持原樣，會員按鈕仍為原有示範；本次會員身份功能由 API 提供，Guest flow 與 B3 query key 保留，不做管理員後台／積分／排行榜改寫，不自行 push 或 deploy。
+帳號＋密碼、強制Authenticator TOTP、Trusted Device、Remember Me、Recovery Codes已替換舊未發布auth。完整schema/API/KDF實測/Secret/CSRF/TTL/rotation限制見 [B4.x文件](docs/b4-members.md)。
+0003重寫為最終auth；0001/0002及0004..0007保持原樣，舊local auth DB需要新的空persist目錄。Session/member/cases/Guest契約保留，所有admin API新增1小時MFA elevation。
+手動Secrets為AUTH_SECRET、AUTH_PASSWORD_PEPPER、AUTH_TOTP_ENCRYPTION_KEY；Variable為AUTH_ORIGIN。強scrypt需要Workers Paid/適當CPU預算，發布前需Productionload驗收。
+`test:auth-smoke`執行真實local workerd/D1/password/TOTP流程，`benchmark:auth-kdf`只輸出成本。沒有Production bypass；首頁完全不變，沒有frontend、push/deploy/remote migration。
 
 ## B3 既有基礎
 

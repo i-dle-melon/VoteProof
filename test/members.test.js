@@ -17,16 +17,16 @@ async function memberCase(member, reference, key = randomUUID(), extra = {}) {
   return { data: (await response.json()).data, body, headers, key };
 }
 
-test("profile supports trimmed validated nickname/player_id, never exposes email or internal id", async () => {
+test("profile supports trimmed validated nickname/player_id, never exposes login_name or internal id", async () => {
   const member = await login(local), response = await local.fetch("/api/me/profile", "PATCH", { nickname: "  新暱稱  ", player_id: "  PLAYER  " }, member.headers);
   assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
   const data = (await response.json()).data.member;
   assert.equal(data.nickname, "新暱稱"); assert.equal(data.player_id, "PLAYER"); assert.equal(data.member_id, member.member.member_id);
-  for (const key of ["id", "email", "token_hash"]) assert.equal(Object.hasOwn(data, key), false);
+  for (const key of ["id", "login_name", "token_hash"]) assert.equal(Object.hasOwn(data, key), false);
 });
 for (const [name, body] of [["blank nickname", { nickname: " " }], ["long nickname", { nickname: "長".repeat(51) }],
   ["blank player", { player_id: " " }], ["long player", { player_id: "a".repeat(101) }], ["control", { nickname: "a\n" }],
-  ["non-string", { nickname: 1 }], ["empty", {}], ["email", { email: "other@example.test" }],
+  ["non-string", { nickname: 1 }], ["empty", {}], ["login_name", { login_name: "other-account" }],
   ["member_id", { member_id: "other" }], ["status", { status: "active" }]]) {
   test("profile rejects " + name, async () => {
     const member = await login(local);
@@ -103,7 +103,7 @@ test("member idempotency retains logical credential across profile/session chang
   await local.fetch("/api/me/profile", "PATCH", { nickname: "updated" }, a.headers);
   const same = await local.fetch("/api/cases", "POST", created.body, created.headers);
   assert.equal(same.status, 201); assert.deepEqual((await same.json()).data, created.data);
-  const fresh = await login(local, a.email);
+  const fresh = await login(local, a);
   const replay = await local.fetch("/api/cases", "POST", created.body, { ...fresh.headers, "Idempotency-Key": created.key });
   assert.equal(replay.status, 201); assert.deepEqual((await replay.json()).data, created.data);
   await expectError(await local.fetch("/api/cases", "POST", { ...created.body, note: "different" }, { ...fresh.headers, "Idempotency-Key": created.key }), 409, "IDEMPOTENCY_CONFLICT");

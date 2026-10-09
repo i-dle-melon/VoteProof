@@ -22,7 +22,7 @@ try {
   const own = await h.makeCase({ member });
   assert.equal((await local.fetch(`/api/me/cases/${own.case_id}`, "GET", undefined, member.headers)).status, 200);
   assert.equal((await local.fetch(`/api/me/cases/${own.case_id}`, "GET", undefined, admin.headers)).status, 404);
-  assert.equal(local.emails.length, 0);
+  assert.equal(local.unexpectedUpstreams.length, 0);
   assert.deepEqual((await local.db.prepare("PRAGMA foreign_key_check").all()).results, []);
-  console.log("B5A smoke PASS: verified identity/RBAC, private proof stream, concurrent review + atomic audit, Guest/Member compatibility; no email delivery");
+  console.log("B5A smoke PASS: verified identity/RBAC, private proof stream, concurrent review + atomic audit, Guest/Member compatibility; recent MFA enforced");
 } finally { await local.runtime.dispose(); }

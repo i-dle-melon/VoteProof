@@ -1,22 +1,21 @@
 // Fixture identities/sessions are inserted only into disposable local D1.
-// B5A tests never invoke an OTP endpoint or email delivery provider.
+// B5 fixtures model sessions with a recent, server-verified MFA elevation.
 import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { localCaseRuntime, guestBody } from "./local-case-runtime.mjs";
 
 export async function localAdminRuntime() {
-  const local = await localCaseRuntime({ emailService: () => { throw new Error("B5A must not send email"); } });
-  await local.setAuthConfig({ AUTH_EMAIL_API_KEY: undefined, AUTH_EMAIL_FROM: undefined });
-  async function identity({ role, status = "active", membershipStatus = "active", expired = false, revoked = false } = {}) {
+  const local = await localCaseRuntime();
+  async function identity({ role, status = "active", membershipStatus = "active", expired = false, revoked = false, elevated = true } = {}) {
     const memberId = "M-" + randomUUID(), token = randomBytes(32).toString("base64url");
     const hash = createHash("sha256").update("VoteProof/member-session/v1:" + token).digest("hex");
     const now = Math.floor(Date.now() / 1000), timestamp = new Date().toISOString();
     const db = local.db;
     await db.batch([
-      db.prepare(`INSERT INTO members (id, member_id, email, nickname, player_id, status, created_at, updated_at, last_login_at)
+      db.prepare(`INSERT INTO members (id, member_id, login_name, nickname, player_id, status, created_at, updated_at, last_login_at)
         VALUES (?, ?, ?, '本機審核員', 'local-player', ?, ?, ?, ?)`)
-        .bind(randomUUID(), memberId, randomUUID() + "@example.test", status, timestamp, timestamp, timestamp),
-      db.prepare(`INSERT INTO auth_sessions (token_hash, member_id, created_at, expires_at, revoked_at) VALUES (?, ?, ?, ?, ?)`)
-        .bind(hash, memberId, now - 60, expired ? now - 1 : now + 3600, revoked ? now : null),
+        .bind(randomUUID(), memberId, randomUUID().replaceAll("-", ""), status, timestamp, timestamp, timestamp),
+      db.prepare(`INSERT INTO auth_sessions (token_hash, member_id, created_at, expires_at, revoked_at, elevated_until) VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(hash, memberId, now - 60, expired ? now - 1 : now + 3600, revoked ? now : null, elevated ? now + 3600 : now - 1),
     ]);
     if (role) await db.prepare(`INSERT INTO admin_memberships (id, member_id, role, status, created_at, created_by, updated_at)
       VALUES (?, ?, ?, ?, ?, NULL, ?)`)

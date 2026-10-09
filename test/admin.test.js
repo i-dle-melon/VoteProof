@@ -59,7 +59,7 @@ test("all admin endpoints deny absent or forged session and client role/member s
   await error(await local.fetch("/api/admin/me", "GET", undefined, { Cookie: "__Host-vp-session=" + normal.token.replace(/^./, normal.token[0] === "A" ? "B" : "A") }), 401, "AUTH_REQUIRED");
   await error(await local.fetch("/api/admin/cases/unknown/review", "POST", { action: "approve" }), 401, "AUTH_REQUIRED");
 });
-for (const role of ["reviewer", "admin", "super_admin"]) test(`${role} identity is verified server-side without email provider configuration`, async () => {
+for (const role of ["reviewer", "admin", "super_admin"]) test(`${role} identity is verified server-side without a login-provider dependency`, async () => {
   const actor = await h.identity({ role });
   const response = await get("/api/admin/me", actor); assert.equal(response.status, 200);
   const data = (await response.json()).data; assert.equal(data.role, role); assert.equal(data.member_id, actor.memberId);
@@ -338,11 +338,11 @@ test("Guest query protection and Member owner queries retain B3/B4 behavior afte
   await error(await local.fetch(`/api/cases/${fixture.case_id}`), 404, "CASE_NOT_FOUND");
   await error(await local.fetch(`/api/cases/${fixture.case_id}?key=${"A".repeat(43)}`), 404, "CASE_NOT_FOUND");
 });
-test("admin unknown API/methods retain 404/405 and B5A fixtures send no email", async () => {
+test("admin unknown API/methods retain 404/405 and B5A fixtures use no external login provider", async () => {
   await error(await local.fetch("/api/admin/unknown"), 404, "NOT_FOUND");
   await error(await local.fetch("/api/unknown"), 404, "NOT_FOUND");
   await error(await local.fetch("/api/admin/me", "POST", {}, reviewer.headers), 405, "METHOD_NOT_ALLOWED");
-  assert.equal(local.emails.length, 0);
+  assert.equal(local.unexpectedUpstreams.length, 0);
   assert.equal((await local.fetch("/api/health")).status, 200);
   assert.equal((await local.fetch("/api/campaigns")).status, 200);
 });

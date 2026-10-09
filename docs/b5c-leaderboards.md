@@ -1,6 +1,6 @@
 # B5C D1 Leaderboard（本機 checkpoint）
 
-只做 backend、本機 migration/test/commit。B4 auth 凍結，不 push/deploy/remote apply、不改 Production，不做 UI/獎品/通知，不進 B6。
+只做 backend、本機 migration/test/commit。B4.x auth僅本機，不 push/deploy/remote apply、不改 Production，不做 UI/獎品/通知，不進 B6。
 沒有新增 Secret/Variable。首頁、wrangler.jsonc、0001..0005、auth modules 不改。
 
 ## Source / scope
@@ -131,9 +131,9 @@ B1 retired adapter 放 `src/lib/legacy-leaderboards.js`，只由歷史 contract 
 
 ## Verification / TODO
 
-本機驗收：npm test；B1/B2/B3/frozen B4/B5A/B5B/B5C 七套 smoke；空 DB local0001..0006、FK/quick_check/schema/26 triggers/零seed；Wrangler dry-run、sensitive scan、diff review。
+本機驗收：npm test；B1/B2/B3/B4.x/B5A/B5B/B5C 七套 smoke；空 DB local0001..0006、FK/quick_check/schema/26 triggers/零seed；Wrangler dry-run、sensitive scan、diff review。
 結果：434/434 tests（既有380＋B5C新增54），七套 smoke 全通過；Wrangler dry-run129.62KiB/gzip30.91KiB。
-所有 fixture與故障注入只存在測試／disposable local runtime，不送真email、不接Production。
+所有 fixture與故障注入只存在測試／disposable local runtime，不使用外部登入provider、不接Production。
 
 修改8檔：README.md、package.json、scripts/check-admin-schema.mjs、scripts/smoke.mjs、src/api/admin-validation.js、src/api/leaderboards.js、src/api/router.js、test/api.test.js。
 新增10檔：docs/b5c-leaderboards.md、migrations/0006_leaderboards.sql、scripts/lib/local-leaderboard-runtime.mjs、scripts/smoke-leaderboards.mjs、src/api/admin-leaderboards.js、src/lib/leaderboard-policy.js、src/lib/leaderboard-ranking.js、src/lib/leaderboard-store.js、src/lib/legacy-leaderboards.js、test/leaderboards.test.js。

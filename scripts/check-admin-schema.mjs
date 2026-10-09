@@ -41,6 +41,9 @@ const schemaQueries = [
   "PRAGMA foreign_key_list(leaderboards)", "PRAGMA foreign_key_list(leaderboard_runs)", "PRAGMA foreign_key_list(leaderboard_results)",
   "SELECT (SELECT COUNT(*) FROM leaderboards) + (SELECT COUNT(*) FROM leaderboard_runs) + (SELECT COUNT(*) FROM leaderboard_results) AS n",
   "SELECT tier_id,name,rank_order,min_points,icon_key,status FROM member_tiers ORDER BY rank_order", "PRAGMA foreign_key_list(member_tiers)",
+  "PRAGMA table_info(members)", "PRAGMA foreign_key_list(member_credentials)", "PRAGMA foreign_key_list(auth_transactions)",
+  "PRAGMA foreign_key_list(auth_sessions)", "PRAGMA foreign_key_list(trusted_devices)", "PRAGMA foreign_key_list(recovery_codes)",
+  "SELECT (SELECT count(*) FROM member_credentials)+(SELECT count(*) FROM auth_transactions)+(SELECT count(*) FROM auth_sessions)+(SELECT count(*) FROM trusted_devices)+(SELECT count(*) FROM recovery_codes)+(SELECT count(*) FROM auth_atomic_guards) AS n",
 ];
 const results = JSON.parse(run(["d1", "execute", "voteproof-cases", "--command", schemaQueries.join(";\n"), "--json"]));
 assert.equal(results.length, schemaQueries.length);
@@ -49,7 +52,7 @@ const rows = results.map(result => result.results);
 const applied = rows[0].map(row => row.name);
 assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql"]);
 const tables = rows[1].map(row => row.name);
-for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "auth_challenges", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
+for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "member_credentials", "auth_transactions", "trusted_devices", "recovery_codes", "auth_atomic_guards", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
 const indexes = rows[2].map(row => row.name);
 for (const name of ["idx_cases_admin_queue", "idx_cases_last_review", "idx_cases_duplicate_target", "idx_admin_audit_cursor", "idx_admin_audit_actor", "idx_admin_audit_target", "idx_campaigns_public", "idx_campaigns_admin", "idx_points_member_date", "idx_points_daily", "idx_points_case", "idx_points_case_award", "idx_points_reversal"]) assert.ok(indexes.includes(name));
 const triggers = rows[3].map(row => row.name);
@@ -84,5 +87,10 @@ assert.deepEqual(rows[17].map(row=>row.min_points),[0,null,null,null,null,null,n
 assert.deepEqual(rows[17].map(row=>row.status),['active','disabled','disabled','disabled','disabled','disabled','disabled','disabled']);
 assert.ok(rows[17].every(row=>row.icon_key===row.tier_id));
 for (const from of ['created_by','updated_by']) assert.ok(rows[18].some(row=>row.from===from && row.table==='members'));
-console.log(JSON.stringify({ result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
+assert.ok(rows[19].some(row=>row.name==='login_name'));
+assert.ok(!rows[19].some(row=>row.name==='email'));
+for(const row of rows.slice(20,25)) assert.ok(row.some(fk=>fk.from==='member_id'&&fk.table==='members'&&fk.to==='member_id'));
+assert.equal(rows[25][0].n,0);
+for(const name of ['idx_auth_transactions_expiration','idx_auth_transactions_member','idx_auth_sessions_member','idx_auth_sessions_expiration','idx_trusted_devices_member','idx_recovery_codes_member','idx_auth_rate_expiration','idx_cases_member_cursor'])assert.ok(indexes.includes(name));
+console.log(JSON.stringify({ auth_schema:'password/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
   fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

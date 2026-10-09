@@ -1,6 +1,6 @@
 # B5D Member Tier（本機 checkpoint）
 
-只做 backend/schema/API，本機驗收與 commit；不 push/deploy/remote migration、不改 Production、不處理 frozen B4 auth、不做 UI 或正式徽章、不進 B6。
+只做 backend/schema/API，本機驗收與 commit；不 push/deploy/remote migration、不改 Production、B4.x auth另見會員文件、不做 UI 或正式徽章、不進 B6。
 沒有新增 Secret/Variable、auth provider、點數倍率、RBAC 規則或 leaderboard 排序規則。
 
 ## 固定 identities / migration
@@ -123,11 +123,11 @@ icon_key只回固定安全token，沒有假的SVG、emojiasset、路徑輸入或
 本機验收包含 npm test、B1～B5D八套smoke、空DB0001..0007、FK/quick_check/schema/31triggers、敏感值scan與Wranglerdry-run。
 結果：486/486 tests（既有434＋新增52），八套smoke通過；Wranglerdry-run137.30KiB/gzip32.56KiB；92個repository檔案敏感值scan無發現。
 新identity seed已明確批准，但七個正式threshold仍未定義；schemachecker分別回報8 identities、7 nullthresholds、ready=false與0業務fixture。
-首頁、wrangler.jsonc、lockfile、0001..0006、frozenauth、B5Cquery/ranking/store保持原樣。
+首頁、wrangler.jsonc、lockfile、0001..0006、當時auth、B5Cquery/ranking/store保持原樣。
 
 修改8檔：README.md、package.json、scripts/check-admin-schema.mjs、scripts/smoke-points.mjs、src/api/admin-validation.js、src/api/points.js、src/api/router.js、test/campaign-points.test.js。
 新增7檔：docs/b5d-member-tiers.md、migrations/0007_member_tiers.sql、scripts/lib/local-tier-fixture.mjs、scripts/smoke-tiers.mjs、src/api/member-tiers.js、src/lib/member-tier.js、test/member-tiers.test.js。
 
 TODO：由你決定七個正式threshold，再於日後已批准的Productionrollout透過verifiedadmin/backend或明確bootstrap配置、確認ready=true。
-目前沒有Productionadminbootstrap/remoteapply/UI；B4auth凍結仍是rollout前置條件。
+目前沒有Productionadminbootstrap/remoteapply/UI；B4.x auth尚需正式rollout驗收。
 後續badgebatchintegration、正式assets、highest-ever/history/honorarytiers另開規格；本次不做，亦不進B6。

@@ -1,17 +1,16 @@
+import { verifyPassword } from "../lib/supabase-auth.js";
+import { findIdentity } from "../lib/auth-identity.js";
 import { jsonSuccess } from "./response.js";
 import {
   AUTH_LIMITS,
   AuthError,
   readAuthJson,
   onlyFields,
-  normalizeLogin,
+  normalizeEmail,
   passwordInput,
   booleanInput,
-  profileInput,
   invalidVerification,
 } from "./auth-validation.js";
-import { UploadError, UPLOAD_LIMITS } from "./upload-validation.js";
-import { verifyTurnstile } from "./turnstile.js";
 import {
   withCookies,
   readCookie,
@@ -19,11 +18,6 @@ import {
   authDatabase,
 } from "../lib/auth-session.js";
 import {
-  newTotp,
-  encryptTotp,
-  passwordRecord,
-  verifyPassword,
-  dummyPasswordCheck,
   totpStep,
   deviceHash,
 } from "../lib/auth-crypto.js";
@@ -39,67 +33,7 @@ import {
   totpGuard,
   advanceTotp,
 } from "./auth.js";
-export const registrationStart = authHandler(async (env, _url, request) => {
-  const db = await authContext(request, env),
-    body = await readAuthJson(request);
-  onlyFields(body, [
-    "login_name",
-    "password",
-    "nickname",
-    "player_id",
-    "turnstile_token",
-  ]);
-  const name = normalizeLogin(body.login_name),
-    password = passwordInput(body.password),
-    profile = profileInput({
-      nickname: body.nickname,
-      ...(body.player_id === undefined ? {} : { player_id: body.player_id }),
-    });
-  await throttle(
-    request,
-    env,
-    "register",
-    name,
-    AUTH_LIMITS.registrationStarts,
-    true,
-  );
-  if (typeof body.turnstile_token !== "string" || !body.turnstile_token.trim())
-    throw new UploadError(
-      400,
-      "TURNSTILE_REQUIRED",
-      "Turnstile verification is required",
-    );
-  if (body.turnstile_token.length > UPLOAD_LIMITS.maxTokenLength)
-    throw new AuthError(
-      400,
-      "INVALID_AUTH_REQUEST",
-      "Invalid authentication request",
-    );
-  await verifyTurnstile(request, env, body.turnstile_token.trim());
-  const memberId = "M-" + crypto.randomUUID(),
-    setup = newTotp(name);
-  const data = {
-    login_name: name,
-    member_id: memberId,
-    ...profile,
-    password_record: await passwordRecord(password, env),
-    ...(await encryptTotp(setup.secret, memberId, env)),
-  };
-  const tx = await createTransaction(db, "register", data);
-  // Identical enrollment shape even if the login name is already registered.
-  return withCookies(
-    jsonSuccess(
-      {
-        transaction_id: tx.id,
-        expires_in: AUTH_LIMITS.transactionSeconds,
-        otpauth_uri: setup.otpauth_uri,
-      },
-      "no-store",
-      202,
-    ),
-    tx.cookies,
-  );
-});
+export { registrationStart } from "./auth-registration.js";
 export const registrationVerify = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env),
     body = await readAuthJson(request);
@@ -124,12 +58,14 @@ export const registrationVerify = authHandler(async (env, _url, request) => {
     tx,
     recoveryCodes: recovery.codes,
     guards: [
+      {sql: "EXISTS(SELECT 1 FROM auth_enrollments WHERE id=? AND state='pending' AND provider_subject=? AND totp_transaction_id=? AND expires_at>CAST(strftime('%s','now') AS INTEGER))", args:[data.enrollment_id,data.provider_subject,tx.id]},
       {
         sql: "NOT EXISTS(SELECT 1 FROM members WHERE login_name=?)",
         args: [data.login_name],
       },
     ],
     statements: [
+      db.prepare("UPDATE auth_enrollments SET state='active' WHERE id=?").bind(data.enrollment_id),
       db
         .prepare(
           "INSERT INTO members(id,member_id,login_name,nickname,player_id,created_at,updated_at,last_login_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -146,17 +82,17 @@ export const registrationVerify = authHandler(async (env, _url, request) => {
         ),
       db
         .prepare(
-          `INSERT INTO member_credentials(member_id,password_record,totp_ciphertext,totp_iv,totp_key_version,last_used_time_step,updated_at) VALUES(?,?,?,?,?,?,?)`,
+          `INSERT INTO member_credentials(member_id,totp_ciphertext,totp_iv,totp_key_version,last_used_time_step,updated_at) VALUES(?,?,?,?,?,?)`,
         )
         .bind(
           data.member_id,
-          data.password_record,
           data.totp_ciphertext,
           data.totp_iv,
           data.totp_key_version,
           step,
           now,
         ),
+      db.prepare("INSERT INTO auth_identities(provider,provider_subject,member_id,email_lookup_hash,email_ciphertext,email_iv,email_key_version,created_at) VALUES('supabase',?,?,?,?,?,?,?)").bind(data.provider_subject,data.member_id,data.email_lookup_hash,data.email_ciphertext,data.email_iv,data.email_key_version,now),
       ...recovery.statements,
     ],
   });
@@ -170,8 +106,8 @@ const loginFailure = () =>
 export const passwordLogin = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env),
     body = await readAuthJson(request);
-  onlyFields(body, ["login_name", "password", "remember_me"]);
-  const name = normalizeLogin(body.login_name),
+  onlyFields(body, ["email", "password", "remember_me"]);
+  const name = normalizeEmail(body.email),
     password = passwordInput(body.password),
     remember = booleanInput(body.remember_me);
   await throttle(
@@ -180,17 +116,12 @@ export const passwordLogin = authHandler(async (env, _url, request) => {
     "password-login",
     name,
     AUTH_LIMITS.accountAttempts,
-    true,
   );
-  const member = await db
-    .prepare("SELECT member_id FROM members WHERE login_name=?")
-    .bind(name)
-    .first();
-  const record = member ? await credentials(db, member.member_id) : null;
-  const valid = record
-    ? await verifyPassword(password, record.password_record, env)
-    : await dummyPasswordCheck(password, env);
-  if (!valid || record.status !== "active") throw loginFailure();
+  const record = await findIdentity(db, env, name);
+  const verified = await verifyPassword(env, name, password);
+  const locked = record ? await db.prepare("SELECT id FROM auth_password_operations WHERE member_id=? AND status='pending'").bind(record.member_id).first() : null;
+  if (!verified || !record || verified.id !== record.provider_subject || record.status !== "active" || locked) throw loginFailure();
+  const member = { member_id: record.member_id };
   let token;
   try {
     token = readCookie(request, DEVICE_COOKIE);

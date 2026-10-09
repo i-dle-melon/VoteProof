@@ -32,36 +32,16 @@ export async function begin(
   headers = loginHeaders(),
   extra = {},
 ) {
-  const password = randomBytes(24).toString("base64url"),
-    body = {
-      login_name: name,
-      password,
-      nickname: "本機會員",
-      player_id: "local-player",
-      turnstile_token: randomBytes(24).toString("hex"),
-      ...extra,
-    };
-  const response = await local.fetch(
-    "/api/auth/register/start",
-    "POST",
-    body,
-    headers,
-  );
-  assert.equal(response.status, 202);
-  const data = (await response.json()).data,
-    otp = URI.parse(data.otpauth_uri);
-  return {
-    id: data.transaction_id,
-    data,
-    code: otp.generate(),
-    otp,
-    password: body.password,
-    login_name: body.login_name,
-    cookie: responseCookie(response, LOGIN_COOKIE),
-    headers,
-    response,
-  };
+  const password = extra.password ?? randomBytes(24).toString("base64url"), email = name.includes("@") ? name : name + "@local.example";
+  const started = await local.fetch("/api/auth/register/start","POST",{email,turnstile_token:randomBytes(24).toString("hex")},headers);
+  assert.equal(started.status,202);const challenge=(await started.json()).data;
+  const verified=await local.fetch("/api/auth/register/verify-email","POST",{challenge_id:challenge.challenge_id,code:local.provider.codeFor(email)}, {...headers,Cookie:responseCookie(started,LOGIN_COOKIE)});
+  assert.equal(verified.status,202);const registration=(await verified.json()).data;
+  const response=await local.fetch("/api/auth/register/credentials","POST",{transaction_id:registration.transaction_id,password,nickname:"本機會員",player_id:"local-player",...extra}, {...headers,Cookie:responseCookie(verified,LOGIN_COOKIE)});
+  assert.equal(response.status,202);const data=(await response.json()).data,otp=URI.parse(data.otpauth_uri);
+  return {id:data.transaction_id,data,code:otp.generate(),otp,password,email:email.trim().toLowerCase(),email_hash:await local.emailHash(email),cookie:responseCookie(response,LOGIN_COOKIE),headers,response};
 }
+
 export async function finish(local, setup, extra = {}, extraHeaders = {}) {
   return local.fetch(
     "/api/auth/register/verify-totp",
@@ -75,7 +55,7 @@ export async function login(local, existing) {
     const response = await local.fetch(
       "/api/auth/login",
       "POST",
-      { login_name: existing.login_name, password: existing.password },
+      { email: existing.email, password: existing.password },
       {
         ...loginHeaders(),
         Cookie: existing.deviceCookie + "; " + existing.cookie,

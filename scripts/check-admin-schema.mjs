@@ -91,6 +91,10 @@ assert.ok(rows[19].some(row=>row.name==='login_name'));
 assert.ok(!rows[19].some(row=>row.name==='email'));
 for(const row of rows.slice(20,25)) assert.ok(row.some(fk=>fk.from==='member_id'&&fk.table==='members'&&fk.to==='member_id'));
 assert.equal(rows[25][0].n,0);
+for (const name of ['auth_identities','auth_email_challenges','auth_email_sends','auth_enrollments','auth_password_operations']) assert.ok(tables.includes(name));
+for (const name of ['idx_enrollment_email','idx_password_operation_pending','idx_email_send_global','idx_email_send_identity','idx_email_send_source','idx_email_challenge_expiry','idx_enrollment_expiry']) assert.ok(indexes.includes(name));
+assert.ok(!query('PRAGMA table_info(member_credentials)').some(row=>row.name==='password_record'));
+assert.ok(query('PRAGMA foreign_key_list(auth_identities)').some(row=>row.from==='member_id'&&row.table==='members'));
 for(const name of ['idx_auth_transactions_expiration','idx_auth_transactions_member','idx_auth_sessions_member','idx_auth_sessions_expiration','idx_trusted_devices_member','idx_recovery_codes_member','idx_auth_rate_expiration','idx_cases_member_cursor'])assert.ok(indexes.includes(name));
-console.log(JSON.stringify({ auth_schema:'password/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
+console.log(JSON.stringify({ auth_schema:'Supabase/Gmail/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
   fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

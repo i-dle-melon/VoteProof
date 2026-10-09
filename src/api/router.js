@@ -11,6 +11,7 @@ import { campaignRoute } from "./admin-campaigns.js";
 import { pointRoute } from "./points.js";
 import { leaderboardRoute } from "./admin-leaderboards.js";
 import { memberTierRoute } from "./member-tiers.js";
+import { registrationCredentials, registrationResend, registrationVerifyEmail, registrationStatus } from "./auth-registration.js";
 
 import {
   registrationStart,
@@ -21,6 +22,7 @@ import {
 import {
   stepUp,
   passwordChange,
+  passwordChangeStart,
   listDevices,
   revokeDevice,
   revokeOtherDevices,
@@ -41,13 +43,18 @@ const routes = new Map([
   ["/api/uploads/prepare", { method: "POST", handler: prepareUpload }],
   ["/api/uploads/complete", { method: "POST", handler: completeUpload }],
   ["/api/cases", { method: "POST", handler: createCase }],
+  ["/api/auth/registration-status", { method: "GET", handler: registrationStatus }],
   ...Object.entries({
     "/api/auth/register/start": registrationStart,
+    "/api/auth/register/resend": registrationResend,
+    "/api/auth/register/verify-email": registrationVerifyEmail,
+    "/api/auth/register/credentials": registrationCredentials,
     "/api/auth/register/verify-totp": registrationVerify,
     "/api/auth/login": passwordLogin,
     "/api/auth/login/totp": loginTotp,
     "/api/auth/step-up": stepUp,
     "/api/auth/password/change": passwordChange,
+    "/api/auth/password/change/start": passwordChangeStart,
     "/api/auth/recovery-codes/regenerate": regenerateRecovery,
     "/api/auth/trusted-devices/revoke-others": revokeOtherDevices,
     "/api/auth/totp/reset/start": totpResetStart,

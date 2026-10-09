@@ -11,7 +11,6 @@ export const AUTH_LIMITS = Object.freeze({
   windowSeconds: 900,
   accountAttempts: 10,
   ipAttempts: 40,
-  globalKdfs: 200,
   registrationStarts: 3,
   passwordMin: 12,
   passwordMax: 128,
@@ -71,6 +70,12 @@ export function normalizeLogin(value) {
   const normalized = value.trim().toLowerCase();
   if (!/^[a-z0-9._-]{4,32}$/.test(normalized)) invalidAuth();
   return normalized;
+}
+export function normalizeEmail(value) {
+  if (typeof value !== "string") invalidAuth();
+  const email = value.trim().toLowerCase();
+  if (email.length > 254 || !/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]{1,64}@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(email) || email.split("@")[0].startsWith(".") || email.split("@")[0].endsWith(".") || email.includes("..")) invalidAuth();
+  return email;
 }
 export function passwordInput(value) {
   if (

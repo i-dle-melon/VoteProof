@@ -40,7 +40,6 @@ export async function throttle(
   scope,
   account,
   maximum = AUTH_LIMITS.accountAttempts,
-  kdf = false,
 ) {
   const db = authDatabase(env),
     key = await authKey(env);
@@ -55,18 +54,6 @@ export async function throttle(
     !(await rateLimit(db, key, scope + ":account", account, maximum))
   )
     throw rateError();
-  if (
-    kdf &&
-    !(await rateLimit(
-      db,
-      key,
-      "kdf-global",
-      "all",
-      AUTH_LIMITS.globalKdfs,
-      3600,
-    ))
-  )
-    throw rateError(3600);
 }
 export async function authAtomic(db, guards, statements) {
   const id = crypto.randomUUID();
@@ -88,7 +75,7 @@ export async function authAtomic(db, guards, statements) {
 }
 export const credentialGuard = (member, version) => ({
   sql: `EXISTS(SELECT 1 FROM member_credentials c JOIN members m USING(member_id)
- WHERE c.member_id=? AND c.version=? AND m.status='active')`,
+ WHERE c.member_id=? AND c.version=? AND m.status='active' AND NOT EXISTS(SELECT 1 FROM auth_password_operations o WHERE o.member_id=c.member_id AND o.status='pending'))`,
   args: [member, version],
 });
 export const transactionGuard = (tx) => ({

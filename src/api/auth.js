@@ -133,7 +133,7 @@ export async function credentials(db, memberId) {
 }
 export const totpGuard = (memberId, version, step) => ({
   sql: `EXISTS(SELECT 1 FROM member_credentials c JOIN members m USING(member_id)
- WHERE c.member_id=? AND c.version=? AND c.last_used_time_step<? AND m.status='active')`,
+ WHERE c.member_id=? AND c.version=? AND c.last_used_time_step<? AND m.status='active' AND NOT EXISTS(SELECT 1 FROM auth_password_operations o WHERE o.member_id=c.member_id AND o.status='pending'))`,
   args: [memberId, version, step],
 });
 export const advanceTotp = (db, memberId, step) =>

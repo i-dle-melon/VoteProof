@@ -1,10 +1,18 @@
 # VoteProof API
 
+## B4S Supabase／Gmail auth backend（本機，未發布）
+
+新 auth runtime 已改為 Supabase 驗證／儲存 email＋password；Worker 不再執行 password KDF，也不需要 AUTH_PASSWORD_PEPPER。Gmail 寄送 VoteProof 信箱驗證碼，D1 保存 protected verifier、rolling quota、Supabase identity mapping，並保留 VoteProof TOTP／trusted-device／recovery／session／RBAC。
+
+完整流程、API、schema、補償／不確定結果處理、手動清理策略及 env contract 見 [B4S 文件](docs/b4s-supabase-gmail.md)。未發布 0003 已重寫；本機使用新的空 DB 完整驗證 0001～0007；已發布 0001／0002 與後續 0004～0007 未改。
+
+歷史 B4.x KDF／benchmark 保留在 developer-only reference，active Worker module graph 不含 scrypt／PBKDF2／bcrypt；B6A 公開頁面完全不變，無最終會員 UI。不使用真實 Gmail／Supabase 憑證或外部資源驗收，未 push／deploy／remote migration。
+
 ## 現行方向：B6A-Free Guest / Public first（本機，未發布）
 
 第一版以 **固定成本 $0／月** 為硬性設計前提，使用 Cloudflare Free tier 與 R2／D1 free allowance；不要求 Workers Paid、付費第三方、密碼登入或 Admin auth 才能發布公開網站。這不是無限免費：R2 超過免費額度可能計費；D1 Free 超過每日讀寫或儲存限制會拒絕操作，需監測用量。
 
-B4.x 密碼／TOTP／Trusted Device／Recovery Codes 保留為凍結的本機可選功能，安全 scrypt 參數不降級，也不作為第一版 Production 前提。以下 B1～B5 文件是各階段紀錄；目前發布方向以本節與 [B6A-Free 文件](docs/b6a-free-frontend.md) 為準。
+B4.x 安全 scrypt 實作保留為歷史本機 checkpoint，不降級參數；目前會員 backend 已由上方 B4S 取代，仍未發布。公開第一版不以會員登入為前提。以下 B1～B5 文件是各階段紀錄；公開網站方向見 [B6A-Free 文件](docs/b6a-free-frontend.md)，會員 backend contract 以 B4S 文件為準。
 
 公開前端改為 Cloudflare Assets 提供的 HTML／CSS／ES modules：首頁、Guest 投稿與查詢、API Campaign、公開排行榜、深／淺色及說明。沒有 Member／Admin UI、SSR、Worker 圖片處理或新增 Production binding；B4/B5 後端保留。
 

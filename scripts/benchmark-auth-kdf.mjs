@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 const cryptoModule = fileURLToPath(
-  new URL("../src/lib/auth-crypto.js", import.meta.url),
+  new URL("../src/lib/legacy-password-kdf.js", import.meta.url),
 ).replaceAll("\\", "/");
 const bundle = await build({
   stdin: {

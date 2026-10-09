@@ -1,5 +1,7 @@
 # B4.x final member authentication — local checkpoint
 
+Historical checkpoint: the active auth implementation is now [B4S Supabase + Gmail](b4s-supabase-gmail.md). The password KDF/login-name design below is retained as history, not the current runtime or deployment contract. B4S uses email identity and invokes no Worker password KDF.
+
 目前只完成本機 backend。Production 只有 0001/0002；沒有 remote migration、push、deploy、前端或 Cloudflare 設定變更。
 
 ## Identity and schema

@@ -5,23 +5,29 @@ import { randomBytes } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { unstable_splitSqlQuery } from "wrangler";
+import { authProviderFixture } from "./local-auth-provider.mjs";
+import { emailHash } from "../../src/lib/auth-identity.js";
 
 export async function localCaseRuntime({ turnstileService, seedCampaign = true, migrationHook } = {}) {
   const unexpectedUpstreams = [];
+  const provider = authProviderFixture();
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
   const options = {
     name: "case-test", modules: true, script: bundle.outputFiles[0].text, compatibilityDate: "2026-10-07",
     d1Databases: ["DB"], r2Buckets: ["PROOFS_BUCKET"],
     bindings: {
+      ...provider.config,
       R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "local-case-test",
       R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
       TURNSTILE_SECRET_KEY: randomBytes(32).toString("hex"),
       CASE_QUERY_KEY_SECRET: randomBytes(32).toString("hex"),
       AUTH_SECRET: randomBytes(32).toString("hex"), AUTH_ORIGIN: "https://voteproof.example",
-      AUTH_PASSWORD_PEPPER: randomBytes(32).toString("hex"), AUTH_TOTP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+      AUTH_TOTP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     },
     outboundService: async request => {
+      const response = await provider.fetch(request);
+      if (response) return response;
       if (request.url !== "https://challenges.cloudflare.com/turnstile/v0/siteverify") {
         unexpectedUpstreams.push(new URL(request.url).origin); throw new Error("Unexpected test upstream");
       }
@@ -84,7 +90,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       await runtime.setOptions(convertV4MiniflareOptions(options));
       db = await runtime.getD1Database("DB"); bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
     };
-    return { runtime, get db() { return db; }, get bucket() { return bucket; },
+    return { runtime, provider, emailHash: email => emailHash(options.bindings, email.trim().toLowerCase()), get db() { return db; }, get bucket() { return bucket; },
       fetch, upload, campaign, setQuerySecret, setAuthConfig, unexpectedUpstreams, get authSecret() { return options.bindings.AUTH_SECRET; }, get authConfig() { return { ...options.bindings }; }, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
   } catch (error) { await runtime.dispose(); throw error; }
 }

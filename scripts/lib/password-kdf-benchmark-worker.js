@@ -1,5 +1,5 @@
 // Isolated local benchmark module. Never imported by the deployed Worker.
-import { passwordRecord, verifyPassword, secretBytes } from "../../src/lib/auth-crypto.js";
+import { passwordRecord, verifyPassword, secretBytes } from "../../src/lib/legacy-password-kdf.js";
 import { equalQueryHash } from "../../src/lib/case-keys.js";
 
 const encoder = new TextEncoder();

@@ -13,7 +13,7 @@ try {
   const untrusted = await local.fetch(
     "/api/auth/login",
     "POST",
-    { login_name: a.login_name, password: a.password, remember_me: true },
+    { email: a.email, password: a.password, remember_me: true },
     loginHeaders(),
   );
   assert.equal(untrusted.status, 202);
@@ -36,7 +36,7 @@ try {
   const trusted = await local.fetch(
     "/api/auth/login",
     "POST",
-    { login_name: a.login_name, password: a.password },
+    { email: a.email, password: a.password },
     {
       ...loginHeaders(),
       Cookie: responseCookie(mfa, "__Host-voteproof_device"),
@@ -52,7 +52,7 @@ try {
       await local.fetch(
         "/api/auth/login",
         "POST",
-        { login_name: a.login_name, password: crypto.randomUUID() },
+        { email: a.email, password: crypto.randomUUID() },
         loginHeaders(),
       )
     ).status,
@@ -61,7 +61,7 @@ try {
   const recovery = await local.fetch(
     "/api/auth/recovery/password/start",
     "POST",
-    { login_name: b.login_name, recovery_code: b.recovery_codes[0] },
+    { email: b.email, recovery_code: b.recovery_codes[0], code:b.otp.generate({timestamp:Date.now()+30000}) },
     loginHeaders(),
   );
   assert.equal(recovery.status, 202);

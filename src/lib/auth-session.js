@@ -19,14 +19,18 @@ export async function authMac(key, purpose, value) {
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify(["VoteProof/auth/v1", purpose, value])));
   return Array.from(new Uint8Array(signed), v => v.toString(16).padStart(2, "0")).join("");
 }
-export function requestOrigin(request, env) {
+export function configuredAuthOrigin(env) {
   let url;
   try { url = new URL(env.AUTH_ORIGIN); } catch { /* Fail closed below. */ }
   if (!url || url.origin !== env.AUTH_ORIGIN ||
       (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
     throw new AuthError(503, "AUTH_NOT_CONFIGURED", "Authentication service is not configured");
   }
-  if (request.headers.get("Origin") !== url.origin || request.headers.get("Sec-Fetch-Site") === "cross-site") {
+  return url.origin;
+}
+export function requestOrigin(request, env) {
+  const origin = configuredAuthOrigin(env);
+  if (request.headers.get("Origin") !== origin || request.headers.get("Sec-Fetch-Site") === "cross-site") {
     throw new AuthError(403, "CSRF_REJECTED", "Request origin is not allowed");
   }
 }
@@ -55,7 +59,7 @@ export async function memberSession(request, env, required = true) {
   const row = await authDatabase(env).prepare(`SELECT m.id, m.member_id, m.nickname, m.player_id, m.status,
     m.created_at, m.updated_at, m.last_login_at, s.expires_at, s.elevated_until, s.reauthenticated_until FROM auth_sessions s
     JOIN members m ON m.member_id = s.member_id WHERE s.token_hash = ? AND s.revoked_at IS NULL
-    AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER)`).bind(tokenHash).first();
+    AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER) AND NOT EXISTS(SELECT 1 FROM auth_password_operations o WHERE o.member_id=m.member_id AND o.status='pending')`).bind(tokenHash).first();
   if (!row) throw authRequired();
   if (row.status !== "active") throw suspended();
   return { ...row, tokenHash };

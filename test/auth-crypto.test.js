@@ -1,3 +1,4 @@
+import {PASSWORD_KDF,passwordRecord,verifyPassword} from "../src/lib/legacy-password-kdf.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -8,8 +9,6 @@ import {
 } from "node:crypto";
 import { Secret } from "otpauth";
 import {
-  passwordRecord,
-  verifyPassword,
   newTotp,
   encryptTotp,
   decryptTotp,

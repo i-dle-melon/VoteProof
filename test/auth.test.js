@@ -24,13 +24,19 @@ before(async () => {
 after(async () => {
   await local?.runtime.dispose();
 });
+
+async function verifiedEmail(email){const headers=loginHeaders(),r=await local.fetch("/api/auth/register/start","POST",{email,turnstile_token:randomUUID()},headers);assert.equal(r.status,202);const d=(await r.json()).data;
+const v=await local.fetch("/api/auth/register/verify-email","POST",{challenge_id:d.challenge_id,code:local.provider.codeFor(email)},{...headers,Cookie:responseCookie(r,LOGIN_COOKIE)});assert.equal(v.status,202);return{id:(await v.json()).data.transaction_id,headers:{...headers,Cookie:responseCookie(v,LOGIN_COOKIE)}};}
+async function changePassword(m,next){const r=await local.fetch("/api/auth/password/change/start","POST",{},m.headers);assert.equal(r.status,202);return local.fetch("/api/auth/password/change","POST",{transaction_id:(await r.json()).data.transaction_id,new_password:next},{...m.headers,Cookie:responseCookie(r,LOGIN_COOKIE)});}
+async function expectRecoveryRejected(r,status,code){assert.equal(r.status,202);const d=(await r.json()).data,totp=Boolean(d.otpauth_uri);return expectError(await local.fetch(totp?"/api/auth/recovery/totp/verify":"/api/auth/recovery/password/finish","POST",{transaction_id:d.transaction_id,...(totp?{code:URI.parse(d.otpauth_uri).generate()}:{new_password:password()})},{...loginHeaders(),Cookie:responseCookie(r,LOGIN_COOKIE)}),status,code);}
+
 const nextCode = (m) => m.otp.generate({ timestamp: Date.now() + 30000 });
 const password = () => randomBytes(24).toString("base64url");
 async function startLogin(m, extra = {}, headers = {}) {
   return local.fetch(
     "/api/auth/login",
     "POST",
-    { login_name: m.login_name, password: m.password, ...extra },
+    { email: m.email, password: m.password, ...extra },
     { ...loginHeaders(), ...headers },
   );
 }
@@ -100,8 +106,8 @@ test("registration is pending until TOTP; encrypted setup has no clear secret/pa
   const s = await begin(local);
   assert.equal(
     await local.db
-      .prepare("SELECT member_id FROM members WHERE login_name=?")
-      .bind(s.login_name)
+      .prepare("SELECT member_id FROM auth_identities WHERE email_lookup_hash=?")
+      .bind(s.email_hash)
       .first(),
     null,
   );
@@ -125,7 +131,7 @@ test("registration is pending until TOTP; encrypted setup has no clear secret/pa
     .prepare("SELECT * FROM members WHERE member_id=?")
     .bind(d.member.member_id)
     .first();
-  assert.equal(member.login_name, s.login_name);
+  assert.notEqual(member.login_name, s.email);
   const cred = await local.db
     .prepare("SELECT * FROM member_credentials WHERE member_id=?")
     .bind(member.member_id)
@@ -148,73 +154,25 @@ test("registration is pending until TOTP; encrypted setup has no clear secret/pa
   );
   await expectError(await finish(local, s), 400, "AUTH_VERIFICATION_FAILED");
 });
-test("case-insensitive login uniqueness survives a second independently verified enrollment", async () => {
-  const m = await login(local),
-    s = await begin(local, "  " + m.login_name.toUpperCase() + "  ");
-  await expectError(await finish(local, s), 400, "AUTH_VERIFICATION_FAILED");
-  assert.equal(
-    (
-      await local.db
-        .prepare("SELECT count(*) n FROM members WHERE login_name=?")
-        .bind(m.login_name)
-        .first()
-    ).n,
-    1,
-  );
+test("case-insensitive email uniqueness prevents a second independently verified enrollment", async()=>{
+const m=await login(local);const email="  "+m.email.toUpperCase()+"  ";
+await local.db.prepare("UPDATE auth_email_sends SET created_at=created_at-61 WHERE email_lookup_hash=?").bind(await local.emailHash(m.email)).run();
+const verified=await verifiedEmail(email);
+await expectError(await local.fetch("/api/auth/register/credentials","POST",{transaction_id:verified.id,password:password()},verified.headers),400,"AUTH_VERIFICATION_FAILED");
+assert.equal((await local.db.prepare("SELECT count(*) n FROM auth_identities WHERE email_lookup_hash=?").bind(await local.emailHash(m.email)).first()).n,1);
 });
-for (const name of [
-  "abc",
-  "bad space",
-  "中文帳號",
-  "a@b.c",
-  "a".repeat(33),
-  "\n",
-]) {
-  test("invalid login_name rejected: " + JSON.stringify(name), async () => {
-    await expectError(
-      await local.fetch(
-        "/api/auth/register/start",
-        "POST",
-        {
-          login_name: name,
-          password: password(),
-          nickname: "Local",
-          turnstile_token: "local-test",
-        },
-        loginHeaders(),
-      ),
-      400,
-      "INVALID_AUTH_REQUEST",
-    );
+
+for (const email of ["abc", "bad space", "中文帳號", "a@@b.c", "a".repeat(255), "\n"]) {
+  test("invalid email rejected: " + JSON.stringify(email), async () => {
+    await expectError(await local.fetch("/api/auth/register/start", "POST", { email, turnstile_token: "local-test" }, loginHeaders()), 400, "INVALID_AUTH_REQUEST");
   });
 }
-for (const value of [
-  "short",
-  "a".repeat(129),
-  null,
-  String.fromCharCode(0xd800).repeat(12),
-])
-  test(
-    "password policy is bounded without composition rules: " +
-      String(value?.length),
-    async () => {
-      await expectError(
-        await local.fetch(
-          "/api/auth/register/start",
-          "POST",
-          {
-            login_name: randomUUID().replaceAll("-", ""),
-            password: value,
-            nickname: "Local",
-            turnstile_token: "local-test",
-          },
-          loginHeaders(),
-        ),
-        400,
-        "INVALID_AUTH_REQUEST",
-      );
-    },
-  );
+for (const value of ["short", "a".repeat(129), null, String.fromCharCode(0xd800).repeat(12)]) {
+  test("password policy is bounded without composition rules: " + String(value?.length), async () => {
+    const verified = await verifiedEmail(randomUUID() + "@local.example");
+    await expectError(await local.fetch("/api/auth/register/credentials", "POST", { transaction_id: verified.id, password: value }, verified.headers), 400, "INVALID_AUTH_REQUEST");
+  });
+}
 test("registration accepts long Unicode and password-manager compatible passwords", async () => {
   const s = await begin(local, undefined, undefined, {
     password: "密".repeat(128),
@@ -232,8 +190,8 @@ test("wrong initial TOTP is capped at five tries, no activation", async () => {
   await expectError(await finish(local, s), 400, "AUTH_VERIFICATION_FAILED");
   assert.equal(
     await local.db
-      .prepare("SELECT member_id FROM members WHERE login_name=?")
-      .bind(s.login_name)
+      .prepare("SELECT member_id FROM auth_identities WHERE email_lookup_hash=?")
+      .bind(s.email_hash)
       .first(),
     null,
   );
@@ -258,8 +216,8 @@ test("concurrent registration verification commits one member/session/recovery s
     rs = await Promise.all([finish(local, s), finish(local, s)]);
   assert.deepEqual(rs.map((r) => r.status).sort(), [200, 400]);
   const member = await local.db
-    .prepare("SELECT member_id FROM members WHERE login_name=?")
-    .bind(s.login_name)
+    .prepare("SELECT member_id FROM auth_identities WHERE email_lookup_hash=?")
+    .bind(s.email_hash)
     .first();
   assert.equal(
     (
@@ -290,9 +248,7 @@ test("concurrent registration verification commits one member/session/recovery s
 });
 test("registration requires server Turnstile, bounded JSON and exact Origin/custom header", async () => {
   const body = {
-      login_name: randomUUID().replaceAll("-", ""),
-      password: password(),
-      nickname: "Local",
+      email: randomUUID()+"@local.example",
     },
     h = loginHeaders();
   await expectError(
@@ -369,7 +325,7 @@ test("wrong password, absent account and suspended account share same failure sh
   assert.deepEqual(
     await expectError(
       await startLogin(
-        { ...m, login_name: randomUUID().replaceAll("-", "") },
+        { ...m, email: randomUUID()+"@local.example" },
         { password: bad },
       ),
       401,
@@ -595,44 +551,14 @@ test("encrypted TOTP is authenticated and bound to member; corruption is sanitiz
     );
   assert.ok(!JSON.stringify(body).includes("cipher"));
 });
-test("password pepper must match and each password has random salt/strong KDF parameters", async () => {
-  const m = await login(local),
-    a = JSON.parse(
-      (
-        await local.db
-          .prepare(
-            "SELECT password_record FROM member_credentials WHERE member_id=?",
-          )
-          .bind(m.member.member_id)
-          .first()
-      ).password_record,
-    );
-  assert.equal(a.algorithm, "scrypt");
-  assert.equal(a.N, 32768);
-  assert.equal(a.r, 8);
-  assert.equal(a.p, 3);
-  assert.equal(a.salt.length, 32);
-  assert.equal(a.hash.length, 64);
-  const isolated = await localCaseRuntime();
-  try {
-    const x = await login(isolated);
-    await isolated.setAuthConfig({
-      AUTH_PASSWORD_PEPPER: randomBytes(32).toString("hex"),
-    });
-    await expectError(
-      await isolated.fetch(
-        "/api/auth/login",
-        "POST",
-        { login_name: x.login_name, password: x.password },
-        loginHeaders(),
-      ),
-      401,
-      "AUTH_LOGIN_FAILED",
-    );
-  } finally {
-    await isolated.runtime.dispose();
-  }
+test("Supabase owns password storage and password pepper is no longer required", async()=>{
+const m=await login(local);const columns=(await local.db.prepare("PRAGMA table_info(member_credentials)").all()).results.map(x=>x.name);
+assert.ok(!columns.includes("password_record"));assert.equal(local.authConfig.AUTH_PASSWORD_PEPPER,undefined);
+const i=await local.db.prepare("SELECT provider,provider_subject,email_lookup_hash FROM auth_identities WHERE member_id=?").bind(m.member.member_id).first();
+assert.equal(i.provider,"supabase");assert.equal(i.email_lookup_hash,await local.emailHash(m.email));
+assert.equal((await startLogin(m,{}, {Cookie:m.deviceCookie})).status,200);
 });
+
 test("security settings require recent password+TOTP and CSRF; step-up refreshes both deadlines", async () => {
   const m = await login(local);
   await local.db
@@ -687,12 +613,7 @@ test("password change invalidates old password and revokes sessions/devices", as
     next = password();
   assert.equal(
     (
-      await local.fetch(
-        "/api/auth/password/change",
-        "POST",
-        { new_password: next },
-        m.headers,
-      )
+      await changePassword(m,next)
     ).status,
     200,
   );
@@ -730,12 +651,12 @@ test("recovery codes stored hash-only; wrong code rejected; regenerate invalidat
   assert.equal(rows.length, 10);
   for (const code of m.recovery_codes)
     assert.ok(!JSON.stringify(rows).includes(code));
-  await expectError(
+  await expectRecoveryRejected(
     await local.fetch(
       "/api/auth/recovery/password/start",
       "POST",
       {
-        login_name: m.login_name,
+        email: m.email,
         recovery_code: randomBytes(32).toString("base64url"),
       },
       loginHeaders(),
@@ -752,11 +673,11 @@ test("recovery codes stored hash-only; wrong code rejected; regenerate invalidat
     ),
   );
   assert.equal(set.recovery_codes.length, 10);
-  await expectError(
+  await expectRecoveryRejected(
     await local.fetch(
       "/api/auth/recovery/password/start",
       "POST",
-      { login_name: m.login_name, recovery_code: m.recovery_codes[0] },
+      { email: m.email, recovery_code: m.recovery_codes[0] },
       loginHeaders(),
     ),
     400,
@@ -769,9 +690,9 @@ async function recoveryBegin(m, kind = "password", code = m.recovery_codes[0]) {
       "/api/auth/recovery/" + kind + "/start",
       "POST",
       {
-        login_name: m.login_name,
+        email: m.email,
         recovery_code: code,
-        ...(kind === "totp" ? { password: m.password } : {}),
+        ...(kind === "totp" ? { password: m.password } : {code: nextCode(m)}),
       },
       headers,
     );
@@ -818,11 +739,11 @@ test("password recovery consumes one code at commit, rejects reuse and requires 
     400,
     "AUTH_VERIFICATION_FAILED",
   );
-  await expectError(
+  await expectRecoveryRejected(
     await local.fetch(
       "/api/auth/recovery/password/start",
       "POST",
-      { login_name: m.login_name, recovery_code: m.recovery_codes[0] },
+      { email: m.email, recovery_code: m.recovery_codes[0] },
       loginHeaders(),
     ),
     400,
@@ -864,12 +785,12 @@ test("lost Authenticator recovery requires password+code and verified replacemen
       )
       .bind(m.member.member_id)
       .first();
-  await expectError(
+  await expectRecoveryRejected(
     await local.fetch(
       "/api/auth/recovery/totp/start",
       "POST",
       {
-        login_name: m.login_name,
+        email: m.email,
         password: password(),
         recovery_code: m.recovery_codes[0],
       },
@@ -925,11 +846,11 @@ test("lost Authenticator recovery requires password+code and verified replacemen
     401,
     "AUTH_REQUIRED",
   );
-  await expectError(
+  await expectRecoveryRejected(
     await local.fetch(
       "/api/auth/recovery/password/start",
       "POST",
-      { login_name: m.login_name, recovery_code: m.recovery_codes[1] },
+      { email: m.email, recovery_code: m.recovery_codes[1] },
       loginHeaders(),
     ),
     400,
@@ -1069,12 +990,12 @@ test("TOTP challenge brute force persists five-attempt limit and does not lock a
 test("recovery brute force uses persistent hashed account/IP quotas", async () => {
   const m = await login(local);
   for (let i = 0; i < 10; i++)
-    await expectError(
+    await expectRecoveryRejected(
       await local.fetch(
         "/api/auth/recovery/password/start",
         "POST",
         {
-          login_name: m.login_name,
+          email: m.email,
           recovery_code: randomBytes(32).toString("base64url"),
         },
         loginHeaders(),
@@ -1086,7 +1007,7 @@ test("recovery brute force uses persistent hashed account/IP quotas", async () =
     await local.fetch(
       "/api/auth/recovery/password/start",
       "POST",
-      { login_name: m.login_name, recovery_code: m.recovery_codes[0] },
+      { email: m.email, recovery_code: m.recovery_codes[0] },
       loginHeaders(),
     ),
     429,
@@ -1096,36 +1017,15 @@ test("recovery brute force uses persistent hashed account/IP quotas", async () =
     await local.db.prepare("SELECT scope_hash FROM auth_rate_limits").all()
   ).results;
   assert.ok(rows.every((r) => /^[a-f0-9]{64}$/.test(r.scope_hash)));
-  assert.ok(!JSON.stringify(rows).includes(m.login_name));
+  assert.ok(!JSON.stringify(rows).includes(m.email));
 });
-test("missing or reused crypto secrets fail closed", async () => {
-  const isolated = await localCaseRuntime();
-  try {
-    const original = isolated.authConfig;
-    for (const config of [
-      { AUTH_PASSWORD_PEPPER: undefined },
-      { AUTH_PASSWORD_PEPPER: original.AUTH_SECRET },
-      {
-        AUTH_PASSWORD_PEPPER: original.AUTH_PASSWORD_PEPPER,
-        AUTH_TOTP_ENCRYPTION_KEY: undefined,
-      },
-    ]) {
-      await isolated.setAuthConfig(config);
-      await expectError(
-        await isolated.fetch(
-          "/api/auth/login",
-          "POST",
-          { login_name: "local-user", password: password() },
-          loginHeaders(),
-        ),
-        503,
-        "AUTH_NOT_CONFIGURED",
-      );
-    }
-  } finally {
-    await isolated.runtime.dispose();
-  }
+test("missing or reused crypto/provider secrets fail closed",async()=>{
+const h=await localCaseRuntime();try{const original=h.authConfig;
+for(const config of [{AUTH_SECRET:undefined},{AUTH_TOTP_ENCRYPTION_KEY:original.AUTH_SECRET},{SUPABASE_SECRET_KEY:undefined}]){
+await h.setAuthConfig({...original,...config});await expectError(await h.fetch("/api/auth/login","POST",{email:"member@local.example",password:password()},loginHeaders()),503,"AUTH_NOT_CONFIGURED");
+}}finally{await h.runtime.dispose()}
 });
+
 test("obsolete auth endpoints removed, wrong methods 405, uniform no-store", async () => {
   for (const path of ["/api/auth/start", "/api/auth/verify"])
     await expectError(
@@ -1243,12 +1143,7 @@ test("credential changes invalidate outstanding password-verified MFA transactio
     tx = await mfaTransaction(m);
   assert.equal(
     (
-      await local.fetch(
-        "/api/auth/password/change",
-        "POST",
-        { new_password: password() },
-        m.headers,
-      )
+      await changePassword(m,password())
     ).status,
     200,
   );
@@ -1302,8 +1197,8 @@ test("D1 failure rolls back member/credential/code/session/consumption together"
   }
   assert.equal(
     await local.db
-      .prepare("SELECT member_id FROM members WHERE login_name=?")
-      .bind(s.login_name)
+      .prepare("SELECT member_id FROM auth_identities WHERE email_lookup_hash=?")
+      .bind(s.email_hash)
       .first(),
     null,
   );

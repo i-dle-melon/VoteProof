@@ -1,3 +1,6 @@
+import { verifyMemberPassword } from "../lib/auth-identity.js";
+import { updatePassword } from "../lib/password-operation.js";
+import { authContext } from "./auth.js";
 import { jsonSuccess } from "./response.js";
 import {
   AUTH_LIMITS,
@@ -21,8 +24,6 @@ import {
 } from "../lib/auth-session.js";
 import {
   authCryptoConfig,
-  verifyPassword,
-  passwordRecord,
   totpStep,
   newTotp,
   encryptTotp,
@@ -74,10 +75,9 @@ export const stepUp = authHandler(async (env, _url, request) => {
     "step-up",
     member.member_id,
     AUTH_LIMITS.accountAttempts,
-    true,
   );
   const record = await credentials(db, member.member_id);
-  if (!record || !(await verifyPassword(password, record.password_record, env)))
+  if (!record || !(await verifyMemberPassword(db, env, member.member_id, password)))
     throw invalidVerification();
   const step = await totpStep(record, member.member_id, body.code, env),
     now = authNow();
@@ -105,45 +105,18 @@ export const stepUp = authHandler(async (env, _url, request) => {
     reauthenticated_until: now + AUTH_LIMITS.securitySeconds,
   });
 });
+export const passwordChangeStart = authHandler(async (env, _url, request) => {
+  const { member, db } = await securityContext(request, env); await emptyBody(request);
+  const record = await credentials(db, member.member_id);
+  const tx = await createTransaction(db, "password_change", { version: record.version, session_hash: member.tokenHash }, member.member_id);
+  await db.prepare("UPDATE auth_transactions SET expires_at=? WHERE id=?").bind(authNow()+AUTH_LIMITS.securitySeconds,tx.id).run();
+  return withCookies(jsonSuccess({transaction_id:tx.id,expires_in:AUTH_LIMITS.securitySeconds},"no-store",202),tx.cookies);
+});
 export const passwordChange = authHandler(async (env, _url, request) => {
-  const { member, db } = await securityContext(request, env),
-    body = await readAuthJson(request);
-  onlyFields(body, ["new_password"]);
-  const password = passwordInput(body.new_password);
-  await throttle(
-    request,
-    env,
-    "password-change",
-    member.member_id,
-    AUTH_LIMITS.accountAttempts,
-    true,
-  );
-  const record = await credentials(db, member.member_id),
-    next = await passwordRecord(password, env);
-  await authAtomic(
-    db,
-    [
-      credentialGuard(member.member_id, record.version),
-      recentSessionGuard(member),
-    ],
-    [
-      db
-        .prepare(
-          "UPDATE member_credentials SET password_record=?,version=version+1,updated_at=? WHERE member_id=?",
-        )
-        .bind(next, authNow(), member.member_id),
-      revokeSessions(db, member.member_id),
-      revokeDevices(db, member.member_id),
-    ],
-  );
-  return withCookies(
-    jsonSuccess({ password_changed: true, logged_out: true }),
-    [
-      cookie(SESSION_COOKIE, "", 0),
-      cookie(DEVICE_COOKIE, "", 0),
-      cookie(LOGIN_COOKIE, "", 0),
-    ],
-  );
+  const db = await authContext(request,env), body = await readAuthJson(request); onlyFields(body,["transaction_id","new_password"]);
+  const password=passwordInput(body.new_password),tx=await readTransaction(request,env,body,"password_change");
+  await updatePassword(db,env,tx,password,"change");
+  return withCookies(jsonSuccess({password_changed:true,logged_out:true}),[cookie(SESSION_COOKIE,"",0),cookie(DEVICE_COOKIE,"",0),cookie(LOGIN_COOKIE,"",0)]);
 });
 export const regenerateRecovery = authHandler(async (env, _url, request) => {
   const { member, db } = await securityContext(request, env);

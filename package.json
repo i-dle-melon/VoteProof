@@ -6,9 +6,12 @@
     "dev": "wrangler dev",
     "test": "node --test",
     "test:frontend": "playwright test",
-    "test:frontend-unit": "node --test test/frontend.test.js",
+    "test:frontend-unit": "node --test test/frontend.test.js test/frontend-member.test.js",
     "test:frontend-smoke": "node scripts/smoke-frontend.mjs",
+    "test:member-frontend-smoke": "node scripts/smoke-member-frontend.mjs",
+    "build:frontend-qr": "node scripts/build-frontend-qr.mjs",
     "check:public-assets": "node scripts/check-public-assets.mjs",
+    "check:frontend-sensitive": "node scripts/check-frontend-sensitive.mjs",
     "benchmark:auth-kdf": "node scripts/benchmark-auth-kdf.mjs",
     "benchmark:password-kdf": "node scripts/password-kdf-benchmark.mjs",
     "test:smoke": "node scripts/smoke.mjs",
@@ -29,6 +32,7 @@
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "aws4fetch": "^1.0.20",
-    "otpauth": "^9.5.2"
+    "otpauth": "^9.5.2",
+    "qrcode-generator": "2.0.4"
   }
 }

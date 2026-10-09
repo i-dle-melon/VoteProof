@@ -1,6 +1,8 @@
 import { api, putImage, errorMessage } from "./api.js";
 import { Submission, validateImages, queryInformation } from "./submission.js";
 import { Challenge } from "./turnstile.js";
+import { memberUI } from "./member.js";
+import { authMessage } from "./member-api.js";
 
 const $ = (id) => document.getElementById(id);
 const node = (tag, text, className) => {
@@ -30,8 +32,29 @@ const submission = new Submission({ api, put: putImage, token: async () => {
   $("progress").value = Math.round(state.fraction * 100);
   $("progress-label").textContent = labels[state.phase];
 } });
+const member = memberUI({ changed: (identity) => {
+  $("member-mode").disabled = !identity;
+  $("member-mode").textContent = identity ? "會員 · " + identity.nickname : "會員 · 請先登入";
+  syncOwnership();
+} });
+
+function syncOwnership() {
+  $("submission-mode").disabled = submission.pending;
+  $("submission-owner-hint").textContent = $("submission-mode").value === "member"
+    ? "本次投稿綁定登入會員；審核通過後可依活動規則取得點數。登入身份改變時需重新登入原會員再重試。"
+    : "訪客投稿不會綁定會員，也不計入會員點數。";
+}
+$("submission-mode").addEventListener("change", () => {
+  if (submission.pending) return;
+  if ($("submission-mode").value === "member" && member.session.member) {
+    $("nickname").value = member.session.member.nickname ?? "";
+    $("player-id").value = member.session.member.player_id ?? "";
+  }
+  syncOwnership();
+});
 
 function syncForm() {
+  syncOwnership();
   $("submission-fields").disabled = !campaigns.length || submission.pending;
   $("submit-button").disabled = submission.busy || (!submission.pending && (!campaignLoaded || !campaigns.length));
   $("submit-button").textContent = submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : "送出投稿";
@@ -132,8 +155,9 @@ $("submission-form").addEventListener("submit", async (event) => {
   if (!submission.pending) {
     if (!$("submission-form").reportValidity()) { $("submission-error").textContent = "請完成必填欄位並確認投票日期。"; return; }
     if (!images.length) { $("submission-error").textContent = "請至少選擇 1 張投票證明圖片。"; $("proof-images").focus(); return; }
-    try { submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file)); }
-    catch (e) { $("submission-error").textContent = errorMessage(e); return; }
+    try { submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
+      { caseApi: $("submission-mode").value === "member" ? member.session.caseSender() : undefined }); }
+    catch (e) { $("submission-error").textContent = e.code?.startsWith("AUTH_") ? authMessage(e) : errorMessage(e); return; }
   }
   $("retry-note").hidden = true;
   const attempt = submission.attempt(); syncForm();
@@ -143,7 +167,7 @@ $("submission-form").addEventListener("submit", async (event) => {
     $("submission-form").hidden = true; $("submission-success").hidden = false;
     clearImages(); $("success-title").focus();
   } catch (e) {
-    $("submission-error").textContent = errorMessage(e); $("retry-note").hidden = false;
+    $("submission-error").textContent = e.code?.startsWith("AUTH_") || ["MEMBER_SUSPENDED", "CSRF_REJECTED"].includes(e.code) ? authMessage(e) : errorMessage(e); $("retry-note").hidden = false;
   } finally { syncForm(); }
 });
 function resetSubmission() {
@@ -184,7 +208,7 @@ $("lookup-form").addEventListener("submit", async (event) => {
   $("lookup-id").disabled = $("lookup-key").disabled = true;
   $("lookup-form").setAttribute("aria-busy", "true"); $("lookup-message").textContent = "正在查詢案件…";
   try {
-    const data = await api(`/api/cases/${encodeURIComponent(id)}?key=${encodeURIComponent(key)}`);
+    const data = await api(`/api/cases/${encodeURIComponent(id)}`, { headers: { "X-Case-Query-Key": key } });
     if (!data || data.case_id !== id) throw new Error();
     const campaign = campaigns.find((c) => c.campaign_id === data.campaign_id);
     for (const [label, value] of [["案件編號", data.case_id], ["建立時間", dateLabel(data.created_at)],
@@ -257,7 +281,8 @@ $("theme-toggle").addEventListener("click", () => {
 function navigate(focus = true) {
   const requested = location.hash.slice(1);
   if (requested === "main") { $("main").focus(); return; }
-  const view = ["home", "submit", "lookup", "leaderboards", "about"].includes(requested) ? requested : "home";
+  const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member"].includes(requested) ? requested : "home";
+  member.enter(view);
   for (const section of document.querySelectorAll("main > .view")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-view]")) {
     if (link.dataset.view === view) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");

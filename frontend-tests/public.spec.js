@@ -49,7 +49,7 @@ async function fixture(page, options = {}) {
     }
     if (path.startsWith("/api/cases/")) {
       if (state.failLookup-- > 0) return route.abort();
-      if (path !== "/api/cases/" + caseId || url.searchParams.get("key") !== query) return error("CASE_NOT_FOUND", 404);
+      if (path !== "/api/cases/" + caseId || request.headers()["x-case-query-key"] !== query) return error("CASE_NOT_FOUND", 404);
       return reply({ case_id: caseId, created_at: new Date().toISOString(), campaign_id: campaign.campaign_id, vote_type: "Solo", vote_date: today(),
         status: options.caseStatus ?? "pending", query_key_hash: "not-for-display", object_key: "not-for-display", reviewer_note: "not-for-display", files: [] });
     }
@@ -74,7 +74,8 @@ test("homepage CTA, public navigation, keyboard focus and responsive layout", as
   await page.locator(".hero-actions a[href='#lookup']").click(); await expect(page.locator("#lookup-form")).toBeVisible();
   await expect(page.locator("#lookup-title")).toBeFocused();
   expect(await page.locator("body").innerText()).not.toMatch(/會員登入|建立會員|管理員登入|模擬|Coming Soon/);
-  expect(state.calls.some((c) => c.path.includes("/auth/") || c.path.includes("/me/") || c.path.includes("/admin/"))).toBe(false);
+  expect(state.calls.filter((c) => c.path.includes("/auth/")).map(c => c.path)).toEqual(["/api/auth/me"]);
+  expect(state.calls.some((c) => c.path.includes("/me/") || c.path.includes("/admin/"))).toBe(false);
   await page.locator("#lookup-id").focus();
   expect(await page.locator("#lookup-id").evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
 });

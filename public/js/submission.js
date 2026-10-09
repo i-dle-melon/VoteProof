@@ -54,11 +54,11 @@ export class Submission {
   }
   get pending() { return this.#context !== null; }
   get busy() { return this.#running !== null; }
-  start(metadata, files) {
+  start(metadata, files, { caseApi } = {}) {
     if (this.pending) throw new PublicError("SUBMISSION_PENDING");
     validateImages(files);
     this.#context = { metadata: normalizedMetadata(metadata), files: [...files], idempotency: newIdempotencyKey(),
-      prepared: null, uploaded: new Set(), completed: false, payload: null };
+      prepared: null, uploaded: new Set(), completed: false, payload: null, caseApi };
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
@@ -106,7 +106,7 @@ export class Submission {
     // replay this exact body/key, even if the upload is already consumed.
     c.payload ??= JSON.stringify({ ...c.metadata, upload_session: reference });
     this.progress({ phase: "case", fraction: 1 });
-    const result = await this.api("/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
+    const result = await (c.caseApi ?? this.api)("/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
     if (!/^VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}$/.test(result?.case_id ?? "") ||
         !/^[A-Za-z0-9_-]{43}$/.test(result?.query_key ?? "")) throw new PublicError("SERVICE_UNAVAILABLE");
     this.#context = null;

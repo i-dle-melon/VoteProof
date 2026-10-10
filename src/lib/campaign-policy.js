@@ -30,6 +30,8 @@ export function campaignInput(body, updating = false) {
   if (typeof timezone !== "string" || timezone.length > 100) throw invalidCampaign();
   try { result.campaign_timezone = new Intl.DateTimeFormat("en-US", { timeZone: timezone }).resolvedOptions().timeZone; } catch { throw invalidCampaign(); }
   for (const [key, max] of [["points_per_proof", CAMPAIGN_LIMITS.points], ["daily_limit", CAMPAIGN_LIMITS.daily]]) {
+    // Explicit null is unlimited; omitted/string values remain invalid.
+    if (key === "daily_limit" && body[key] === null) { result[key] = null; continue; }
     if (!Number.isSafeInteger(body[key]) || body[key] < 0 || body[key] > max) throw invalidCampaign();
     result[key] = body[key];
   }

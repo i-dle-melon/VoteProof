@@ -1,0 +1,40 @@
+// Independent LOCAL Wrangler upgrade rehearsal. No remote mode/provider access.
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root=fileURLToPath(new URL('../',import.meta.url));
+const folder=resolve(root,'.wrangler','unlimited-upgrade-'+randomUUID());
+assert.equal(existsSync(folder),false);
+execFileSync('git',['check-ignore','--quiet','--',folder],{cwd:root,windowsHide:true,stdio:'ignore'});
+mkdirSync(join(folder,'migrations'),{recursive:true});
+const names=['0001_cases.sql','0002_case_idempotency.sql','0003_member_identity.sql','0004_admin_review.sql','0005_campaign_point_ledger.sql','0006_leaderboards.sql','0007_member_tiers.sql','0008_submission_gate.sql'];
+for(const name of names)copyFileSync(join(root,'migrations',name),join(folder,'migrations',name));
+const config=join(folder,'wrangler.json');
+writeFileSync(config,JSON.stringify({name:'voteproof-local-upgrade',compatibility_date:'2026-10-07',d1_databases:[{binding:'DB',database_name:'voteproof-upgrade-local',database_id:randomUUID(),migrations_dir:join(folder,'migrations')}]}));
+const env={...process.env,CI:'true',WRANGLER_SEND_METRICS:'false',WRANGLER_WRITE_LOGS:'false'};
+for(const name of Object.keys(env))if(/^(AUTH_|SUPABASE_|GMAIL_|MAIL_RELAY_|R2_|TURNSTILE_|CLOUDFLARE_)/.test(name)||['CASE_QUERY_KEY_SECRET','GOOGLE_PUBLIC_API_URL','NODE_OPTIONS'].includes(name))delete env[name];
+const run=args=>execFileSync(process.execPath,[join(root,'node_modules/wrangler/bin/wrangler.js'),'d1',...args,'--config',config,'--local','--persist-to',join(folder,'state')],{cwd:root,env,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe'],timeout:120000});
+const query=sql=>JSON.parse(run(['execute','voteproof-upgrade-local','--command',sql,'--json'])).flatMap(r=>{assert.equal(r.success,true);return r.results;});
+run(['migrations','apply','voteproof-upgrade-local']);
+assert.equal(query('SELECT COUNT(*) n FROM d1_migrations')[0].n,8);
+for(const limit of [0,1,1000])query(`INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,vote_start_date,vote_end_date,points_per_proof,daily_limit,status,created_at,updated_at)
+  VALUES('LOCAL-${limit}','Local upgrade','local','2000-01-01T00:00:00.000Z','2100-01-01T00:00:00.000Z','UTC','2000-01-01','2099-12-31',10,${limit},'active','2026-10-10T00:00:00.000Z','2026-10-10T00:00:00.000Z')`);
+const before=query('SELECT * FROM campaigns ORDER BY campaign_id');
+const migration='0009_campaign_unlimited_daily_limit.sql';
+copyFileSync(join(root,'migrations',migration),join(folder,'migrations',migration));
+run(['migrations','apply','voteproof-upgrade-local']);
+assert.deepEqual(query('SELECT name FROM d1_migrations ORDER BY id').map(r=>r.name),[...names,migration]);
+assert.deepEqual(query('SELECT * FROM campaigns ORDER BY campaign_id'),before);
+assert.equal(query('PRAGMA table_info(campaigns)').find(r=>r.name==='daily_limit').notnull,0);
+query("UPDATE campaigns SET daily_limit=NULL WHERE campaign_id='LOCAL-1'");
+assert.equal(query("SELECT daily_limit FROM campaigns WHERE campaign_id='LOCAL-1'")[0].daily_limit,null);
+assert.deepEqual(query('PRAGMA foreign_key_check'),[]);
+assert.equal(query('PRAGMA quick_check')[0].quick_check,'ok');
+assert.equal(query('SELECT submissions_enabled FROM submission_settings WHERE id=1')[0].submissions_enabled,0);
+const report={result:'PASS',local_only:true,production_touched:false,upgrade:'0001-0008 -> 0009',preserved_caps:[0,1,1000],null_supported:true,submissions_enabled:false,foreign_key_check:'PASS',quick_check:'ok'};
+writeFileSync(join(folder,'report.json'),JSON.stringify(report,null,2)+'\n');
+console.log(JSON.stringify(report));

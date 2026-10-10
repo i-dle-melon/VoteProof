@@ -8,7 +8,7 @@ import { createCase } from "../src/api/cases.js";
 import worker from "../src/index.js";
 import { applyReview, adminCase } from "../src/lib/admin-store.js";
 import { reviewInput } from "../src/lib/case-review.js";
-import { adjustPoints, adjustmentIdentity } from "../src/lib/point-ledger.js";
+import { adjustPoints, adjustmentIdentity, dailyUsageSql } from "../src/lib/point-ledger.js";
 
 let h, local, admin, reviewer, superAdmin;
 before(async () => { h = await localAdminRuntime(); local = h.local; admin = await h.identity({ role: "admin" });
@@ -31,6 +31,66 @@ async function make(c, member, metadata = {}) { return h.makeCase({ member, meta
 const adjustment = (actor, member, points, key = randomUUID(), reason = "本機調整") => local.fetch("/api/admin/points/adjustments", "POST",
   { member_id: member.memberId, points, reason }, { ...actor.headers, "Idempotency-Key": key });
 
+test("Unlimited Campaign round-trips null through admin/public/update/audit; 1000 is accepted", async () => {
+  const c = await campaign({ daily_limit: null });
+  assert.equal(c.daily_limit, null);
+  assert.equal((await (await get(`/api/admin/campaigns/${c.campaign_id}`)).json()).data.daily_limit, null);
+  const publicRows = (await (await local.fetch('/api/campaigns')).json()).data.campaigns;
+  assert.equal(publicRows.find(r => r.campaign_id === c.campaign_id).daily_limit, null);
+  const audit = await local.db.prepare('SELECT after_json FROM admin_audit_logs WHERE target_id=?').bind(c.campaign_id).first();
+  assert.equal(JSON.parse(audit.after_json).daily_limit, null);
+  const capped = (await (await update(c, {daily_limit: 1000})).json()).data;
+  assert.equal(capped.daily_limit, 1000);
+  const unlimited = (await (await update(capped, {daily_limit: null})).json()).data;
+  assert.equal(unlimited.daily_limit, null);
+  assert.equal((await local.db.prepare('SELECT submissions_enabled FROM submission_settings WHERE id=1').first()).submissions_enabled, 1);
+});
+
+test("Unlimited awards at usage above 1000; finite caps/zero retain their exact boundary", async () => {
+  // Only the aggregate usage is simulated. Real approval SQL, D1 transaction,
+  // case update, ledger insertion and audit run unchanged in disposable D1.
+  for (const [cap, usage, awarded] of [[null,1001,true],[1000,999,true],[1000,1000,false],[0,0,false],[1,0,true],[1,1,false]]) {
+    const c = await campaign({daily_limit:cap}), member = await h.identity(), proof = await make(c, member);
+    let replaced = false;
+    const db = { prepare(sql) {
+      if (sql.includes("'proof_approved'") && sql.startsWith('INSERT INTO point_transactions')) {
+        assert.ok(sql.includes(dailyUsageSql('c')));
+        sql = sql.replace(dailyUsageSql('c'), `(SELECT ${usage})`); replaced = true;
+      }
+      return local.db.prepare(sql);
+    }, batch: local.db.batch.bind(local.db) };
+    await applyReview(db, {member:{member_id:reviewer.memberId,tokenHash:reviewer.hash},role:'reviewer'},
+      await adminCase(local.db,proof.case_id), reviewInput({action:'approve',expected_version:0}));
+    assert.equal(replaced,true);
+    const row=await caseState(proof.id), transactions=await ledger(proof.id);
+    assert.equal(row.points_awarded,awarded?10:0);
+    assert.equal(row.point_status,awarded?'awarded':'daily_limit');
+    assert.equal(transactions.length,awarded?1:0);
+    if (awarded) assert.equal(JSON.parse(transactions[0].metadata_json).daily_limit,cap);
+  }
+});
+
+test("Unlimited actual approval/revoke nets ledger points without consuming finite capacity", async () => {
+  const c=await campaign({daily_limit:null}), member=await h.identity();
+  const first=await make(c,member), second=await make(c,member);
+  assert.equal((await h.review(reviewer,first.case_id,'approve')).status,200);
+  assert.equal((await h.review(reviewer,second.case_id,'approve')).status,200);
+  assert.equal(await memberTotal(member),20);
+  assert.equal((await h.review(admin,first.case_id,'revoke',1,{reason:'Local unlimited reversal'})).status,200);
+  assert.equal(await memberTotal(member),10);
+  assert.deepEqual((await ledger(first.id)).map(t=>t.points).sort((a,b)=>a-b),[-10,10]);
+});
+
+test("Unlimited Campaign does not open the independent submission gate", async () => {
+  const c=await campaign({daily_limit:null}), reference=await local.upload(), member=await h.identity();
+  await local.db.prepare('UPDATE submission_settings SET submissions_enabled=0 WHERE id=1').run();
+  try {
+    for (const headers of [{},member.headers]) await error(await local.fetch('/api/cases','POST',
+      {...guestBody(reference),campaign_id:c.campaign_id},headers),503,'SUBMISSIONS_DISABLED');
+    assert.equal((await (await local.fetch('/api/campaigns')).json()).data.campaigns.find(r=>r.campaign_id===c.campaign_id).daily_limit,null);
+  } finally { await local.db.prepare('UPDATE submission_settings SET submissions_enabled=1 WHERE id=1').run(); }
+});
+
 test("Campaign create persists validated fields, actor/version and safe audit atomically", async () => {
   const c = await campaign(); assert.equal(c.version, 0); assert.equal(c.created_by, admin.memberId); assert.equal(c.updated_by, admin.memberId);
   assert.equal(c.last_mutation_id, undefined); assert.equal(c.vote_end_date, "2099-12-31");
@@ -44,7 +104,7 @@ for (const [name, changes] of [
   ["equal dates", { end_at: "2000-01-01T00:00:00.000Z" }], ["reverse dates", { start_at: "2101-01-01T00:00:00.000Z" }],
   ["negative points", { points_per_proof: -1 }], ["fractional points", { points_per_proof: 1.5 }], ["numeric string points", { points_per_proof: "10" }],
   ["points too high", { points_per_proof: 1000001 }], ["negative limit", { daily_limit: -1 }], ["fractional limit", { daily_limit: 1.5 }],
-  ["limit too high", { daily_limit: 1001 }], ["null limit", { daily_limit: null }], ["invalid timezone", { campaign_timezone: "Invalid/Zone" }],
+  ["limit too high", { daily_limit: 1001 }], ["missing limit", { daily_limit: undefined }], ["string limit", { daily_limit: "unlimited" }], ["invalid timezone", { campaign_timezone: "Invalid/Zone" }],
   ["invalid status", { status: "open" }], ["closed creation", { status: "closed" }], ["extra actor", { created_by: "forged" }],
   ["control character", { note: "bad\n" }],
 ]) test(`Campaign validation rejects ${name}`, async () => {

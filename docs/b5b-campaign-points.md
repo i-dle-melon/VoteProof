@@ -10,7 +10,7 @@ Google Sheet/Apps Script 不寫入、不做雙向同步；既有 B1 leaderboard 
 新增 `0005_campaign_point_ledger.sql`，0001..0004 完全不改。
 
 `campaigns`：immutable PK campaign_id（1..100 ASCII identifier）、name/category、UTC start_at/end_at、IANA campaign_timezone、server-derived vote_start_date/vote_end_date、points_per_proof、daily_limit、draft/active/closed/archived、note、created/updated timestamps/actors、version、private mutation marker。
-points_per_proof 是 0..1,000,000 integer；daily_limit 是 0..1,000 integer。DB CHECK 日期順序、integer/type/bounds、status；FK 綁定 member actors。
+points_per_proof 是 0..1,000,000 integer；0009 起 daily_limit 是 NULL（不限次數）或 0..1,000 integer。DB CHECK 日期順序、integer/type/bounds、status；FK 綁定 member actors。
 正常 admin API 的 actors 由 session 決定；nullable actor 欄位留給未來獨立授權的資料匯入與 disposable local fixtures，本次沒有 Production seed/import。
 公開 list index：status/start_at/campaign_id；admin cursor index：created_at/campaign_id。
 DB triggers 禁止改 ID、刪除、REPLACE，並強制 status/window 更新政策。
@@ -77,14 +77,14 @@ review policy 不允許時回 409 CAMPAIGN_NOT_REVIEWABLE；review transaction g
 
 1. CAS case status/version，重驗 actor active member、active role、session expiry/revocation、duplicate policy、Campaign version/status/date。
 2. 依 member_id + campaign_id + vote_date 在 transaction 內計算 net rewarded count：proof_approved + reserved proof_reapproved − proof_revoked。
-3. 若 Member、points_per_proof>0、net count < daily_limit，append 原始 award；metadata 保存當下 Campaign version/category/timezone/points/daily_limit。
+3. 若 Member、points_per_proof>0，且 daily_limit IS NULL 或 net count < daily_limit，append 原始 award；metadata 保存當下 Campaign version/category/timezone/points/daily_limit（不限次數保存 JSON null）。
 4. 從 ledger 算案件 snapshot，設 point_status 與 transaction reference。
 5. Append audit（actor/status/version/points before/after/transaction ID），在同一 batch 取得結果。
 
 有效獎勵單位是一個 approved case，與該 case 附幾張圖片無關。
 Guest、zero-value Campaign、每日容量已滿皆可正常 approved 並得 0，不創建零值 point transaction。
 point_status：awarded / guest_no_points / daily_limit / zero_value_campaign；pending 初始 null。
-daily_limit=0 表示不給任何 proof award，並非 unlimited；points_per_proof=0 的原因優先為 zero_value_campaign。
+daily_limit=NULL 表示 unlimited；daily_limit=0 表示不給任何 proof award；正整數表示每日上限。points_per_proof=0 的原因優先為 zero_value_campaign。API 必須明確傳入 null 或整數；省略、字串與其他 sentinel 皆拒絕。
 只有實際正值獎勵占每日容量，日期取 vote_date，不取 review/created date。Manual adjustments 不影響容量。
 容量以 D1 序列化的 successful transaction 順序分配；同時核准不同案件可以都成功 approved，但最後一個 slot 只有一案獲得正值 points。
 `approved→completed` 不寫 ledger，保留原 snapshot，不 double award。

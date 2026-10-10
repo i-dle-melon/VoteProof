@@ -20,7 +20,7 @@ export function reviewPointStatements(db, actor, row, input, marker, now, campai
             'points_per_proof', p.points_per_proof, 'daily_limit', p.daily_limit)
         FROM cases c JOIN campaigns p ON p.campaign_id = c.campaign_id
         WHERE c.id = ? AND c.last_review_id = ? AND c.member_id IS NOT NULL AND p.points_per_proof > 0
-          AND ${dailyUsageSql("c")} < p.daily_limit`)
+          AND (p.daily_limit IS NULL OR ${dailyUsageSql("c")} < p.daily_limit)`)
       .bind(transactionId, now, reason, actor.member.member_id, row.id, marker)
     : db.prepare(`INSERT INTO point_transactions (transaction_id, created_at, member_id, case_id, campaign_id, category,
         vote_type, vote_date, points, reason, created_by, reference_transaction_id, metadata_json)

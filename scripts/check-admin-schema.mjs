@@ -50,7 +50,7 @@ assert.equal(results.length, schemaQueries.length);
 assert.ok(results.every(result => result.success));
 const rows = results.map(result => result.results);
 const applied = rows[0].map(row => row.name);
-assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql"]);
+assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql"]);
 const tables = rows[1].map(row => row.name);
 for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "member_credentials", "auth_transactions", "trusted_devices", "recovery_codes", "auth_atomic_guards", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
 const indexes = rows[2].map(row => row.name);
@@ -104,5 +104,6 @@ for (const name of ['submission_settings','submission_settings_audit']) assert.o
 const gate = query('SELECT submissions_enabled,version FROM submission_settings WHERE id=1')[0];
 assert.equal(gate.submissions_enabled,0); assert.equal(gate.version,0);
 assert.equal(query('SELECT COUNT(*) n FROM submission_settings_audit')[0].n,0);
+assert.equal(query('PRAGMA table_info(campaigns)').find(row=>row.name==='daily_limit').notnull,0);
 console.log(JSON.stringify({ auth_schema:'Supabase/Gmail/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
   fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

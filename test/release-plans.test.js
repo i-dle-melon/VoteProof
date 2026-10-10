@@ -71,6 +71,20 @@ test('release campaign rejects a normal member and expired fresh MFA',()=>isolat
   const id=await identity(h);await assert.rejects(run(h,campaignBootstrapPlan(campaign(id)).sql));await run(h,admin(id).sql);
   await h.db.prepare('UPDATE auth_sessions SET reauthenticated_until=0').run();await assert.rejects(run(h,campaignBootstrapPlan(campaign(id)).sql));assert.equal(await count(h,'campaigns'),0);
 }));
+for (const limit of ['unlimited',null,0,1000]) test(`release campaign bootstrap persists ${limit} without a sentinel`,()=>isolated(async h=>{
+  const id=await identity(h);await run(h,admin(id).sql);const input=campaign(id);input.campaign.daily_limit=limit;
+  await run(h,campaignBootstrapPlan(input).sql);
+  const row=await h.db.prepare('SELECT daily_limit FROM campaigns').first();
+  assert.equal(row.daily_limit,limit==='unlimited'?null:limit);
+  const audit=await h.db.prepare("SELECT after_json FROM admin_audit_logs WHERE action='campaign_create'").first();
+  assert.equal(JSON.parse(audit.after_json).daily_limit,row.daily_limit);
+}));
+test('release unlimited shorthand is exact; invalid/missing cap still rejected',()=>{
+  for(const limit of [undefined,'UNLIMITED','1000',1001,-1]){
+    const input=campaign('M-'+randomUUID());input.campaign.daily_limit=limit;
+    assert.throws(()=>campaignBootstrapPlan(input));
+  }
+});
 test('release reason is escaped without changing SQL semantics',()=>isolated(async h=>{
   const id=await identity(h);const why="operator's ticket";await run(h,adminBootstrapPlan({member_id:id,role:'admin',reason:why}).sql);
   assert.equal((await h.db.prepare('SELECT reason FROM admin_audit_logs').first()).reason,why);

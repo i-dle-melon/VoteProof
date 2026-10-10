@@ -46,7 +46,10 @@ export function adminBootstrapPlan(input) {
 export function campaignBootstrapPlan(input) {
   if (!input || Object.keys(input).some(k=>!['actor_member_id','reason','campaign'].includes(k))) fail();
   const id=actorMember(input.actor_member_id), why=reason(input.reason);
-  let c; try { c=campaignInput(input.campaign); } catch { fail(); }
+  // Operator shorthand is confined to this offline tool; API/storage use null.
+  const campaign=input.campaign && { ...input.campaign,
+    daily_limit:input.campaign.daily_limit==='unlimited'?null:input.campaign.daily_limit };
+  let c; try { c=campaignInput(campaign); } catch { fail(); }
   const guard=randomUUID(), marker=randomUUID();
   const columns=['campaign_id','name','category','start_at','end_at','campaign_timezone','vote_start_date','vote_end_date','points_per_proof','daily_limit','status','note'];
   const sql=[

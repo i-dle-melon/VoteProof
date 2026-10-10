@@ -89,7 +89,7 @@ Copy `docs/release/campaign-input.template.json` to a gitignored/private operato
 |start_at/end_at|required exact UTC `YYYY-MM-DDTHH:mm:ss.sssZ`; valid year 2000–9998; start < end|
 |campaign_timezone|optional in API (default UTC); prefer explicitly approved valid IANA timezone; <=100 chars|
 |points_per_proof|required integer 0–1000000; do not choose it for the operator|
-|daily_limit|required integer 0–1000; **0 means no proof awards, not unlimited**|
+|daily_limit|required explicit JSON null (unlimited) or integer 0–1000 after 0009/new Worker; **0 still means no proof awards**. Offline campaign bootstrap also accepts exact string `"unlimited"`, mapped to SQL NULL.|
 |status|required `draft` or `active` at create; operator chooses; `active` also needs start<=now<end to accept submissions|
 |note|optional null or nonempty trimmed text <=1000 chars, no controls|
 

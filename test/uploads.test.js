@@ -17,7 +17,26 @@ const post = (body, contentType = "application/json", path = "/api/uploads/compl
   method: "POST", headers: { "content-type": contentType }, body: typeof body === "string" ? body : JSON.stringify(body),
 });
 const prepareRequest = (body, contentType) => post(body, contentType, "/api/uploads/prepare");
+// Lightweight D1 contract fixture; real D1 atomicity is covered in integration tests.
+function uploadDb() {
+  let state, files = [];
+  return {
+    prepare(sql) { let args=[]; const statement={
+      bind(...values) { args=values; return statement; },
+      async first() { return sql.includes('submission_settings') ? { submissions_enabled:1, submissions_message:null, version:0 } : state; },
+      async all() { return { results:files }; },
+      async run() { return { success:true }; },
+      apply() {
+        if (sql.startsWith('INSERT INTO completed_uploads ')) state={session_id:args[0],manifest_hash:args[1],expires_at:args[3],consumed_case_id:null};
+        if (sql.includes('INSERT INTO completed_upload_files')) files.push({key:args[1],type:args[2],size:args[3],etag:args[4]});
+        return {success:true};
+      }
+    }; return statement; },
+    async batch(statements) { return statements.map(s=>s.apply()); }
+  };
+}
 const configuredEnv = () => ({
+  DB: uploadDb(),
   R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "synthetic-test-bucket",
   R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
   TURNSTILE_SECRET_KEY: token(),
@@ -143,7 +162,7 @@ test("complete missing binding returns 503", async () => {
 });
 test("complete missing object returns UPLOAD_INCOMPLETE", async () => {
   const proofs = bucket(null);
-  await errorResponse(await completeUpload({ PROOFS_BUCKET: proofs }, null, post(completeBody())), 400, "UPLOAD_INCOMPLETE");
+  await errorResponse(await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post(completeBody())), 400, "UPLOAD_INCOMPLETE");
   assert.deepEqual(proofs.inspected, [key]); assert.deepEqual(proofs.deleted, []);
 });
 for (const [label, change] of [
@@ -155,13 +174,13 @@ for (const [label, change] of [
 ]) {
   test(`complete deletes and rejects ${label}`, async () => {
     const object = head(); change(object); const proofs = bucket(object);
-    await errorResponse(await completeUpload({ PROOFS_BUCKET: proofs }, null, post(completeBody())), 400, "UPLOAD_VALIDATION_FAILED");
+    await errorResponse(await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post(completeBody())), 400, "UPLOAD_VALIDATION_FAILED");
     assert.deepEqual(proofs.deleted, [key]);
   });
 }
 test("complete uses actual HEAD size/type and returns no public URL or client metadata", async () => {
   const proofs = bucket(); const body = completeBody(); body.size = 999; body.type = "bad";
-  const response = await completeUpload({ PROOFS_BUCKET: proofs }, null, post(body));
+  const response = await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post(body));
   assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), { ok: true, data: { session_id: session, files: [{ key, size: 123, type: "image/png", etag: "opaque-etag" }] } });
   assert.deepEqual(proofs.inspected, [key]);
@@ -170,7 +189,7 @@ test("complete accepts all three allowed MIME/extension pairs at the exact file 
   for (const [type, extension] of [["image/png", "png"], ["image/jpeg", "jpg"], ["image/webp", "webp"]]) {
     const actualKey = key.replace(/png$/, extension);
     const proofs = bucket({ size: UPLOAD_LIMITS.maxFileBytes, httpMetadata: { contentType: type }, etag: "etag" });
-    const response = await completeUpload({ PROOFS_BUCKET: proofs }, null, post({ session_id: session, keys: [actualKey] }));
+    const response = await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post({ session_id: session, keys: [actualKey] }));
     assert.equal(response.status, 200);
     assert.equal((await response.json()).data.files[0].type, type);
     assert.deepEqual(proofs.deleted, []);
@@ -179,13 +198,13 @@ test("complete accepts all three allowed MIME/extension pairs at the exact file 
 test("mixed invalid/missing batch inspects all objects, deletes invalid file and never succeeds", async () => {
   const second = key.replace(fileId, crypto.randomUUID()), deleted = [], inspected = [];
   const proofs = { async head(k) { inspected.push(k); return k === key ? null : { ...head(), size: UPLOAD_LIMITS.maxFileBytes + 1 }; }, async delete(k) { deleted.push(k); } };
-  await errorResponse(await completeUpload({ PROOFS_BUCKET: proofs }, null, post({ session_id: session, keys: [key, second] })), 400, "UPLOAD_VALIDATION_FAILED");
+  await errorResponse(await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post({ session_id: session, keys: [key, second] })), 400, "UPLOAD_VALIDATION_FAILED");
   assert.deepEqual(inspected, [key, second]); assert.deepEqual(deleted, [second]);
 });
 for (const operation of ["head", "delete"]) {
   test(`complete handles R2 ${operation} failure without claiming cleanup or success`, async () => {
     const proofs = bucket({ ...head(), size: 0 }); proofs[operation] = async () => { throw Error("sensitive"); };
-    await errorResponse(await completeUpload({ PROOFS_BUCKET: proofs }, null, post(completeBody())), 502, "R2_UPLOAD_ERROR");
+    await errorResponse(await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post(completeBody())), 502, "R2_UPLOAD_ERROR");
   });
 }
 for (const method of ["GET", "PUT", "DELETE", "OPTIONS"]) {
@@ -196,7 +215,7 @@ for (const method of ["GET", "PUT", "DELETE", "OPTIONS"]) {
   });
 }
 test("complete HTTP POST is routed and unknown upload path retains 404", async () => {
-  const response = await worker.fetch(post(completeBody()), { PROOFS_BUCKET: bucket() });
+  const response = await worker.fetch(post(completeBody()), { DB: uploadDb(), PROOFS_BUCKET: bucket() });
   assert.equal(response.status, 200);
   await errorResponse(await worker.fetch(new Request("https://voteproof.example/api/uploads/not-found"), {}), 404, "NOT_FOUND");
 });

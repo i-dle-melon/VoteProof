@@ -14,4 +14,5 @@ html[data-theme="light"]{color-scheme:light;--bg:#faf8fc;--surface:#fff;--card:#
 #security-qr{display:block;width:100%;max-width:300px;height:auto;margin:18px auto;image-rendering:pixelated;background:#fff;border:10px solid #fff;border-radius:6px}
 #security-key{display:block;font:18px/1.8 ui-monospace,monospace;overflow-wrap:anywhere;user-select:all}
 #google-email,#security-google{overflow-wrap:anywhere}
+#submission-gate-message,#submit-availability{overflow-wrap:anywhere}
 @media(max-width:620px){.topbar{flex-wrap:wrap}.account-nav{margin-left:auto;gap:6px}.mobile-brand{font-size:15px}.mobile-brand .brand-mark{width:32px;height:32px;flex-basis:32px}.topbar:has(#logout-button:not([hidden])) .account-nav{width:100%;justify-content:flex-end}.dropzone input{font-size:16px}}

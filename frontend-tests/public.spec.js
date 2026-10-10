@@ -25,6 +25,10 @@ async function fixture(page, options = {}) {
     state.calls.push({ path, method: request.method(), body: request.postData(), idempotency: request.headers()["idempotency-key"] });
     const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
     const error = (code, status) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ ok: false, error: { code, message: "untrusted internal message" } }) });
+    if (path === "/api/submissions/status") {
+      if (options.gateError) return error("SUBMISSIONS_UNAVAILABLE", 503);
+      return reply({ submissions_enabled: !options.submissionsOff, submissions_message: options.submissionsMessage ?? null });
+    }
     if (path === "/api/campaigns") {
       if (options.campaignError) return error("CAMPAIGN_SERVICE_UNAVAILABLE", 503);
       return reply({ campaigns: options.emptyCampaigns ? [] : [{ ...campaign, name: options.campaignName ?? campaign.name }] });
@@ -66,6 +70,31 @@ async function form(page, files = 1) {
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
 }
 async function noOverflow(page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); }
+
+test("global OFF disables submission with safe plaintext message; lookup and boards still work", async ({ page }) => {
+  const state=await fixture(page,{submissionsOff:true,submissionsMessage:'<img src=x onerror=alert(1)> 投稿暫停'});
+  await page.goto('/#submit');
+  await expect(page.locator('#submission-fields')).toHaveJSProperty('disabled',true);await expect(page.locator('#nickname')).toBeDisabled();await expect(page.locator('#proof-images')).toBeDisabled();await expect(page.locator('#submit-button')).toBeDisabled();
+  await expect(page.locator('#submit-availability')).toHaveText('<img src=x onerror=alert(1)> 投稿暫停');
+  expect(await page.locator('#submit-availability img').count()).toBe(0);
+  await expect(page.locator('nav[aria-label="主要導覽"] a[href="#submit"]')).toBeHidden();
+  await page.goto('/#lookup');await expect(page.locator('#lookup-form')).toBeVisible();
+  await page.goto('/#leaderboards');await expect(page.locator('#board-results')).toContainText('測試粉絲');
+  expect(state.calls.some(c=>c.path.startsWith('/api/uploads/')||c.path==='/api/cases')).toBe(false);await noOverflow(page);
+});
+test("global status outage fails closed even with active campaigns", async ({ page }) => {
+  await fixture(page,{gateError:true});await page.goto('/#submit');
+  await expect(page.locator('#submit-availability')).toHaveText('投稿服務暫時無法使用，請稍後再試。');
+  await expect(page.locator('#submit-button')).toBeDisabled();await expect(page.locator('#nickname')).toBeDisabled();
+});
+test("refreshing availability reflects admin OFF then ON without resetting form", async ({ page }) => {
+  const options={};await fixture(page,options);await page.goto('/#submit');
+  await expect(page.locator('#nickname')).toBeEnabled();await page.locator('#nickname').fill('保留資料');
+  options.submissionsOff=true;options.submissionsMessage='維護中';await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await page.evaluate(()=>{location.hash='submit';});
+  await expect(page.locator('#submit-button')).toBeDisabled();await expect(page.locator('#submit-availability')).toHaveText('維護中');
+  options.submissionsOff=false;options.submissionsMessage=null;await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await page.evaluate(()=>{location.hash='submit';});
+  await expect(page.locator('#nickname')).toBeEnabled();await expect(page.locator('#nickname')).toHaveValue('保留資料');
+});
 
 test("homepage CTA, public navigation, keyboard focus and responsive layout", async ({ page }) => {
   const state = await fixture(page); await page.goto("/");

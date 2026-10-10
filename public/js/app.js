@@ -20,6 +20,8 @@ const dateLabel = (value) => {
   return Number.isFinite(date.valueOf()) ? date.toLocaleString("zh-TW", { hour12: false }) : "—";
 };
 let campaigns = [], campaignLoaded = false, campaignLoading = false, images = [], success = null;
+let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateLoading = false;
+let campaignAvailability = "正在載入活動…";
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false;
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
 const submission = new Submission({ api, put: putImage, token: async () => {
@@ -55,14 +57,31 @@ $("submission-mode").addEventListener("change", () => {
 
 function syncForm() {
   syncOwnership();
-  $("submission-fields").disabled = !campaigns.length || submission.pending;
-  $("submit-button").disabled = submission.busy || (!submission.pending && (!campaignLoaded || !campaigns.length));
+  $("submission-fields").disabled = !submissionsEnabled || !campaigns.length || submission.pending;
+  $("submit-button").disabled = !submissionsEnabled || submission.busy || (!submission.pending && (!campaignLoaded || !campaigns.length));
   $("submit-button").textContent = submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : "送出投稿";
   $("submission-form").setAttribute("aria-busy", String(submission.busy));
   $("abandon-button").hidden = !submission.pending;
   $("abandon-button").disabled = submission.busy;
-  $("challenge-retry").disabled = submission.busy;
+  $("challenge-retry").disabled = !submissionsEnabled || submission.busy;
   $("campaign-refresh").disabled = campaignLoading || submission.pending;
+  for (const link of document.querySelectorAll('a[href="#submit"]')) link.hidden = !submissionsEnabled;
+  $("submission-gate-message").hidden = submissionsEnabled && !submissionsMessage;
+  $("submission-gate-message").textContent = submissionsMessage;
+  $("submit-availability").textContent = !submissionsEnabled ? submissionsMessage :
+    [submissionsMessage, campaignAvailability].filter(Boolean).join(" ");
+}
+async function loadSubmissionStatus() {
+  if (gateLoading) return;
+  gateLoading = true;
+  try {
+    const data = await api("/api/submissions/status");
+    if (typeof data?.submissions_enabled !== "boolean" || data.submissions_message !== null &&
+        (typeof data.submissions_message !== "string" || [...data.submissions_message].length > 500 || /[\u0000-\u001f\u007f]/.test(data.submissions_message))) throw new Error();
+    submissionsEnabled = data.submissions_enabled;
+    submissionsMessage = data.submissions_message || (submissionsEnabled ? "" : "投稿暫停開放，請稍後再試。");
+  } catch { submissionsEnabled = false; submissionsMessage = "投稿服務暫時無法使用，請稍後再試。"; }
+  finally { gateLoading = false; syncForm(); }
 }
 function campaignHint() {
   const selected = campaigns.find((c) => c.campaign_id === $("campaign").value);
@@ -80,6 +99,7 @@ function campaignHint() {
 async function loadCampaigns() {
   if (campaignLoading || submission.pending) return;
   campaignLoading = true; syncForm();
+  await loadSubmissionStatus();
   $("campaign-message").textContent = "正在載入活動…";
   try {
     const data = await api("/api/campaigns");
@@ -102,6 +122,7 @@ async function loadCampaigns() {
     if (campaigns.some((c) => c.campaign_id === previous)) $("campaign").value = previous;
     else if (campaigns.length === 1) $("campaign").value = campaigns[0].campaign_id;
     const message = campaigns.length ? `目前有 ${campaigns.length} 個開放中的活動。` : "目前沒有開放中的投票活動";
+    campaignAvailability = message;
     $("campaign-message").textContent = message; $("submit-availability").textContent = message;
     campaignHint();
   } catch {
@@ -109,6 +130,7 @@ async function loadCampaigns() {
     $("campaign-list").replaceChildren(); $("campaign").replaceChildren(new Option("活動暫時無法載入", ""));
     $("campaign-message").textContent = "活動暫時無法載入，請按重新載入。";
     $("submit-availability").textContent = "活動服務暫時無法使用，請返回首頁重新載入活動。";
+    campaignAvailability = $("submit-availability").textContent;
   } finally { campaignLoading = false; syncForm(); }
 }
 
@@ -141,6 +163,7 @@ $("proof-images").addEventListener("change", () => {
   } catch (e) { $("image-error").textContent = errorMessage(e); }
 });
 async function mountChallenge() {
+  if (!submissionsEnabled) return;
   try { await challenge.mount(); }
   catch (e) { $("challenge-status").textContent = errorMessage(e); }
 }
@@ -150,7 +173,7 @@ $("campaign-refresh").addEventListener("click", loadCampaigns);
 
 $("submission-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (submission.busy || (!submission.pending && !campaigns.length)) return;
+  if (!submissionsEnabled || submission.busy || (!submission.pending && !campaigns.length)) return;
   $("submission-error").textContent = "";
   if (!submission.pending) {
     if (!$("submission-form").reportValidity()) { $("submission-error").textContent = "請完成必填欄位並確認投票日期。"; return; }
@@ -168,6 +191,7 @@ $("submission-form").addEventListener("submit", async (event) => {
     clearImages(); $("success-title").focus();
   } catch (e) {
     $("submission-error").textContent = e.code?.startsWith("AUTH_") || ["MEMBER_SUSPENDED", "CSRF_REJECTED"].includes(e.code) ? authMessage(e) : errorMessage(e); $("retry-note").hidden = false;
+    if (["SUBMISSIONS_DISABLED", "SUBMISSIONS_UNAVAILABLE"].includes(e.code)) await loadSubmissionStatus();
   } finally { syncForm(); }
 });
 function resetSubmission() {
@@ -288,10 +312,11 @@ function navigate(focus = true) {
     if (link.dataset.view === view) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
   }
   if (focus) { document.querySelector(`#view-${view} h1`).focus(); window.scrollTo(0, 0); }
-  if (view === "submit" && campaigns.length && !success) void mountChallenge();
+  if (view === "submit") void loadSubmissionStatus().then(() => { if (campaigns.length && !success) void mountChallenge(); });
   if (view === "leaderboards" && !boardLoaded) void loadBoards();
 }
 window.addEventListener("hashchange", () => navigate());
+window.addEventListener("focus", () => { void loadSubmissionStatus(); });
 window.addEventListener("beforeunload", (event) => {
   if (submission.pending) { event.preventDefault(); event.returnValue = ""; }
 });

@@ -5,6 +5,8 @@ import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { readFile, readdir } from "node:fs/promises";
+import { unstable_splitSqlQuery } from "wrangler";
 
 const result = await build({
   entryPoints: [fileURLToPath(new URL("../src/index.js", import.meta.url))],
@@ -22,7 +24,7 @@ let verificationSuccess = true;
 const runtime = new Miniflare(convertV4MiniflareOptions({
   name: "upload-smoke",
   modules: true, script: result.outputFiles[0].text, compatibilityDate: "2026-10-07",
-  r2Buckets: ["PROOFS_BUCKET"], bindings,
+  d1Databases: ["DB"], r2Buckets: ["PROOFS_BUCKET"], bindings,
   outboundService: async request => {
     assert.equal(request.url, "https://challenges.cloudflare.com/turnstile/v0/siteverify");
     assert.equal(request.method, "POST");
@@ -47,6 +49,12 @@ async function post(path, body, status, code) {
 }
 
 try {
+  const db = await runtime.getD1Database("DB"), migrations = new URL("../migrations/", import.meta.url);
+  for (const name of (await readdir(migrations)).filter(n => /^\d+_.+\.sql$/.test(n)).sort()) {
+    await db.batch(unstable_splitSqlQuery(await readFile(new URL(name, migrations), "utf8")).map(sql => db.prepare(sql)));
+  }
+  // Disposable fixture opts in; Production migration remains OFF.
+  await db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
   const proofs = await runtime.getR2Bucket("PROOFS_BUCKET");
   const prepare = "/api/uploads/prepare";
   const prepareBody = {

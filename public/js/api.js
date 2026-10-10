@@ -33,6 +33,8 @@ export function putImage(upload, file, onProgress) {
 }
 
 const messages = {
+  SUBMISSIONS_DISABLED: "投稿目前暫停開放，請稍後再試。",
+  SUBMISSIONS_UNAVAILABLE: "投稿服務暫時無法使用，請稍後再試。",
   NETWORK_ERROR: "網路連線中斷或等待逾時。請檢查連線後重試，投稿資料會保留。",
   PUT_FAILED: "圖片未能上傳。請檢查網路後重試；若持續失敗，請稍後再試。",
   TURNSTILE_REQUIRED: "請先完成人機驗證。",

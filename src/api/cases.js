@@ -8,8 +8,9 @@ import { requestIdempotency, newQuerySeed, reconstructQueryKey, replayCase } fro
 import { AuthError } from "./auth-validation.js";
 import { memberSession, memberCsrf } from "../lib/auth-session.js";
 import { requireCaseCampaign } from "../lib/campaign-policy.js";
+import { requireSubmissionsEnabled, SubmissionError } from "../lib/submission-gate.js";
 
-const errorResponse = error => error instanceof CaseError || error instanceof AuthError
+const errorResponse = error => error instanceof CaseError || error instanceof AuthError || error instanceof SubmissionError
   ? jsonError(error.status, error.code, error.message)
   : jsonError(500, "DATABASE_ERROR", "Case service is unavailable");
 const notFound = () => jsonError(404, "CASE_NOT_FOUND", "Case not found");
@@ -29,6 +30,7 @@ export async function createCase(env, _url, request) {
     db = caseDatabase(env);
     const replay = await replayCase(db, identity);
     if (replay) return jsonSuccess(replay, "no-store", 201);
+    await requireSubmissionsEnabled(db);
     input.campaignVersion = (await requireCaseCampaign(db, input)).version;
     const completed = await requireCompletedUpload(db, input.sessionId, input.keys);
     id = crypto.randomUUID();

@@ -1,5 +1,6 @@
 import { CaseError } from "../api/case-validation.js";
 import { sha256 } from "./case-keys.js";
+import { requireSubmissionsEnabled, SubmissionError } from "./submission-gate.js";
 
 export const COMPLETED_UPLOAD_TTL_SECONDS = 24 * 60 * 60;
 const expired = () => new CaseError(409, "UPLOAD_SESSION_EXPIRED", "Completed upload has expired; prepare a new upload");
@@ -25,9 +26,7 @@ export async function completedFiles(db, sessionId) {
 }
 
 export async function rememberCompletedUpload(env, sessionId, files) {
-  // Backwards compatible B2 mode without D1. Such uploads cannot create a B3
-  // case: complete must be repeated after DB binding + migration are ready.
-  if (!env.DB) return;
+  // Global submission gate requires D1; no no-database upload mode.
   const db = caseDatabase(env);
   try {
     if (files.some(file => typeof file.etag !== "string" || !file.etag)) throw new Error();
@@ -50,7 +49,8 @@ export async function rememberCompletedUpload(env, sessionId, files) {
       throw new CaseError(409, "UPLOAD_SESSION_CONFLICT", "Completed upload cannot be changed");
     }
   } catch (error) {
-    if (error instanceof CaseError) throw error;
+    if (error instanceof CaseError || error instanceof SubmissionError) throw error;
+    await requireSubmissionsEnabled(db);
     throw new CaseError(500, "DATABASE_ERROR", "Case storage is unavailable");
   }
 }

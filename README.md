@@ -174,3 +174,9 @@ Google Apps Script 正式網址尚未提供，所以正式 Google 連線與 prod
 唯一後續程式 TODO 為 `TODO B2/B3: connect production campaign source`。
 B1 暫停於此，等待使用者確認後再做 B2。
 本次沒有新增登入、註冊、圖片／R2 上傳、Turnstile、Cases POST、點數寫入、管理員 API 或資料庫，也沒有將 API 接到既有 frontend。
+
+## Global submission switch
+
+See [submission gate](docs/submission-gate.md). Migration 0008 defaults OFF;
+authorized admins explicitly open submissions only after rollout/bootstrap.
+Production rollout remains paused pending acceptance of the new candidate.

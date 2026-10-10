@@ -8,7 +8,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, migrationHook, providerOptions } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, providerOptions } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
@@ -45,6 +45,8 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       await db.batch(unstable_splitSqlQuery(migration).map(sql => db.prepare(sql)));
       if (migrationHook) await migrationHook(db, name);
     }
+    // Explicit fixture opt-in only. The migration/Production default stays OFF.
+    if (submissionsEnabled) await db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
     // Explicit disposable fixture only. Migrations/Worker never seed Campaigns.
     async function campaign({ campaign_id = "LOCAL-TEST", name = "Local fixture", category = "local", start_at = "2000-01-01T00:00:00.000Z",
       end_at = "2100-01-01T00:00:00.000Z", campaign_timezone = "UTC", vote_start_date = "2000-01-01", vote_end_date = "2099-12-31",

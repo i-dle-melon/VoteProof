@@ -261,6 +261,6 @@ test("missing D1 and storage failures are sanitized; no request/env data leaks",
   await error(await worker.fetch(req(), {}), 503, "DB_NOT_CONFIGURED");
   const secret = randomBytes(32).toString("hex");
   const badDb = { prepare() { throw new Error(secret); }, batch() {} };
-  const payload = await error(await worker.fetch(req(), { DB: badDb }), 500, "DATABASE_ERROR");
+  const payload = await error(await worker.fetch(req(), { DB: badDb }), 503, "SUBMISSIONS_UNAVAILABLE");
   assert.equal(JSON.stringify(payload).includes(secret), false);
 });

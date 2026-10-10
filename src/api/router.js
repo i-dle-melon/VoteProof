@@ -14,6 +14,7 @@ import { pointRoute } from "./points.js";
 import { leaderboardRoute } from "./admin-leaderboards.js";
 import { memberTierRoute } from "./member-tiers.js";
 import { registrationCredentials, registrationResend, registrationVerifyEmail, registrationStatus } from "./auth-registration.js";
+import { getSubmissionStatus, readAdminSubmissionSettings, updateAdminSubmissionSettings } from "./submissions.js";
 
 import {
   registrationStart,
@@ -40,6 +41,9 @@ import {
 } from "./auth-recovery.js";
 const routes = new Map([
   ["/api/health", { method: "GET", handler: getHealth }],
+  ["/api/submissions/status", { method: "GET", handler: getSubmissionStatus }],
+  ["/api/admin/submissions", { method: "GET", handler: readAdminSubmissionSettings }],
+  ["/api/admin/submissions/update", { method: "POST", handler: updateAdminSubmissionSettings }],
   ["/api/campaigns", { method: "GET", handler: getCampaigns }],
   ["/api/leaderboards", { method: "GET", handler: getLeaderboards }],
   ["/api/uploads/prepare", { method: "POST", handler: prepareUpload }],

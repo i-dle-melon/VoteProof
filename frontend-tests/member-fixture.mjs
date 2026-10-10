@@ -34,6 +34,7 @@ export async function memberFixture(page, options = {}) {
     state.calls.push({ path, method: request.method(), body, serialized: request.postData(), headers: request.headers() });
     const reply = (data, status = 200) => route.fulfill({ status, headers: { "Cache-Control": "no-store" }, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
     const error = (code, status = 400) => route.fulfill({ status, headers: { "Retry-After": "90" }, contentType: "application/json", body: JSON.stringify({ ok: false, error: { code, message: "private provider message" } }) });
+    if (path === "/api/submissions/status") return reply({ submissions_enabled: !options.submissionsOff, submissions_message: options.submissionsMessage ?? null });
     if (path.startsWith("/api/auth/") || path.startsWith("/api/me/")) {
       if (state.authDown) return error("AUTH_PROVIDER_UNAVAILABLE", 502);
       if (state.delay && request.method() === "POST") await new Promise(resolve => setTimeout(resolve, 200));

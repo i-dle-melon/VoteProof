@@ -4,12 +4,14 @@ import { verifyTurnstile } from "./turnstile.js";
 import { readR2UploadConfig, presignPut } from "../lib/r2-presign.js";
 import { rememberCompletedUpload } from "../lib/completed-uploads.js";
 import { CaseError } from "./case-validation.js";
+import { requireSubmissionsEnabled, SubmissionError } from "../lib/submission-gate.js";
 
 export async function prepareUpload(env, _url, request) {
   try {
     const { token, files } = validatePrepare(await readUploadJson(request));
     const config = readR2UploadConfig(env);
     await verifyTurnstile(request, env, token);
+    await requireSubmissionsEnabled(env.DB);
     const sessionId = crypto.randomUUID();
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "/");
     const uploads = await Promise.all(files.map(file => {
@@ -18,7 +20,7 @@ export async function prepareUpload(env, _url, request) {
     }));
     return jsonSuccess({ session_id: sessionId, expires_in: UPLOAD_LIMITS.expiresSeconds, uploads });
   } catch (error) {
-    if (error instanceof UploadError) return jsonError(error.status, error.code, error.message);
+    if (error instanceof UploadError || error instanceof SubmissionError) return jsonError(error.status, error.code, error.message);
     return jsonError(500, "INTERNAL_ERROR", "Upload request failed");
   }
 }
@@ -29,6 +31,7 @@ export async function completeUpload(env, _url, request) {
     if (typeof env.PROOFS_BUCKET?.head !== "function" || typeof env.PROOFS_BUCKET?.delete !== "function") {
       throw new UploadError(503, "R2_UPLOAD_NOT_CONFIGURED", "Upload service is not configured");
     }
+    await requireSubmissionsEnabled(env.DB);
     const files = [];
     let missing = false;
     let invalid = false;
@@ -55,7 +58,7 @@ export async function completeUpload(env, _url, request) {
     await rememberCompletedUpload(env, sessionId, files);
     return jsonSuccess({ session_id: sessionId, files });
   } catch (error) {
-    if (error instanceof UploadError || error instanceof CaseError) return jsonError(error.status, error.code, error.message);
+    if (error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError) return jsonError(error.status, error.code, error.message);
     return jsonError(500, "INTERNAL_ERROR", "Upload request failed");
   }
 }

@@ -16,3 +16,8 @@ WHERE value NOT IN(SELECT name FROM sqlite_schema WHERE type='trigger');
 SELECT tier_id,status,min_points FROM member_tiers ORDER BY rank_order;
 SELECT COUNT(*) AS cases_count,COALESCE(SUM(points_awarded),0) AS case_points FROM cases;
 SELECT COUNT(*) AS ledger_count FROM point_transactions;
+SELECT 'missing submission gate table' AS defect,value AS name FROM json_each('["submission_settings","submission_settings_audit"]')
+WHERE value NOT IN(SELECT name FROM sqlite_schema WHERE type='table');
+SELECT 'missing submission gate trigger' AS defect,value AS name FROM json_each('["submissions_cases_insert","submissions_uploads_insert","submissions_upload_files_insert","submission_audit_no_update","submission_audit_no_delete","submission_audit_no_replace"]')
+WHERE value NOT IN(SELECT name FROM sqlite_schema WHERE type='trigger');
+SELECT submissions_enabled,submissions_message,version FROM submission_settings WHERE id=1;

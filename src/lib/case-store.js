@@ -2,6 +2,7 @@ import { CaseError } from "../api/case-validation.js";
 import { uploadState } from "./completed-uploads.js";
 import { AuthError, suspended } from "../api/auth-validation.js";
 import { requireCaseCampaign } from "./campaign-policy.js";
+import { requireSubmissionsEnabled } from "./submission-gate.js";
 
 export async function insertCase(db, input, record, files, manifest) {
   let results;
@@ -53,9 +54,11 @@ export async function insertCase(db, input, record, files, manifest) {
       unavailable.preserveArchives = true;
       throw unavailable;
     }
+    await requireSubmissionsEnabled(db);
     throw new CaseError(500, "DATABASE_ERROR", "Case storage is unavailable");
   }
   if (results[0]?.meta?.changes !== 1) {
+    await requireSubmissionsEnabled(db);
     const campaign = await requireCaseCampaign(db, input);
     if (campaign.version !== input.campaignVersion) throw new CaseError(409, "CAMPAIGN_CONFLICT", "Campaign changed; retry submission");
     if (input.memberId) {

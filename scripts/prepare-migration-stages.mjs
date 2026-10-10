@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { DATABASE, DATABASE_ID } from './lib/release-plans.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const names=['0001_cases.sql','0002_case_idempotency.sql','0003_member_identity.sql','0004_admin_review.sql','0005_campaign_point_ledger.sql','0006_leaderboards.sql','0007_member_tiers.sql'];
+const names=['0001_cases.sql','0002_case_idempotency.sql','0003_member_identity.sql','0004_admin_review.sql','0005_campaign_point_ledger.sql','0006_leaderboards.sql','0007_member_tiers.sql','0008_submission_gate.sql'];
 try {
   const opts={target:'local'},seen=new Set(),args=process.argv.slice(2);
   for(let i=0;i<args.length;i+=2){const key=args[i]?.replace(/^--/,'');if(!['target','database','confirm-database-id'].includes(key)||seen.has(key)||!args[i+1])throw Error();seen.add(key);opts[key]=args[i+1];}
@@ -15,7 +15,7 @@ try {
   if(opts.target==='local'&&(opts.database||opts['confirm-database-id']))throw Error();
   const databaseName=opts.target==='production'?DATABASE:'voteproof-release-local';
   const databaseId=opts.target==='production'?DATABASE_ID:randomUUID();
-  const outputs=[3,4,5,6,7].map(n=>resolve(root,`.wrangler/${opts.target==='production'?'b7.1':'b7-local'}/migrate-${String(n).padStart(4,'0')}`));
+  const outputs=[3,4,5,6,7,8].map(n=>resolve(root,`.wrangler/${opts.target==='production'?'b7.1':'b7-local'}/migrate-${String(n).padStart(4,'0')}`));
   for(const p of outputs){if(existsSync(p))throw Error();execFileSync('git',['check-ignore','--quiet','--',p],{cwd:root,stdio:'ignore',windowsHide:true});}
   const contents=names.map(name=>readFileSync(join(root,'migrations',name)));
   outputs.forEach((folder,index)=>{

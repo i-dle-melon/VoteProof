@@ -1,0 +1,16 @@
+{
+  "actor_member_id": null,
+  "reason": null,
+  "campaign": {
+    "campaign_id": null,
+    "name": null,
+    "category": null,
+    "start_at": null,
+    "end_at": null,
+    "campaign_timezone": null,
+    "points_per_proof": null,
+    "daily_limit": null,
+    "status": null,
+    "note": null
+  }
+}

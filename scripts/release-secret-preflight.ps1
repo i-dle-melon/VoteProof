@@ -35,17 +35,15 @@ try {
   $bindings = @{}
   foreach ($b in $version.resources.bindings) { $bindings[$b.name] = $b }
   if ($bindings['DB'].type -cne 'd1' -or $bindings['DB'].id -cne $ConfirmDatabaseId) { throw 'DATABASE_BINDING_MISMATCH' }
-  $required = @('AUTH_SECRET','AUTH_TOTP_ENCRYPTION_KEY','SUPABASE_SECRET_KEY','GMAIL_CLIENT_ID','GMAIL_CLIENT_SECRET','GMAIL_REFRESH_TOKEN','TURNSTILE_SECRET_KEY','CASE_QUERY_KEY_SECRET','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY')
+  $required = @('AUTH_SECRET','AUTH_TOTP_ENCRYPTION_KEY','SUPABASE_SECRET_KEY','MAIL_RELAY_URL','MAIL_RELAY_SECRET','TURNSTILE_SECRET_KEY','CASE_QUERY_KEY_SECRET','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY')
   $rows = @()
   foreach ($name in $required) { $rows += [pscustomobject]@{name=$name; present=($secretNames -contains $name); format='not retrievable'} }
-  foreach ($name in @('AUTH_ORIGIN','SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY','GMAIL_SENDER_EMAIL','GMAIL_SENDER_NAME','R2_ACCOUNT_ID','R2_BUCKET_NAME')) {
+  foreach ($name in @('AUTH_ORIGIN','SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY','R2_ACCOUNT_ID','R2_BUCKET_NAME')) {
     $value = $bindings[$name].text
     $valid = switch ($name) {
       'AUTH_ORIGIN' { $value -ceq 'https://voteproof.i-dle-melon.workers.dev' }
       'SUPABASE_URL' { $value -ceq 'https://bcezasxxirznpojfrmol.supabase.co' }
       'SUPABASE_PUBLISHABLE_KEY' { $value -is [string] -and $value.Length -ge 16 -and $value -notmatch '\s' }
-      'GMAIL_SENDER_EMAIL' { $value -is [string] -and $value -match '^[^@\s]+@[^@\s]+\.[^@\s]+$' }
-      'GMAIL_SENDER_NAME' { $value -is [string] -and $value.Trim().Length -gt 0 -and $value -notmatch '[\x00-\x1f\x7f]' }
       'R2_ACCOUNT_ID' { $value -is [string] -and $value -match '^[a-fA-F0-9]{32}$' }
       'R2_BUCKET_NAME' { $value -ceq 'voteproof-proofs' }
     }

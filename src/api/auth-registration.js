@@ -8,14 +8,14 @@ import { authNow, authAtomic, transactionGuard, throttle } from "../lib/auth-sto
 import { newTotp, encryptTotp } from "../lib/auth-crypto.js";
 import { emailHash, codeHash, sourceHash, encryptEmail, decryptEmail, findIdentity } from "../lib/auth-identity.js";
 import { supabaseConfig, adminCreateVerifiedUser, adminDeleteUser } from "../lib/supabase-auth.js";
-import { gmailConfig, sendVerificationEmail } from "../lib/gmail.js";
+import { mailConfig, sendVerificationEmail } from "../lib/mail-relay.js";
 import { EMAIL_LIMITS, emailBudget, reserveEmail } from "../lib/registration-quota.js";
 import { equalQueryHash } from "../lib/case-keys.js";
 function randomCode() {
   const sample = new Uint32Array(1); do { crypto.getRandomValues(sample); } while (sample[0] >= 4294000000);
   return String(sample[0] % 1000000).padStart(6, "0");
 }
-function configuration(env) { supabaseConfig(env); gmailConfig(env); }
+function configuration(env) { supabaseConfig(env); mailConfig(env); }
 async function delivered(db, env, eventId, email, code) {
   try { await sendVerificationEmail(env, email, code); await db.prepare("UPDATE auth_email_sends SET status='sent' WHERE id=?").bind(eventId).run(); }
   catch (e) { try { await db.prepare("UPDATE auth_email_sends SET status='failed' WHERE id=?").bind(eventId).run(); } catch { /* Reservation still counts: delivery may have occurred. */ } throw e; }
@@ -65,12 +65,16 @@ export const registrationVerifyEmail = authHandler(async (env, _url, request) =>
   const db = await authContext(request, env); configuration(env);
   const body = await readAuthJson(request); onlyFields(body, ["challenge_id", "code"]);
   const row = await challenge(request, env, body.challenge_id);
+  // A rejected/ambiguous latest delivery cannot advance verification. Resend
+  // remains available through the existing cooldown and new-code path.
+  const latest = await db.prepare("SELECT status FROM auth_email_sends WHERE challenge_id=? ORDER BY rowid DESC LIMIT 1").bind(row.id).first();
+  if (latest?.status !== "sent") throw invalidVerification();
   await throttle(request, env, "registration-code", row.id);
   // Increment attempts with CAS before checking even malformed codes.
   const next = await db.prepare("UPDATE auth_email_challenges SET attempts=attempts+1 WHERE id=? AND state='pending' AND attempts=? AND expires_at>? RETURNING *")
     .bind(row.id, row.attempts, authNow()).first();
   if (!next || typeof body.code !== "string" || !/^\d{6}$/.test(body.code) || !equalQueryHash(await codeHash(env, row.id, body.code), row.code_hash)) throw invalidVerification();
-  const claimed = await db.prepare("UPDATE auth_email_challenges SET state='verified' WHERE id=? AND state='pending' AND code_hash=? AND expires_at>? RETURNING id").bind(row.id, row.code_hash, authNow()).first();
+  const claimed = await db.prepare("UPDATE auth_email_challenges SET state='verified' WHERE id=? AND state='pending' AND code_hash=? AND expires_at>? AND (SELECT status FROM auth_email_sends WHERE challenge_id=? ORDER BY rowid DESC LIMIT 1)='sent' RETURNING id").bind(row.id, row.code_hash, authNow(), row.id).first();
   if (!claimed) throw invalidVerification();
   const identity = await findIdentity(db, env, await decryptEmail(env, row, row.id));
   const add = Boolean(identity && !identity.password_enabled && identity.google_identity_id && identity.status === "active");

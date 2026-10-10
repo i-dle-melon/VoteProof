@@ -41,6 +41,7 @@ export function authCryptoConfig(env) {
     "SUPABASE_SECRET_KEY",
     "GMAIL_CLIENT_SECRET",
     "GMAIL_REFRESH_TOKEN",
+    "MAIL_RELAY_SECRET",
   ]) {
     if (
       typeof env[other] === "string" &&

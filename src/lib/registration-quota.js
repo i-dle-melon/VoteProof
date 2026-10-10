@@ -1,9 +1,9 @@
 import { AuthError } from "../api/auth-validation.js";
 import { authNow, authAtomic, rateError } from "./auth-store.js";
-export const EMAIL_LIMITS = Object.freeze({ codeSeconds: 600, attempts: 5, cooldown: 60, emailSends: 5, window: 1800, sourceSends: 60, dailyWindow: 86400, soft: 300, hard: 400 });
+export const EMAIL_LIMITS = Object.freeze({ codeSeconds: 600, attempts: 5, cooldown: 60, emailSends: 5, window: 1800, sourceSends: 60, dailyWindow: 86400, soft: 60, hard: 80 });
 export function quotaConfig(env) {
   const hard = Number(env.AUTH_EMAIL_HARD_LIMIT ?? EMAIL_LIMITS.hard), soft = Number(env.AUTH_EMAIL_SOFT_LIMIT ?? Math.min(EMAIL_LIMITS.soft, hard));
-  if (!Number.isSafeInteger(hard) || hard < 1 || hard > 400 || !Number.isSafeInteger(soft) || soft < 1 || soft > hard)
+  if (!Number.isSafeInteger(hard) || hard < 1 || hard > EMAIL_LIMITS.hard || !Number.isSafeInteger(soft) || soft < 1 || soft > Math.min(EMAIL_LIMITS.soft, hard))
     throw new AuthError(503, "AUTH_NOT_CONFIGURED", "Authentication service is not configured");
   return { hard, soft };
 }

@@ -1,5 +1,9 @@
 # VoteProof API
 
+## MailApp relay（本機 release candidate）
+
+正式驗證信 transport 已改為 MailApp HTTPS relay；Worker-only `MAIL_RELAY_URL`／`MAIL_RELAY_SECRET`，每日 soft 60／hard 80。原 Gmail OAuth adapter 與既有 Production secrets 保留作為回退，尚未停用或刪除。安全 protocol、轉址、配額與驗收見 [Mail relay 文件](docs/mail-relay.md)。此前 B7 release candidate 的寄信 gate 需重新驗收；目前不 push／deploy／remote migration／修改 Dashboard。
+
 ## B4G / B6G Google + Password（本機，未發布）
 
 一個 Supabase user UUID 對應一個 VoteProof member_id。Google-only 不需 VoteProof 密碼/TOTP/復原碼；密碼登入維持 TOTP/trusted device，Admin elevation 不放寬。Supabase 相同已驗證 email 自動連結發生在返回前，UI 明確說明已連結狀態，取消只取消 VoteProof 啟用。

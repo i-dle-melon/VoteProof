@@ -49,9 +49,9 @@ TOTP QR 使用本機固定版 [qrcode-generator](https://github.com/kazuhikoaras
 正式發布另需使用者批准並逐項完成，這次未操作：
 
 1. 檢查 Production 仍只套用的 migrations／schema；備份並安排依序 0003～0007（包含 B4S 重寫的未發布 0003），不得直接覆蓋已有舊版 auth schema。檢查 FK／quick_check；不帶入本機 fixture。
-2. Worker-only Secrets：獨立 64-hex AUTH_SECRET 與 AUTH_TOTP_ENCRYPTION_KEY；SUPABASE_SECRET_KEY；GMAIL_CLIENT_SECRET／GMAIL_REFRESH_TOKEN。Variables：AUTH_ORIGIN（正式 exact origin）、SUPABASE_URL／SUPABASE_PUBLISHABLE_KEY、GMAIL_CLIENT_ID／GMAIL_SENDER_EMAIL／GMAIL_SENDER_NAME；可選既有 EMAIL_LIMITS／key version。保留 CASE_QUERY_KEY_SECRET、Turnstile/R2/DB/ASSETS、keep_vars。從 Dashboard 管理值，不寫入 static assets/Git。
+2. Worker-only Secrets：獨立 64-hex AUTH_SECRET 與 AUTH_TOTP_ENCRYPTION_KEY；SUPABASE_SECRET_KEY；MAIL_RELAY_URL／MAIL_RELAY_SECRET（見 [Mail relay](mail-relay.md)）。Variables：AUTH_ORIGIN（正式 exact origin）、SUPABASE_URL／SUPABASE_PUBLISHABLE_KEY；可選既有 email quota／key version。GMAIL_* 為 legacy，保留既有 Production 值作回退，未刪除。保留 CASE_QUERY_KEY_SECRET、Turnstile/R2/DB/ASSETS、keep_vars。從 Dashboard 管理值，不寫入 static assets/Git。
 3. Supabase public signup/anonymous 關閉、email confirmation 啟用、server admin create；確認 password policy 與前端 12～128 bounds相容。不得開放 browser provider login。
-4. Gmail OAuth **Testing** 七天 refresh-token 限制仍需人工處理：正式 publishing／可用 scope／重新授權與 delivery/quotas；既有 live acceptance 不等於 Production 長期可用。
+4. MailApp relay 正式寄信 gate：設定獨立 MAIL_RELAY_URL／MAIL_RELAY_SECRET，驗證 HMAC、重放拒絕、轉址與真實註冊；Worker soft 60／hard 80，relay provider reserve 20。此路徑不依賴 Gmail OAuth Testing refresh token；既有 Gmail 設定只保留作回退。本機驗收不等於 Production 已可長期寄信。
 5. 設定正式 Campaign、leaderboard snapshots、tier thresholds（未設定仍能正確呈現 fallback），選擇 D1 leaderboard/campaign source rollout；不刪 Apps Script／改 Production traffic 作為此本機任務的一部分。
 6. 確認正式 site key 配對、domain與 Turnstile；R2 CORS exact Production origin、Content-Type PUT、private bucket；驗收真正 browser CORS/session Cookies/provider 登入、Guest regression、backend quotas/Free CPU／D1/R2 allowance與 orphan/enrollment 運維清理。
 7. 在真實 iOS Safari/Android 手機檢查 QR 掃描／manual input、跨 App 驗證、密碼管理器、剪貼簿與 touch/keyboard；Google Authenticator enrollment 本次本機 fixture only。

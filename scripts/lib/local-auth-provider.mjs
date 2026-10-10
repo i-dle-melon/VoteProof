@@ -1,9 +1,10 @@
 // Developer-only upstream fixture. All credentials/passwords are ephemeral.
-import { randomBytes, randomUUID, createHash } from "node:crypto";
+import { randomBytes, randomUUID, createHash, createHmac } from "node:crypto";
 export function authProviderFixture({ beforeUserCreated, adminCreateHook = false } = {}) {
-  const users = new Map(), mails = [], calls = [], tokens = [], failures = new Map(), oauthCodes = new Map(), accessUsers = new Map();
+  const users = new Map(), mails = [], calls = [], tokens = [], failures = new Map(), oauthCodes = new Map(), accessUsers = new Map(), relaySends = new Set();
   const config = { SUPABASE_URL: "https://local-auth.supabase.example", SUPABASE_PUBLISHABLE_KEY: randomBytes(32).toString("hex"), SUPABASE_SECRET_KEY: randomBytes(32).toString("hex"),
-    GMAIL_CLIENT_ID: randomBytes(32).toString("hex"), GMAIL_CLIENT_SECRET: randomBytes(32).toString("hex"), GMAIL_REFRESH_TOKEN: randomBytes(32).toString("hex"), GMAIL_SENDER_EMAIL: "sender@local.example", GMAIL_SENDER_NAME: "VoteProof" };
+    GMAIL_CLIENT_ID: randomBytes(32).toString("hex"), GMAIL_CLIENT_SECRET: randomBytes(32).toString("hex"), GMAIL_REFRESH_TOKEN: randomBytes(32).toString("hex"), GMAIL_SENDER_EMAIL: "sender@local.example", GMAIL_SENDER_NAME: "VoteProof",
+    MAIL_RELAY_URL: "https://script.google.com/macros/s/" + randomBytes(32).toString("base64url") + "/exec", MAIL_RELAY_SECRET: randomBytes(32).toString("base64url") };
   return { config, users, mails, calls, tokens, failures,
     oauth(authorizeUrl, email, options = {}) {
       const url = new URL(authorizeUrl); email = email.trim().toLowerCase();
@@ -29,10 +30,17 @@ export function authProviderFixture({ beforeUserCreated, adminCreateHook = false
     codeFor(email) { return mails.filter(m => m.email === email.trim().toLowerCase()).at(-1)?.code; },
     async fetch(request) {
       const url = new URL(request.url), path = url.pathname;
-      if (![new URL(config.SUPABASE_URL).origin, "https://oauth2.googleapis.com", "https://gmail.googleapis.com"].includes(url.origin)) return null;
+      if (![new URL(config.SUPABASE_URL).origin, "https://oauth2.googleapis.com", "https://gmail.googleapis.com"].includes(url.origin) && request.url !== config.MAIL_RELAY_URL) return null;
       const text = await request.text(), body = request.headers.get("Content-Type")?.includes("application/x-www-form-urlencoded") ? Object.fromEntries(new URLSearchParams(text)) : JSON.parse(text || "{}");
       calls.push({ path, method: request.method, headers: Object.fromEntries(request.headers), body });
       const failure = failures.get(path); if (failure) { if (failure.once) failures.delete(path); return Response.json({ message: "unsafe provider information" }, { status: failure.status }); }
+      if (request.url === config.MAIL_RELAY_URL) {
+        const canonical = ["v1", String(body.timestamp), body.send_id, "verify_email", body.to, body.code].join("\n");
+        const signature = createHmac("sha256", config.MAIL_RELAY_SECRET).update(canonical).digest("base64url");
+        if (body.purpose !== "verify_email" || body.signature !== signature) return Response.json({ ok: false, error: "AUTH_FAILED" });
+        if (relaySends.has(body.send_id)) return Response.json({ ok: false, error: "REPLAY_REJECTED" });
+        relaySends.add(body.send_id); mails.push({ email: body.to, code: body.code }); return Response.json({ ok: true });
+      }
       if (url.origin === "https://oauth2.googleapis.com") {
         if (body.client_id !== config.GMAIL_CLIENT_ID || body.client_secret !== config.GMAIL_CLIENT_SECRET || body.refresh_token !== config.GMAIL_REFRESH_TOKEN || body.grant_type !== "refresh_token") return Response.json({}, { status: 401 });
         const token = randomBytes(32).toString("base64url"); tokens.push(token); return Response.json({ access_token: token, expires_in: 3600, token_type: "Bearer" });

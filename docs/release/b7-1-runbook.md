@@ -1,5 +1,7 @@
 # B7.1 Release blocker closure
 
+Mail transport amendment: the current local candidate uses [MailApp relay](../mail-relay.md), not the historical Gmail OAuth send path described below. Active mail gates require MAIL_RELAY_URL / MAIL_RELAY_SECRET (Worker-only Secrets), 60/80 limits, safe hosted redirects and real registration acceptance. Retain all historical Gmail settings/release artifacts for rollback; sender-client/lifetime sections below apply to that rollback only. Do not rotate/delete credentials or run any Production command as part of the relay integration. The previously frozen B7.2 candidate must be re-frozen after this change.
+
 Baseline: `4bf8e2c0df2f5763e8a3970839fb7a2b7c136625`. Production remains B1–B3 / migrations 0001–0002. **Planning only: none of the operational commands below has been run.** B7.1 adds offline operator artifacts/tests, not Worker/UI/schema changes. No commit, push, deploy, remote migration, Production cleanup, provider changes or Secret rotation is authorized by this document.
 
 B7.2 authorizes one LOCAL release-preparation commit after file classification and safety review. It does not authorize any Production command. The exact resulting commit and post-commit regression results are reported separately; do not confuse the historical baseline above with the frozen candidate.

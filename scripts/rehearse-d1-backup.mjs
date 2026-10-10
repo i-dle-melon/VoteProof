@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 const root=fileURLToPath(new URL('../',import.meta.url)), wrangler=resolve(root,'node_modules/wrangler/bin/wrangler.js');
 const env={...process.env,CI:'true',WRANGLER_WRITE_LOGS:'false',WRANGLER_SEND_METRICS:'false'};
-for(const name of Object.keys(env))if(/^(AUTH_|SUPABASE_|GMAIL_|R2_|TURNSTILE_)/.test(name)||['CLOUDFLARE_API_TOKEN','CLOUDFLARE_API_KEY','CASE_QUERY_KEY_SECRET','GOOGLE_PUBLIC_API_URL'].includes(name))delete env[name];
+for(const name of Object.keys(env))if(/^(AUTH_|SUPABASE_|GMAIL_|MAIL_RELAY_|R2_|TURNSTILE_)/.test(name)||['CLOUDFLARE_API_TOKEN','CLOUDFLARE_API_KEY','CASE_QUERY_KEY_SECRET','GOOGLE_PUBLIC_API_URL'].includes(name))delete env[name];
 try {
   const args=process.argv.slice(2), opts={};
   for(let i=0;i<args.length;i+=2){const key=args[i]?.replace(/^--/,'');if(!['backup','manifest'].includes(key)||opts[key]||!args[i+1])throw Error();opts[key]=args[i+1];}

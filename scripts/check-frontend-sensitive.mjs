@@ -14,7 +14,7 @@ const rules = [
   /X-Amz-(?:Signature|Credential)=[0-9a-fA-F]/,
   /otpauth:\/\/[^\s"'`]+[?&]secret=[A-Z2-7]{16,}/,
   /(?:C:\\Users\\|C:\/Users\/)/i,
-  /(?:AUTH_SECRET|AUTH_TOTP_ENCRYPTION_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|GMAIL_(?:CLIENT_SECRET|REFRESH_TOKEN)|SUPABASE_SECRET_KEY)\s*[=:]\s*["'][A-Za-z0-9_\/-]{20,}["']/,
+  /(?:AUTH_SECRET|AUTH_TOTP_ENCRYPTION_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|MAIL_RELAY_(?:URL|SECRET)|GMAIL_(?:CLIENT_SECRET|REFRESH_TOKEN)|SUPABASE_SECRET_KEY)\s*[=:]\s*["'][A-Za-z0-9_\/-]{20,}["']/,
   /(?:query_key|idempotency_key|recovery_code|turnstile_token|csrf_token)\s*[=:]\s*["'][A-Za-z0-9_-]{32,}["']/,
   /(?:access_token|refresh_token|provider_token|auth_code|code_verifier|oauth_state)\s*[=:]\s*["'][A-Za-z0-9._~-]{32,}["']/,
 ];

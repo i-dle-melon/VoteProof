@@ -1,3 +1,5 @@
+// Legacy rollback adapter only. The active Worker uses mail-relay.js.
+// Preserve until separately approved MailApp Production acceptance/decommission.
 import { AuthError, normalizeEmail } from "../api/auth-validation.js";
 const error = (status = 502, code = "AUTH_EMAIL_UNAVAILABLE") => new AuthError(status, code, "Verification email service is unavailable");
 export function gmailConfig(env) {

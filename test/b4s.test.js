@@ -85,8 +85,8 @@ test("exactly-24h-old reservations do not count; recent ones survive a midnight 
   const h=await localCaseRuntime();try{await h.setAuthConfig({AUTH_EMAIL_HARD_LIMIT:"2",AUTH_EMAIL_SOFT_LIMIT:"1"});await seedBudget(h,2,86401);assert.equal((await emailBudget(h.db,h.authConfig)).available,true);
   await seedBudget(h,2,100);assert.equal((await emailBudget(h.db,h.authConfig)).available,false);}finally{await h.runtime.dispose()}
 });
-test("failed Gmail delivery still consumes safety reservation",async()=>{
-  const h=await localCaseRuntime();try{h.provider.failures.set("/gmail/v1/users/me/messages/send",{status:429});await expectError(await h.fetch("/api/auth/register/start","POST",{email:email(),turnstile_token:secret()},loginHeaders()),503,"AUTH_EMAIL_UNAVAILABLE");
+test("failed relay delivery still consumes safety reservation",async()=>{
+  const h=await localCaseRuntime();try{h.provider.failures.set(new URL(h.provider.config.MAIL_RELAY_URL).pathname,{status:429});await expectError(await h.fetch("/api/auth/register/start","POST",{email:email(),turnstile_token:secret()},loginHeaders()),503,"AUTH_EMAIL_UNAVAILABLE");
   assert.equal((await h.db.prepare("SELECT status FROM auth_email_sends").first()).status,"failed");}finally{await h.runtime.dispose()}
 });
 test("email verification precedes confirmed Supabase create and no passwords enter D1",async()=>{
@@ -135,9 +135,9 @@ test("active Worker module graph contains no password KDF or historical implemen
   const result=await build({entryPoints:["src/index.js"],bundle:true,write:false,metafile:true,format:"esm",platform:"browser"});
   assert.equal(Object.keys(result.metafile.inputs).some(p=>/legacy-password-kdf|\/(?:scrypt|pbkdf2|bcrypt)\./i.test(p)),false);
 });
-test("missing Supabase/Gmail settings fail closed while Guest and public remain available",async()=>{
+test("missing Supabase/relay settings fail closed while Guest and public remain available",async()=>{
   const h=await localCaseRuntime();try{const original=h.authConfig;
-    for(const name of ["SUPABASE_URL","SUPABASE_PUBLISHABLE_KEY","SUPABASE_SECRET_KEY","GMAIL_CLIENT_ID","GMAIL_CLIENT_SECRET","GMAIL_REFRESH_TOKEN"]){await h.setAuthConfig({...original,[name]:undefined});assert.equal((await h.fetch("/api/auth/registration-status")).status,200);assert.equal((await h.fetch("/api/health")).status,200);await expectError(await h.fetch("/api/auth/register/start","POST",{email:email(),turnstile_token:secret()},loginHeaders()),503,"AUTH_NOT_CONFIGURED");}
+    for(const name of ["SUPABASE_URL","SUPABASE_PUBLISHABLE_KEY","SUPABASE_SECRET_KEY","MAIL_RELAY_URL","MAIL_RELAY_SECRET"]){await h.setAuthConfig({...original,[name]:undefined});assert.equal((await h.fetch("/api/auth/registration-status")).status,200);assert.equal((await h.fetch("/api/health")).status,200);await expectError(await h.fetch("/api/auth/register/start","POST",{email:email(),turnstile_token:secret()},loginHeaders()),503,"AUTH_NOT_CONFIGURED");}
   }finally{await h.runtime.dispose()}
 });
 test("password recovery requires TOTP plus unused recovery code and hides invalid proof at start",async()=>{

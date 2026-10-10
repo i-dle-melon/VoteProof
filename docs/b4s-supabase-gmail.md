@@ -62,16 +62,16 @@ Passwords keep the existing 12–128 Unicode-character bounds without trimming/c
 
 Six digits are generated with cryptographic randomness and rejection sampling, not Math.random. Only a challenge-bound, domain-separated HMAC verifier is stored. Browser binding, expiry and a persistent CAS attempt counter apply even to malformed codes. Successful verify is one-time. Email ownership is verified before admin user creation.
 
-Gmail refreshes OAuth via the documented refresh-token endpoint, then sends RFC822 UTF-8 MIME/base64url `raw` through messages.send. Sender identity comes only from server env, headers reject injection; branded message states ten-minute expiry and that the code must not be shared. No Supabase email confirmations/reset links are sent. See [Google OAuth refresh](https://developers.google.com/identity/protocols/oauth2/web-server#offline), [Gmail sending](https://developers.google.com/workspace/gmail/api/guides/sending).
+Active verification sending now uses the MailApp HTTPS relay; protocol/config/redirect/rollback are defined in [mail-relay.md](mail-relay.md). The historical Gmail OAuth adapter remains for rollback and is excluded from the active bundle. No Supabase email confirmations/reset links are sent.
 
 Server-side defaults:
 
 - Per normalized email: 60s cooldown; ≤5 reserved sends in rolling 30 minutes.
 - Per pseudonymous CF-Connecting-IP source: ≤60 in rolling 30 minutes; no raw IP stored. Absent IP shares the conservative unknown bucket.
-- Global: soft 300 / hard 400 reserved sends in rolling 24h, not midnight reset.
-- Optional AUTH_EMAIL_SOFT_LIMIT / AUTH_EMAIL_HARD_LIMIT may lower these defaults; hard limit is bounded at 400 and soft ≤hard. Invalid values fail closed.
+- Global: soft 60 / hard 80 reserved sends in rolling 24h, not midnight reset.
+- Optional AUTH_EMAIL_SOFT_LIMIT / AUTH_EMAIL_HARD_LIMIT may lower these defaults; hard ≤80 and soft ≤min(60,hard). Invalid values fail closed.
 
-Reservation and challenge mutation occur in one D1 guarded batch before Gmail. Concurrent calls cannot overspend. Reserved, sent and failed attempts all count because a timeout might still deliver. Soft warning is a fixed non-sensitive log; at hard limit only sends/resends stop (429 AUTH_REGISTRATION_UNAVAILABLE + retry-after). Guest/public/login/admin functions do not depend on this budget. No count/remaining budget/threshold is returned by registration-status.
+Reservation and challenge mutation occur in one D1 guarded batch before relay delivery. Concurrent calls cannot overspend. Reserved, sent and failed attempts all count because a timeout might still deliver. The latest send must be sent before email verification can advance. Soft warning is a fixed non-sensitive log; at hard limit only sends/resends stop (429 AUTH_REGISTRATION_UNAVAILABLE + retry-after). Guest/public/login/admin functions do not depend on this budget. No count/remaining budget/threshold is returned by registration-status.
 
 Auth account/IP brute-force limits remain persistent and hashed. Old KDF-global quota is removed from active runtime. Expired send records older than 24h+10m and email challenges expired over 24h are cleaned in bounded batches of 100 on a later send; quota enforcement itself does not depend on cleanup. No scheduler is introduced.
 
@@ -93,7 +93,7 @@ Network timeouts are an uncertain remote outcome: password may already have chan
 
 ## Server configuration (names only)
 
-Required for new registration: existing GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN Secrets; GMAIL_SENDER_EMAIL / GMAIL_SENDER_NAME Variables; SUPABASE_SECRET_KEY Secret; SUPABASE_URL (HTTPS project origin without trailing slash) / SUPABASE_PUBLISHABLE_KEY Variables; TURNSTILE_SECRET_KEY; retained AUTH_SECRET / AUTH_TOTP_ENCRYPTION_KEY / AUTH_ORIGIN; DB. Login/recovery/step-up need Supabase/local security config, not Gmail send config.
+Required for new registration: MAIL_RELAY_URL / MAIL_RELAY_SECRET Worker-only settings (both recommended Secrets); SUPABASE_SECRET_KEY Secret; SUPABASE_URL (HTTPS project origin without trailing slash) / SUPABASE_PUBLISHABLE_KEY Variables; TURNSTILE_SECRET_KEY; retained AUTH_SECRET / AUTH_TOTP_ENCRYPTION_KEY / AUTH_ORIGIN; DB. Login/recovery/step-up need Supabase/local security config, not relay send config. GMAIL_* settings are legacy/decommission-pending; preserve Production values for separately approved rollback, do not delete them now.
 
 No new redundant secret is required: AUTH_SECRET performs HMAC with distinct identity/code/source/CSRF purposes. AUTH_TOTP_ENCRYPTION_KEY remains an independent 32-byte key, also encrypting email with distinct AAD/context. AUTH_PASSWORD_PEPPER is unnecessary; do not copy its value into another setting. AUTH_TOTP_KEY_VERSION remains optional. Changing AUTH_SECRET requires controlled email-hash regeneration and re-auth; encryption key rotation requires re-encrypting both TOTP/email records. No automatic live key rotation is implemented.
 

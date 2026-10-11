@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "test": "node --test",
     "test:frontend": "playwright test",
-    "test:frontend-unit": "node --test test/frontend.test.js test/frontend-member.test.js test/frontend-admin.test.js",
+    "test:frontend-unit": "node --test test/frontend.test.js test/frontend-member.test.js test/frontend-admin.test.js test/frontend-tier-artwork.test.js",
     "test:frontend-smoke": "node scripts/smoke-frontend.mjs",
     "test:member-frontend-smoke": "node scripts/smoke-member-frontend.mjs",
     "test:google-frontend-smoke": "node scripts/smoke-google-frontend.mjs",

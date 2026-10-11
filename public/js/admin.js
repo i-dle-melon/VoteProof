@@ -1,5 +1,6 @@
 import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage } from "./admin-api.js";
 import { PublicError } from "./api.js";
+import { renderTierArtwork } from "./tier-artwork.js";
 
 const $ = id => document.getElementById(id);
 const node = (tag, text = "", cls) => { const n = document.createElement(tag); n.textContent = text; if (cls) n.className = cls; return n; };
@@ -215,7 +216,9 @@ export function adminUI(session) {
     heading("會員等級", "門檻需由低到高依序設定；未啟用的等級不會授予會員。");
     const data = await request("member-tiers");
     for (const row of data.tiers) {
-      const card = node("article", "", "member-case"); card.append(node("h3", row.name), node("span", row.status === "active" ? "已啟用" : "未啟用", "status"), node("p", row.min_points === null ? "門檻尚未設定" : `門檻：${row.min_points} 點`));
+      const card = node("article", "", "member-case tier-card");
+      const artwork = node("div", "", "tier-artwork"); renderTierArtwork(artwork, row.tier_id);
+      card.append(artwork, node("h3", row.name), node("span", row.status === "active" ? "已啟用" : "未啟用", "status"), node("p", row.min_points === null ? "門檻尚未設定" : `門檻：${row.min_points} 點`));
       if (row.tier_id !== "normal") card.append(button("編輯等級", () => {
         if (busy) return; clearPanel(); heading("會員等級"); const f = formCard(row.name);
         field(f, "min_points", "點數門檻", "number", row.min_points ?? "", { required: true, min: 1, max: 1000000000, step: 1 });

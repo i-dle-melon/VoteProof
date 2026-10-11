@@ -5,6 +5,7 @@ import { extname, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { build } from "esbuild";
+import { TIER_ARTWORK } from "../public/js/tier-artwork.js";
 
 const root = fileURLToPath(new URL("../public/", import.meta.url));
 const paths = [];
@@ -16,12 +17,16 @@ async function visit(path) {
   }
 }
 await visit(root);
-const expected = ["_headers", "css/app.css", "index.html", "js/api.js", "js/app.js", "js/submission.js", "js/turnstile.js", "js/admin.js", "js/admin-api.js", "js/member-api.js", "js/member.js", "js/qr.js", "js/vendor/qrcode.js"];
+const expected = ["_headers", "css/app.css", "index.html", "js/api.js", "js/app.js", "js/submission.js", "js/turnstile.js", "js/admin.js", "js/admin-api.js", "js/member-api.js", "js/member.js", "js/qr.js", "js/tier-artwork.js", "js/vendor/qrcode.js", ...Object.values(TIER_ARTWORK).map(art => art.src.slice(1))];
 assert.deepEqual(paths.map((p) => relative(root, p).replaceAll("\\", "/")).sort(), expected.sort(), "Unexpected deployable static assets");
 const forbidden = /AUTH_SECRET|AUTH_PASSWORD_PEPPER|AUTH_TOTP_ENCRYPTION_KEY|CASE_QUERY_KEY_SECRET|TURNSTILE_SECRET_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|MAIL_RELAY_(?:URL|SECRET)|SUPABASE_(?:URL|PUBLISHABLE_KEY|SECRET_KEY)|GMAIL_(?:CLIENT_ID|CLIENT_SECRET|REFRESH_TOKEN|SENDER_EMAIL|SENDER_NAME)|X-Amz-(?:Signature|Credential)=|https:\/\/script\.google\.com\/macros\/s\/|-----BEGIN .*PRIVATE KEY-----|(?:C:\\Users\\|C:\/Users\/)/i;
 let totalBytes = 0, gzipBytes = 0;
 for (const path of paths) {
-  const source = await readFile(path, "utf8");
+  const data = await readFile(path), source = data.toString("utf8");
+  if (extname(path) === ".webp") {
+    assert.equal(data.subarray(0, 4).toString(), "RIFF", "Invalid tier image");
+    assert.equal(data.subarray(8, 12).toString(), "WEBP", "Invalid tier image");
+  }
   assert.equal(forbidden.test(source), false, "Sensitive literal found in static asset");
   if (extname(path) === ".js") {
     assert.equal(/console\.|localStorage\.setItem\((?!"voteproof-theme")|sessionStorage|indexedDB/.test(source), false, "Browser module contains logging, credentials storage");
@@ -34,7 +39,7 @@ for (const path of paths) {
       assert.equal(paths.includes(imported), true, "Browser module imports outside static assets");
     }
   }
-  totalBytes += Buffer.byteLength(source); gzipBytes += gzipSync(source).byteLength;
+  totalBytes += data.byteLength; gzipBytes += gzipSync(data).byteLength;
 }
 // Compilation check only, write:false: no new build pipeline or output files.
 const bundle = await build({ entryPoints: [resolve(root, "js/app.js")], bundle: true, format: "esm", platform: "browser", write: false, minify: true });

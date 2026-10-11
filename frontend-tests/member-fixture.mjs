@@ -93,7 +93,7 @@ export async function memberFixture(page, options = {}) {
       if (path.startsWith("/api/me/cases/")) return reply({ case_id: state.caseId, campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09", status: "approved", query_key_hash: "private", object_key: "private" });
     }
     if (path === "/api/campaigns") return reply({ campaigns: [{ campaign_id: "LOCAL", name: "本機活動", category: "local", status: "active",
-      campaign_timezone: "UTC", vote_start_date: "2000-01-01", vote_end_date: "2099-12-31" }] });
+      campaign_timezone: "UTC", vote_start_date: "2000-01-01", vote_end_date: "2099-12-31", start_at: "2000-01-01T00:00:00Z", end_at: "2100-01-01T00:00:00Z", points_per_proof: 10, daily_limit: null }] });
     if (path === "/api/leaderboards") return reply({ leaderboards: [] });
     if (path === "/api/uploads/prepare") {
       const session_id = randomUUID(); return reply({ session_id, expires_in: 300, uploads: body.files.map(file => ({

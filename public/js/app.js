@@ -1,4 +1,4 @@
-import { api, putImage, errorMessage } from "./api.js";
+import { api, putImage, errorMessage, PublicError } from "./api.js";
 import { Submission, validateImages, queryInformation } from "./submission.js";
 import { Challenge } from "./turnstile.js";
 import { memberUI } from "./member.js";
@@ -20,12 +20,16 @@ const dateLabel = (value) => {
   return Number.isFinite(date.valueOf()) ? date.toLocaleString("zh-TW", { hour12: false }) : "—";
 };
 let campaigns = [], campaignLoaded = false, campaignLoading = false, images = [], success = null;
-let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateLoading = false;
+let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateRequest = null, gateChecking = false, submissionStarting = false;
 let campaignAvailability = "正在載入活動…";
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false;
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
-const submission = new Submission({ api, put: putImage, token: async () => {
+const submission = new Submission({ api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
+put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
+  await gateRequest;
+  assertSubmissionOpen();
   await challenge.mount();
+  assertSubmissionOpen();
   return challenge.take();
 }, progress: (state) => {
   const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
@@ -41,7 +45,7 @@ const member = memberUI({ changed: (identity) => {
 } });
 
 function syncOwnership() {
-  $("submission-mode").disabled = submission.pending;
+  $("submission-mode").disabled = !submissionReady() || submission.pending;
   $("submission-owner-hint").textContent = $("submission-mode").value === "member"
     ? "本次投稿綁定登入會員；審核通過後可依活動規則取得點數。登入身份改變時需重新登入原會員再重試。"
     : "訪客投稿不會綁定會員，也不計入會員點數。";
@@ -55,38 +59,67 @@ $("submission-mode").addEventListener("change", () => {
   syncOwnership();
 });
 
+const campaignOpen = c => c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
+const submissionReady = () => submissionsEnabled && campaigns.some(campaignOpen);
+function assertSubmissionOpen() {
+  if (!submissionsEnabled) throw new PublicError("SUBMISSIONS_DISABLED");
+  if (!campaignOpen(campaigns.find(c => c.campaign_id === $("campaign").value))) throw new PublicError("CAMPAIGN_NOT_OPEN");
+}
+const campaignDate = value => {
+  const date = new Date(value);
+  return Number.isFinite(date.valueOf()) ? new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(date) : "—";
+};
+const voteDateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(value ?? "") ? value.replaceAll("-", "/") : "—";
+const scoringLabel = c => c.daily_limit === 0 ? "本活動不計分" :
+  `每次有效投稿：${c.points_per_proof} 點 · ${c.daily_limit === null ? "每日計分：不限次數" : `每日最多 ${c.daily_limit} 次計分`}`;
 function syncForm() {
+  const ready = submissionReady();
   syncOwnership();
-  $("submission-fields").disabled = !submissionsEnabled || !campaigns.length || submission.pending;
-  $("submit-button").disabled = !submissionsEnabled || submission.busy || (!submission.pending && (!campaignLoaded || !campaigns.length));
-  $("submit-button").textContent = submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : "送出投稿";
-  $("submission-form").setAttribute("aria-busy", String(submission.busy));
+  $("submission-fields").disabled = !ready || submission.pending;
+  $("submit-button").disabled = !ready || submissionStarting || submission.busy || (!submission.pending && !campaignLoaded);
+  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !ready ? "投稿暫停" : submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : "送出投稿";
+  $("submission-form").setAttribute("aria-busy", String(submission.busy || submissionStarting));
   $("abandon-button").hidden = !submission.pending;
   $("abandon-button").disabled = submission.busy;
-  $("challenge-retry").disabled = !submissionsEnabled || submission.busy;
+  $("challenge-retry").disabled = !ready || submission.busy;
   $("campaign-refresh").disabled = campaignLoading || submission.pending;
-  for (const link of document.querySelectorAll('a[href="#submit"]')) link.hidden = !submissionsEnabled;
+  for (const button of document.querySelectorAll('[data-submission-action]')) {
+    button.disabled = !ready;
+    if (!button.classList.contains("quick")) button.textContent = ready ? (button.dataset.campaign ? "投稿這個活動" : "提交投票證明") : "投稿暫停";
+  }
+  for (const state of document.querySelectorAll('[data-submission-status]')) state.hidden = ready;
+  $("home-submission-state").textContent = $("quick-submission-state").textContent = ready ? "開放投稿" : "投稿暫停";
+  $("submit-state").textContent = ready ? "提交投票證明" : "目前暫停投稿";
+  $("submit-alternatives").hidden = ready;
+  $("submission-verification").hidden = !ready;
+  $("proof-dropzone").setAttribute("aria-disabled", String(!ready || submission.pending));
+  if (!ready && !gateChecking) { challenge.clear(); $("challenge-status").textContent = "投稿開放後即可完成人機驗證。"; }
   $("submission-gate-message").hidden = submissionsEnabled && !submissionsMessage;
   $("submission-gate-message").textContent = submissionsMessage;
   $("submit-availability").textContent = !submissionsEnabled ? submissionsMessage :
     [submissionsMessage, campaignAvailability].filter(Boolean).join(" ");
 }
-async function loadSubmissionStatus() {
-  if (gateLoading) return;
-  gateLoading = true;
-  try {
+function loadSubmissionStatus() {
+  if (gateRequest) return gateRequest;
+  // Every fresh check starts closed; a stale ON is never an authorization.
+  gateChecking = true; submissionsEnabled = false; syncForm();
+  gateRequest = (async () => { try {
     const data = await api("/api/submissions/status");
     if (typeof data?.submissions_enabled !== "boolean" || data.submissions_message !== null &&
         (typeof data.submissions_message !== "string" || [...data.submissions_message].length > 500 || /[\u0000-\u001f\u007f]/.test(data.submissions_message))) throw new Error();
     submissionsEnabled = data.submissions_enabled;
     submissionsMessage = data.submissions_message || (submissionsEnabled ? "" : "投稿暫停開放，請稍後再試。");
   } catch { submissionsEnabled = false; submissionsMessage = "投稿服務暫時無法使用，請稍後再試。"; }
-  finally { gateLoading = false; syncForm(); }
+  finally { gateChecking = false; syncForm(); }
+  })().finally(() => { gateRequest = null; });
+  return gateRequest;
 }
 function campaignHint() {
   const selected = campaigns.find((c) => c.campaign_id === $("campaign").value);
   if (!selected) { $("campaign-hint").textContent = "請選擇開放中的活動。"; return; }
-  $("campaign-hint").textContent = `投票期間 ${selected.vote_start_date} ～ ${selected.vote_end_date} · ${selected.campaign_timezone}`;
+  $("campaign-hint").textContent = `投票期間 ${voteDateLabel(selected.vote_start_date)} ～ ${voteDateLabel(selected.vote_end_date)} · ${scoringLabel(selected)}`;
   $("vote-date").min = selected.vote_start_date;
   $("vote-date").max = [selected.vote_end_date, new Date(Date.now() + 86400000).toISOString().slice(0, 10)].sort()[0];
   if (!$("vote-date").value) {
@@ -96,27 +129,28 @@ function campaignHint() {
     } catch { $("vote-date").value = new Date().toISOString().slice(0, 10); }
   }
 }
-async function loadCampaigns() {
+async function loadCampaigns({ refreshGate = true } = {}) {
   if (campaignLoading || submission.pending) return;
   campaignLoading = true; syncForm();
-  await loadSubmissionStatus();
+  if (refreshGate) await loadSubmissionStatus();
   $("campaign-message").textContent = "正在載入活動…";
   try {
     const data = await api("/api/campaigns");
     if (!Array.isArray(data?.campaigns)) throw new Error();
     // Backend already filters window/public state. Ignore non-active data
     // defensively rather than offering an unavailable option.
-    campaigns = data.campaigns.filter((c) => c.status === "active"); campaignLoaded = true;
+    campaigns = data.campaigns.filter(campaignOpen); campaignLoaded = true;
     const previous = $("campaign").value;
     $("campaign").replaceChildren(new Option("請選擇活動", ""));
     $("campaign-list").replaceChildren();
     for (const c of campaigns) {
       $("campaign").append(new Option(c.name, c.campaign_id));
       const card = node("article", undefined, "card campaign-card");
-      card.append(node("span", c.category, "campaign-category"), node("h3", c.name),
-        node("p", `投票期間 ${c.vote_start_date} ～ ${c.vote_end_date}`), node("p", `活動時區：${c.campaign_timezone}`));
-      const button = node("a", "投稿這個活動", "btn btn-soft"); button.href = "#submit";
-      button.addEventListener("click", () => { if (!submission.pending) { $("campaign").value = c.campaign_id; campaignHint(); } });
+      card.append(node("span", c.category, "campaign-category"), node("h3", c.name), node("span", "活動進行中", "status"),
+        node("p", `活動期間 ${campaignDate(c.start_at)} ～ ${campaignDate(c.end_at)}（台灣時間）`),
+        node("p", `投票期間 ${voteDateLabel(c.vote_start_date)} ～ ${voteDateLabel(c.vote_end_date)}`), node("p", scoringLabel(c)));
+      const button = node("button", "投稿暫停", "btn btn-soft"); button.type = "button";
+      button.dataset.submissionAction = ""; button.dataset.campaign = c.campaign_id; button.disabled = true;
       card.append(button); $("campaign-list").append(card);
     }
     if (campaigns.some((c) => c.campaign_id === previous)) $("campaign").value = previous;
@@ -131,8 +165,20 @@ async function loadCampaigns() {
     $("campaign-message").textContent = "活動暫時無法載入，請按重新載入。";
     $("submit-availability").textContent = "活動服務暫時無法使用，請返回首頁重新載入活動。";
     campaignAvailability = $("submit-availability").textContent;
-  } finally { campaignLoading = false; syncForm(); }
+  } finally {
+    campaignLoading = false;
+    $("home-campaign-name").textContent = campaigns[0]?.name ?? (campaignLoaded ? "目前沒有開放中的活動" : "活動暫時無法載入");
+    $("home-campaign-state").textContent = campaigns.length ? "活動進行中" : campaignLoaded ? "尚無開放活動" : "暫時無法確認";
+    syncForm();
+  }
 }
+
+document.addEventListener("click", event => {
+  const button = event.target.closest('[data-submission-action]');
+  if (!button || button.disabled || !submissionReady()) return;
+  if (button.dataset.campaign && !submission.pending) { $("campaign").value = button.dataset.campaign; campaignHint(); }
+  location.hash = "submit";
+});
 
 function clearImages() { for (const item of images) URL.revokeObjectURL(item.url); images = []; $("image-list").replaceChildren(); $("proof-images").value = ""; }
 function renderImages() {
@@ -151,35 +197,45 @@ function renderImages() {
     $("image-list").append(card);
   }
 }
-$("proof-images").addEventListener("change", () => {
-  if (submission.pending) return;
-  const added = [...$("proof-images").files];
-  $("proof-images").value = "";
+function addImages(added) {
+  if (!submissionReady() || submission.pending) return;
   if (!added.length) return;
   try {
     validateImages([...images.map((i) => i.file), ...added]);
     images.push(...added.map((file) => ({ file, url: URL.createObjectURL(file) }))); renderImages();
     $("image-error").textContent = "";
   } catch (e) { $("image-error").textContent = errorMessage(e); }
+}
+$("proof-images").addEventListener("change", () => {
+  const added = [...$("proof-images").files]; $("proof-images").value = ""; addImages(added);
+});
+for (const type of ["dragover", "drop"]) $("proof-dropzone").addEventListener(type, event => {
+  event.preventDefault();
+  if (type === "drop") addImages([...event.dataTransfer.files]);
 });
 async function mountChallenge() {
-  if (!submissionsEnabled) return;
+  if (!submissionReady() || success || location.hash !== "#submit") return;
   try { await challenge.mount(); }
   catch (e) { $("challenge-status").textContent = errorMessage(e); }
 }
-$("challenge-retry").addEventListener("click", async () => { challenge.reset(); await mountChallenge(); });
+$("challenge-retry").addEventListener("click", async () => { if (!submissionReady()) return; challenge.reset(); await mountChallenge(); });
 $("campaign").addEventListener("change", campaignHint);
-$("campaign-refresh").addEventListener("click", loadCampaigns);
+$("campaign-refresh").addEventListener("click", () => { void loadCampaigns(); });
 
 $("submission-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!submissionsEnabled || submission.busy || (!submission.pending && !campaigns.length)) return;
+  if (!submissionReady() || submission.busy || submissionStarting) return;
+  submissionStarting = true; syncForm();
+  await loadSubmissionStatus();
+  if (!submission.pending) await loadCampaigns({ refreshGate: false });
+  submissionStarting = false; syncForm();
+  if (!submissionReady()) return;
   $("submission-error").textContent = "";
   if (!submission.pending) {
     if (!$("submission-form").reportValidity()) { $("submission-error").textContent = "請完成必填欄位並確認投票日期。"; return; }
     if (!images.length) { $("submission-error").textContent = "請至少選擇 1 張投票證明圖片。"; $("proof-images").focus(); return; }
     try { submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
-      { caseApi: $("submission-mode").value === "member" ? member.session.caseSender() : undefined }); }
+      { caseApi: $("submission-mode").value === "member" ? ((sender) => async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); })(member.session.caseSender()) : undefined }); }
     catch (e) { $("submission-error").textContent = e.code?.startsWith("AUTH_") ? authMessage(e) : errorMessage(e); return; }
   }
   $("retry-note").hidden = true;
@@ -246,6 +302,18 @@ $("lookup-form").addEventListener("submit", async (event) => {
   finally { lookupBusy = false; $("lookup-button").disabled = false; $("lookup-id").disabled = $("lookup-key").disabled = false; $("lookup-button").textContent = "查詢案件"; $("lookup-form").setAttribute("aria-busy", "false"); }
 });
 
+function renderHomeBoard(board, message) {
+  $("home-board-results").replaceChildren(); $("home-board-table").hidden = true;
+  $("home-board-name").textContent = board?.name ?? "";
+  $("home-boards-message").textContent = message ?? (!board ? "目前沒有公開排行榜。" : "這個排行榜目前還沒有成績。");
+  if (!Array.isArray(board?.rankings) || !board.rankings.length) return;
+  for (const row of board.rankings.slice(0, 5)) {
+    const tr = node("tr");
+    for (const field of ["rank", "nickname", "points", "proof_count"]) tr.append(node("td", String(row[field] ?? "—")));
+    $("home-board-results").append(tr);
+  }
+  $("home-boards-message").textContent = ""; $("home-board-table").hidden = false;
+}
 function renderBoard(board) {
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
@@ -266,6 +334,7 @@ async function loadBoards() {
   boardLoading = true; const sequence = ++boardSequence;
   $("board-select").disabled = true; $("boards-refresh").disabled = true; renderBoard(null);
   $("boards-message").textContent = "正在載入排行榜…";
+  renderHomeBoard(null, "正在載入排行榜…");
   try {
     const data = await api("/api/leaderboards");
     if (!Array.isArray(data?.leaderboards)) throw new Error();
@@ -275,9 +344,11 @@ async function loadBoards() {
     if (boards.some((b) => b.leaderboard_id === previous)) $("board-select").value = previous;
     if (!boards.length) $("board-select").append(new Option("沒有公開排行榜", ""));
     renderBoard(boards.find((b) => b.leaderboard_id === $("board-select").value));
+    renderHomeBoard(boards[0]);
     boardLoaded = true; $("board-select").disabled = !boards.length;
   } catch {
     boardLoaded = false; renderBoard(null); $("boards-message").textContent = "排行榜暫時無法載入，請按重新載入。";
+    renderHomeBoard(null, "排行榜暫時無法載入，請前往排行榜重新載入。");
   } finally { boardLoading = false; $("boards-refresh").disabled = false; }
 }
 $("board-select").addEventListener("change", async () => {
@@ -312,13 +383,16 @@ function navigate(focus = true) {
     if (link.dataset.view === view) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
   }
   if (focus) { document.querySelector(`#view-${view} h1`).focus(); window.scrollTo(0, 0); }
-  if (view === "submit") void loadSubmissionStatus().then(() => { if (campaigns.length && !success) void mountChallenge(); });
+  if (view === "submit") void loadSubmissionStatus().then(mountChallenge);
   if (view === "leaderboards" && !boardLoaded) void loadBoards();
 }
 window.addEventListener("hashchange", () => navigate());
-window.addEventListener("focus", () => { void loadSubmissionStatus(); });
+function refreshAvailability() { void loadSubmissionStatus().then(mountChallenge); }
+window.addEventListener("focus", refreshAvailability);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshAvailability(); });
 window.addEventListener("beforeunload", (event) => {
   if (submission.pending) { event.preventDefault(); event.returnValue = ""; }
 });
 navigate(false);
 void loadCampaigns().then(() => { if (location.hash === "#submit" && campaigns.length) void mountChallenge(); });
+void loadBoards();

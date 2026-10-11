@@ -8,9 +8,10 @@ import { AwsClient } from "aws4fetch";
 import { localCaseRuntime } from "./lib/local-case-runtime.mjs";
 import { frontendServer } from "./lib/frontend-server.mjs";
 
-const local = await localCaseRuntime();
+const local = await localCaseRuntime({ seedCampaign: false, submissionsEnabled: false });
 let server, browser;
 try {
+  await local.campaign({ name: "本機公開活動", campaign_timezone: "Asia/Taipei", points_per_proof: 10, daily_limit: null });
   await local.setAuthConfig({ AUTH_SECRET: undefined, AUTH_PASSWORD_PEPPER: undefined, AUTH_TOTP_ENCRYPTION_KEY: undefined, AUTH_ORIGIN: undefined });
   server = await frontendServer({ backend: local });
   browser = await chromium.launch({ channel: "chrome" });
@@ -43,12 +44,26 @@ try {
   });
   await page.goto(server.base);
   await page.locator("#campaign-list .campaign-card").waitFor();
+  assert.equal((await page.locator("#campaign-list").innerText()).includes("每日計分：不限次數"), true);
+  assert.equal(await page.locator("#home-submit-button").isDisabled(), true);
+  assert.equal(await page.locator("#home-campaign-state").innerText(), "活動進行中");
+  assert.equal(await page.locator("#home-submission-state").innerText(), "投稿暫停");
   await mkdir(".wrangler/frontend-previews", { recursive: true });
   await page.screenshot({ path: ".wrangler/frontend-previews/desktop-home.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: ".wrangler/frontend-previews/mobile-home.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.goto(server.base + "/#submit");
+  await page.locator("#submit-state").waitFor();
+  assert.equal(await page.locator("#proof-images").isDisabled(), true);
+  await page.evaluate(() => document.getElementById("submission-form").dispatchEvent(new Event("submit", { cancelable: true })));
+  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM cases").first()).n, 0);
+  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM completed_uploads").first()).n, 0);
+  assert.equal(putCount, 0);
+  // Explicit test fixture only. This harness never points at Production D1.
+  await local.db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.waitForFunction(() => !document.getElementById("proof-images").disabled);
   await page.locator("#nickname").fill("本機投稿驗收"); await page.locator("#player-id").fill("local-player");
   await page.locator("#vote-date").fill(new Date().toISOString().slice(0, 10));
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ioAAAAASUVORK5CYII=", "base64");
@@ -66,5 +81,5 @@ try {
   assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0);
   assert.equal(new URL(page.url()).search, "");
   assert.equal(local.unexpectedUpstreams.length, 0);
-  console.log("Frontend smoke PASS: static UI, 2 signed PUTs, real HEAD/complete, lost 201 replay, ONE Guest case, safe query, no auth secrets");
+  console.log("Frontend smoke PASS: real Campaign/unlimited, OFF blocks uploads/cases, ON enables 2 signed PUTs, real HEAD/complete, lost 201 replay, ONE Guest case, safe query, no auth secrets");
 } finally { if (browser) await browser.close(); if (server) await server.close(); await local.runtime.dispose(); }

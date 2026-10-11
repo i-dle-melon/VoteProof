@@ -27,7 +27,6 @@ export function memberUI({ changed = () => {} } = {}) {
     }
     wasLoggedIn = Boolean(member);
     $("login-entry").hidden = Boolean(member); $("member-entry").hidden = $("logout-button").hidden = !member;
-    $("member-entry").textContent = "會員中心";
     $("member-welcome").textContent = member ? `${member.nickname}，歡迎回來。` : "";
     $("member-gate").hidden = Boolean(member); $("member-content").hidden = !member;
     if (member) {

@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ioAAAAASUVORK5CYII=", "base64");
 const today = () => new Date().toISOString().slice(0, 10);
 const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", category: "投票活動", status: "active", campaign_timezone: "Asia/Taipei",
-  vote_start_date: "2000-01-01", vote_end_date: "2099-12-31" };
+  vote_start_date: "2000-01-01", vote_end_date: "2099-12-31", start_at: "2000-01-01T00:00:00Z", end_at: "2100-01-01T00:00:00Z", points_per_proof: 10, daily_limit: null };
 async function fixture(page, options = {}) {
   const query = randomBytes(32).toString("base64url"), token = randomBytes(24).toString("base64url");
   const caseId = `VP-${today().replaceAll("-", "")}-${"A".repeat(16)}`;
@@ -31,7 +31,7 @@ async function fixture(page, options = {}) {
     }
     if (path === "/api/campaigns") {
       if (options.campaignError) return error("CAMPAIGN_SERVICE_UNAVAILABLE", 503);
-      return reply({ campaigns: options.emptyCampaigns ? [] : [{ ...campaign, name: options.campaignName ?? campaign.name }] });
+      return reply({ campaigns: options.emptyCampaigns ? [] : [{ ...campaign, ...options.campaign, name: options.campaignName ?? campaign.name }] });
     }
     if (path === "/api/leaderboards") {
       if (state.failBoards-- > 0) return route.abort();
@@ -71,13 +71,127 @@ async function form(page, files = 1) {
 }
 async function noOverflow(page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); }
 
+test("home uses real campaign, independent paused state and published ranks without demo totals", async ({ page }) => {
+  await fixture(page, { submissionsOff: true }); await page.goto("/");
+  await expect(page.locator("#home-title")).toHaveText("每一票，都是應援的力量。");
+  await expect(page.locator("#view-home .page-head .sub")).toHaveText("保存投票證明，追蹤審核進度，一起累積應援成果。");
+  await expect(page.locator("#home-campaign-name")).toHaveText(campaign.name);
+  await expect(page.locator("#home-campaign-state")).toHaveText("活動進行中");
+  await expect(page.locator("#home-submission-state")).toHaveText("投稿暫停");
+  await expect(page.locator("#campaign-list")).toContainText("每次有效投稿：10 點 · 每日計分：不限次數");
+  await expect(page.locator("#campaign-list")).toContainText("2000/01/01 08:00");
+  await expect(page.locator("#home-submit-button")).toBeDisabled();
+  await expect(page.locator("#submission-gate-message")).toHaveText("投稿暫停開放，請稍後再試。");
+  await expect(page.locator("#home-board-results tr")).toHaveCount(1);
+  await expect(page.locator("#home-board-results td").first()).toHaveText("7");
+  expect(await page.locator("#view-home").innerText()).not.toMatch(/1,284|18,760|示範|初版|Supabase|Cloudflare|LOCAL-BROWSER|T00:00:00Z|SQL|NULL|not-for-display/);
+});
+
+for (const [daily_limit, copy] of [[0, "本活動不計分"], [1, "每日最多 1 次計分"], [1000, "每日最多 1000 次計分"]]) {
+  test(`campaign daily limit ${daily_limit} retains scoring meaning`, async ({ page }) => {
+    await fixture(page, { campaign: { daily_limit } }); await page.goto("/");
+    await expect(page.locator("#campaign-list")).toContainText(copy);
+    if (daily_limit === 0) await expect(page.locator("#campaign-list")).not.toContainText("每次有效投稿：10 點");
+  });
+}
+
+test("home empty leaderboard has an honest empty state", async ({ page }) => {
+  await fixture(page, { emptyBoards: true }); await page.goto("/");
+  await expect(page.locator("#home-boards-message")).toHaveText("目前沒有公開排行榜。");
+  await expect(page.locator("#home-board-table")).toBeHidden();
+  await expect(page.locator("#home-board-results tr")).toHaveCount(0);
+});
+
+test("initial pending status is closed with all five navigation positions preserved", async ({ page }) => {
+  await fixture(page); let release; const pending = new Promise(resolve => { release = resolve; });
+  await page.route("**/api/submissions/status", async route => {
+    await pending;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { submissions_enabled: true, submissions_message: null } }) });
+  });
+  try {
+    await page.goto("/#submit");
+    await expect(page.locator("#proof-images")).toBeDisabled();
+    await expect(page.locator("#submit-button")).toBeDisabled();
+    await expect(page.locator("#submission-verification")).toBeHidden();
+    for (const nav of [".sidebar nav", ".bottom-nav"]) {
+      await expect(page.locator(`${nav} a`)).toHaveCount(5);
+      await expect(page.locator(`${nav} [data-view="submit"] [data-submission-status]`)).toHaveText("暫停");
+    }
+    release(); await expect(page.locator("#proof-images")).toBeEnabled();
+  } finally { release(); }
+});
+
+test("OFF ignores synthetic file/drop/submit paths and never prepares verification or uploads", async ({ page }) => {
+  const state = await fixture(page, { submissionsOff: true }); await page.goto("/#submit");
+  await expect(page.locator("#submit-state")).toHaveText("目前暫停投稿");
+  await expect(page.locator("#submit-availability")).toHaveText("投稿暫停開放，請稍後再試。");
+  await page.locator("#proof-dropzone").evaluate(node => {
+    const data = new DataTransfer(); data.items.add(new File(["fixture"], "proof.png", { type: "image/png" }));
+    node.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+    const input = document.getElementById("proof-images"); input.files = data.files; input.dispatchEvent(new Event("change"));
+    document.getElementById("submission-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator("#image-list")).toBeEmpty();
+  await expect(page.locator('script[src*="challenges.cloudflare.com"]')).toHaveCount(0);
+  expect(state.calls.some(c => c.path.startsWith("/api/uploads/") || c.path === "/api/cases")).toBe(false);
+  await page.locator('#submit-alternatives a[href="#lookup"]').click(); await expect(page.locator("#lookup-form")).toBeVisible();
+});
+
+test("fresh pre-submit check rejects OFF without clearing chosen files or metadata", async ({ page }) => {
+  const options = {}; const state = await fixture(page, options); await form(page);
+  options.submissionsOff = true;
+  await page.locator("#submit-button").click();
+  await expect(page.locator("#submit-button")).toBeDisabled();
+  await expect(page.locator("#submit-state")).toHaveText("目前暫停投稿");
+  await expect(page.locator("#nickname")).toHaveValue("測試粉絲");
+  await expect(page.locator("#image-list .image-item")).toHaveCount(1);
+  expect(state.calls.some(c => c.path.startsWith("/api/uploads/") || c.path === "/api/cases")).toBe(false);
+});
+
+test("foreground OFF stops completion and case creation after an already-started PUT", async ({ page }) => {
+  const options = {}; const state = await fixture(page, options);
+  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
+    options.submissionsOff = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(page.locator("#submit-state")).toHaveText("目前暫停投稿");
+    await expect(page.locator("#submit-availability")).toHaveText("投稿暫停開放，請稍後再試。");
+    await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
+  });
+  await form(page); await page.locator("#submit-button").click(); await expect(page.locator("#retry-note")).toBeVisible();
+  expect(state.calls.filter(c => ["/api/uploads/complete", "/api/cases"].includes(c.path))).toEqual([]);
+});
+
+for (const campaignOverride of [{ status: "draft" }, { start_at: "2101-01-01T00:00:00Z" }, { end_at: "2001-01-01T00:00:00Z" }]) {
+  test(`ON does not allow inactive campaign ${JSON.stringify(campaignOverride)}`, async ({ page }) => {
+    const state = await fixture(page, { campaign: campaignOverride }); await page.goto("/#submit");
+    await expect(page.locator("#proof-images")).toBeDisabled(); await expect(page.locator("#submit-button")).toBeDisabled();
+    await expect(page.locator("#campaign option")).toHaveCount(1);
+    expect(state.calls.some(c => c.path.startsWith("/api/uploads/"))).toBe(false);
+  });
+}
+
+test("home and paused submission fit narrow and short mobile screens in both themes", async ({ page }, testInfo) => {
+  await fixture(page, { submissionsOff: true }); await page.goto("/");
+  for (const theme of ["dark", "light"]) {
+    if (theme === "light") await page.locator("#theme-toggle").click();
+    for (const width of [320, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: width === 320 ? 480 : 844 });
+      await page.evaluate(() => { location.hash = "home"; }); await expect(page.locator("#view-home")).toBeVisible();
+      await noOverflow(page); await expect(page.locator("#home-submit-button")).toHaveText("投稿暫停");
+      await page.screenshot({ path: `.wrangler/frontend-previews/home-${testInfo.project.name}-${width}-${theme}.png`, fullPage: true });
+      await page.locator('[data-view="submit"]:visible').click(); await expect(page.locator("#proof-images")).toBeDisabled(); await noOverflow(page);
+      await page.locator('#submit-alternatives a[href="#lookup"]').click(); await expect(page.locator("#lookup-form")).toBeVisible();
+    }
+  }
+});
+
 test("global OFF disables submission with safe plaintext message; lookup and boards still work", async ({ page }) => {
   const state=await fixture(page,{submissionsOff:true,submissionsMessage:'<img src=x onerror=alert(1)> 投稿暫停'});
   await page.goto('/#submit');
   await expect(page.locator('#submission-fields')).toHaveJSProperty('disabled',true);await expect(page.locator('#nickname')).toBeDisabled();await expect(page.locator('#proof-images')).toBeDisabled();await expect(page.locator('#submit-button')).toBeDisabled();
   await expect(page.locator('#submit-availability')).toHaveText('<img src=x onerror=alert(1)> 投稿暫停');
   expect(await page.locator('#submit-availability img').count()).toBe(0);
-  await expect(page.locator('nav[aria-label="主要導覽"] a[href="#submit"]')).toBeHidden();
+  await expect(page.locator('nav[aria-label="主要導覽"] a[href="#submit"] [data-submission-status]')).toHaveText("暫停");
   await page.goto('/#lookup');await expect(page.locator('#lookup-form')).toBeVisible();
   await page.goto('/#leaderboards');await expect(page.locator('#board-results')).toContainText('測試粉絲');
   expect(state.calls.some(c=>c.path.startsWith('/api/uploads/')||c.path==='/api/cases')).toBe(false);await noOverflow(page);

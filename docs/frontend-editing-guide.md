@@ -1,0 +1,55 @@
+# VoteProof 前端修改指南
+
+正式頁面與 UI 預覽共用 `public/`，沒有另一份需要同步的 HTML。
+
+## 改文字
+
+1. 在 GitHub 開啟 `public/index.html`，按鉛筆。
+2. 搜尋你想改的中文，依 `HOME`、`LOGIN`、`MEMBER` 等區塊註解找到位置。
+3. 修改標題、說明或按鈕文字；完整卡片只能在同一授權容器內移動，請勿拆開表單，或將會員／管理區移到公開區。
+4. **不要改 `DO NOT CHANGE` 標示的 id、data-*、name、表單限制、hidden 或 script src。** 不要刪除 API 容器、Turnstile／安全流程掛點。
+5. 按 Commit。若測試指出 DOM hook 遺失，恢復原屬性，不要改測試清單來跳過檢查。
+
+管理頁文字集中在 HTML 最下方 `ADMIN EDITABLE COPY` 的 `<template>`；修改 span 裡的中文即可，保留 span id。動態表格、表單欄位與安全確認仍由 JS 建立。提示錯誤、登入步驟、計分規則等依狀態變動的文字不屬於一般靜態文案。
+
+## 改顏色、間距與版型
+
+開啟 `public/css/app.css`，先看頂部「常用 UI 修改區」：
+
+- `--bg` 背景、`--card` 卡片、`--text` 文字、`--primary` 主色、`--line` 邊線。
+- `--radius` 圓角、`--sidebar-width` 側欄、`--content-width` 內容寬、`--page-padding` 桌面間距。
+- 淺色顏色在緊接的 `html[data-theme="light"]` 區塊；手機規則在各功能的 `MOBILE` 區塊。
+
+修改後 Commit。保留 `[hidden]`、`.sr-only`、focus、disabled／inert 與 safe-area 規則；不要用 CSS 強制顯示管理入口或啟用投稿。
+
+## 手機預覽
+
+等待 Actions → **VoteProof UI Preview** 成功，在該次 Pages deployment 開啟預覽網址。必須看見 **「UI PREVIEW · 非正式網站」**。
+
+上方可切「訪客版面」「會員版面」「管理版面」。預覽會員 0 點、普通等級；排行榜與案件是空的，活動標示非正式資料。登入、註冊、投稿、管理保存均不執行，也不會連線正式 API。
+
+本機也可執行 `npm ci` → `npm run dev:preview`，開啟 `http://127.0.0.1:4174/VoteProof/`；Ctrl+C 關閉。產出位於 gitignored `.wrangler/pages-preview/`，請勿修改產出；回到 `public/` 修改再重啟即可。
+
+## 正式發布（只在確認後手動執行）
+
+1. 確認手機與桌面預覽，複製該次 main commit 的完整 40 字元 SHA。
+2. Actions → **VoteProof Production Deploy** → Run workflow，選 main，填 `approved_sha`。
+3. 工作流程檢查 exact SHA、DOM hooks、單元／前端／三種瀏覽器、敏感值及 Wrangler dry-run；任一失敗都不部署。
+4. 經 `production` environment gate 後，只部署該份 Worker 一次。輸出會列明 commit SHA。
+5. 部署不會執行 migrations、不改 D1/R2、不切投稿開關。發布後仍要確認正式 health、登入與投稿狀態；Production submissions 保持原本設定。
+
+## 首次啟用（本次尚未操作）
+
+- 將這次 commit 推上 main 後，Repository Settings → Pages → Source 選 **GitHub Actions**。目前沒有其他追蹤中的 Pages workflow；若 GitHub 端另有舊 branch publishing，改為 Actions，避免發布舊 HTML。
+- 在 GitHub `production` environment 設定 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，只放 GitHub Secrets；使用限定 VoteProof 帳戶的 Worker 部署權限，不授予 D1/R2 資料寫入權。依帳戶需要的綁定 metadata 讀取權限設定，首次執行若權限不足應停止，不要擴成管理員 token。
+- 建議限制 `production` environment 只允許 main，並設定部署審核（依 GitHub 帳戶方案可用能力）。
+- Cloudflare 原有 Git 自動部署必須保持停用；Pages push 與 Production 手動部署互相獨立。
+- 尚未推送或實際部署 Pages，所以沒有已驗證的線上 Preview URL。以 Actions 實際輸出的 `page_url` 為準。
+
+## 千萬不要為了改 UI 修改
+
+JS auth/security、API endpoint、migrations、secrets、Wrangler bindings、`public/_headers`、DOM hook 測試清單。不要把活動名、會員身份、分數、等級門檻或審核狀態硬寫進動態容器。
+
+可選：本機 `npm run format:frontend` 整理 HTML/CSS 排版；它不改功能 JS。
+
+流程依 [GitHub Pages 官方文件](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) 與 [Cloudflare GitHub Actions 部署文件](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)；認證值不應加入 Git 或前端。

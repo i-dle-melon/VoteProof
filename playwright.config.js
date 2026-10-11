@@ -8,5 +8,8 @@ export default defineConfig({
     { name: "android-chrome", use: { ...devices["Pixel 7"], channel: "chrome" } },
     { name: "iphone-webkit", use: { ...devices["iPhone 13"], browserName: "webkit" } },
   ],
-  webServer: { command: "node scripts/frontend-test-server.mjs", url: "http://127.0.0.1:4173", reuseExistingServer: false },
+  webServer: [
+    { command: "node scripts/frontend-test-server.mjs", url: "http://127.0.0.1:4173", reuseExistingServer: false },
+    { command: "node scripts/preview-server.mjs", url: "http://127.0.0.1:4174", reuseExistingServer: false },
+  ],
 });

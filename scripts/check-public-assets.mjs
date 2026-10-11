@@ -17,7 +17,7 @@ async function visit(path) {
   }
 }
 await visit(root);
-const expected = ["_headers", "css/app.css", "index.html", "js/api.js", "js/app.js", "js/submission.js", "js/turnstile.js", "js/admin.js", "js/admin-api.js", "js/member-api.js", "js/member.js", "js/qr.js", "js/tier-artwork.js", "js/vendor/qrcode.js", ...Object.values(TIER_ARTWORK).map(art => art.src.slice(1))];
+const expected = ["_headers", "css/app.css", "index.html", "js/api.js", "js/app.js", "js/submission.js", "js/turnstile.js", "js/admin.js", "js/admin-api.js", "js/member-api.js", "js/member.js", "js/qr.js", "js/tier-artwork.js", "js/preview.js", "js/preview-fixtures.js", "js/vendor/qrcode.js", ...Object.values(TIER_ARTWORK).map(art => art.src.slice(1))];
 assert.deepEqual(paths.map((p) => relative(root, p).replaceAll("\\", "/")).sort(), expected.sort(), "Unexpected deployable static assets");
 const forbidden = /AUTH_SECRET|AUTH_PASSWORD_PEPPER|AUTH_TOTP_ENCRYPTION_KEY|CASE_QUERY_KEY_SECRET|TURNSTILE_SECRET_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|MAIL_RELAY_(?:URL|SECRET)|SUPABASE_(?:URL|PUBLISHABLE_KEY|SECRET_KEY)|GMAIL_(?:CLIENT_ID|CLIENT_SECRET|REFRESH_TOKEN|SENDER_EMAIL|SENDER_NAME)|X-Amz-(?:Signature|Credential)=|https:\/\/script\.google\.com\/macros\/s\/|-----BEGIN .*PRIVATE KEY-----|(?:C:\\Users\\|C:\/Users\/)/i;
 let totalBytes = 0, gzipBytes = 0;
@@ -30,9 +30,9 @@ for (const path of paths) {
   assert.equal(forbidden.test(source), false, "Sensitive literal found in static asset");
   if (extname(path) === ".js") {
     assert.equal(/console\.|localStorage\.setItem\((?!"voteproof-theme")|sessionStorage|indexedDB/.test(source), false, "Browser module contains logging, credentials storage");
-    if (!["member-api.js", "admin-api.js", "admin.js"].includes(path.split(/[\\/]/).at(-1)))
+    if (!["member-api.js", "admin-api.js", "admin.js", "preview-fixtures.js"].includes(path.split(/[\\/]/).at(-1)))
       assert.equal(/\/api\/admin\//.test(source), false, "Admin requests must stay in the explicit authorized modules");
-    if (!["member-api.js", "member.js", "admin-api.js", "admin.js"].includes(path.split(/[\\/]/).at(-1)))
+    if (!["member-api.js", "member.js", "admin-api.js", "admin.js", "preview-fixtures.js"].includes(path.split(/[\\/]/).at(-1)))
       assert.equal(/\/api\/(?:auth|me)\//.test(source), false, "Public module calls member endpoints");
     for (const match of source.matchAll(/from\s+["']([^"']+)["']/g)) {
       const imported = resolve(dirname(path), match[1]);

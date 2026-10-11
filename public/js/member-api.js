@@ -1,4 +1,5 @@
 import { PublicError } from "./api.js";
+import { PREVIEW, previewFetch } from "./preview.js";
 
 // Only Worker-relative endpoints. Cookie credentials and CSRF never reach R2
 // or a provider. The secure session cookie remains inaccessible to JavaScript.
@@ -61,7 +62,7 @@ export class MemberSession {
     const revision = this.#revision;
     let response;
     try {
-      response = await this.fetcher(path, { method, credentials: "same-origin", cache: "no-store", referrerPolicy: "no-referrer",
+      response = await (PREVIEW ? previewFetch : this.fetcher)(path, { method, credentials: "same-origin", cache: "no-store", referrerPolicy: "no-referrer",
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
         headers: { ...headers, ...(method === "GET" ? {} : { "X-VoteProof-Request": "1", ...(this.#csrf ? { "X-CSRF-Token": this.#csrf } : {}) }),
           ...(body === undefined ? {} : { "Content-Type": "application/json" }) },

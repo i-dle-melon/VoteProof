@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "test": "node --test",
     "test:frontend": "playwright test",
-    "test:frontend-unit": "node --test test/frontend.test.js test/frontend-member.test.js test/frontend-admin.test.js test/frontend-tier-artwork.test.js",
+    "test:frontend-unit": "node --test test/frontend.test.js test/frontend-member.test.js test/frontend-admin.test.js test/frontend-tier-artwork.test.js test/frontend-maintenance.test.js",
     "test:frontend-smoke": "node scripts/smoke-frontend.mjs",
     "test:member-frontend-smoke": "node scripts/smoke-member-frontend.mjs",
     "test:google-frontend-smoke": "node scripts/smoke-google-frontend.mjs",
@@ -25,11 +25,16 @@
     "test:tiers-smoke": "node scripts/smoke-tiers.mjs",
     "check:admin-schema": "node scripts/check-admin-schema.mjs",
     "check": "wrangler deploy --dry-run",
-    "test:admin-frontend-smoke": "node scripts/smoke-admin-frontend.mjs"
+    "test:admin-frontend-smoke": "node scripts/smoke-admin-frontend.mjs",
+    "build:pages-preview": "node scripts/build-pages-preview.mjs",
+    "dev:preview": "node scripts/preview-server.mjs",
+    "check:frontend-hooks": "node scripts/check-frontend-hooks.mjs",
+    "format:frontend": "prettier --write public/index.html public/css/app.css"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@playwright/test": "^1.64.0",
+    "prettier": "3.6.2",
     "wrangler": "^4"
   },
   "dependencies": {

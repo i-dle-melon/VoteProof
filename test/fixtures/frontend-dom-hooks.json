@@ -1,0 +1,2085 @@
+{
+  "ui-preview-banner": {
+    "tag": "aside",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "admin-nav-group": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "theme-toggle": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "login-entry": {
+    "tag": "a",
+    "attributes": {}
+  },
+  "member-entry": {
+    "tag": "a",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "logout-button": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "top-avatar": {
+    "tag": "a",
+    "attributes": {}
+  },
+  "main": {
+    "tag": "main",
+    "attributes": {}
+  },
+  "account-status": {
+    "tag": "p",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "view-home": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": ""
+    }
+  },
+  "home-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "submission-gate-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "home-submit-button": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "data-submission-action": ""
+    }
+  },
+  "home-campaign-name": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "home-campaign-state": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "home-submission-state": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "quick-submission-state": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "campaign-refresh": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "campaign-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "campaign-list": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "home-board-name": {
+    "tag": "h3",
+    "attributes": {}
+  },
+  "home-boards-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "home-board-table": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "home-board-results": {
+    "tag": "tbody",
+    "attributes": {}
+  },
+  "view-submit": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "hidden": ""
+    }
+  },
+  "submit-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "submit-state": {
+    "tag": "h2",
+    "attributes": {}
+  },
+  "submit-availability": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "submit-alternatives": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "submission-form": {
+    "tag": "form",
+    "attributes": {}
+  },
+  "submission-mode": {
+    "tag": "select",
+    "attributes": {}
+  },
+  "member-mode": {
+    "tag": "option",
+    "attributes": {}
+  },
+  "submission-owner-hint": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "submission-fields": {
+    "tag": "fieldset",
+    "attributes": {}
+  },
+  "campaign": {
+    "tag": "select",
+    "attributes": {
+      "name": "campaign_id",
+      "required": ""
+    }
+  },
+  "campaign-hint": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "vote-type": {
+    "tag": "select",
+    "attributes": {
+      "name": "vote_type",
+      "required": ""
+    }
+  },
+  "vote-date": {
+    "tag": "input",
+    "attributes": {
+      "name": "vote_date",
+      "type": "date",
+      "required": ""
+    }
+  },
+  "nickname": {
+    "tag": "input",
+    "attributes": {
+      "name": "nickname",
+      "maxlength": "50",
+      "autocomplete": "nickname",
+      "required": ""
+    }
+  },
+  "player-id": {
+    "tag": "input",
+    "attributes": {
+      "name": "player_id",
+      "maxlength": "100",
+      "autocomplete": "off",
+      "required": ""
+    }
+  },
+  "proof-dropzone": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "image-help": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "proof-images": {
+    "tag": "input",
+    "attributes": {
+      "type": "file"
+    }
+  },
+  "image-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "image-list": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "note": {
+    "tag": "textarea",
+    "attributes": {
+      "name": "note",
+      "maxlength": "500"
+    }
+  },
+  "submission-verification": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "challenge-widget": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "challenge-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "challenge-retry": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "upload-progress": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "progress": {
+    "tag": "progress",
+    "attributes": {
+      "max": "100"
+    }
+  },
+  "progress-label": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "submission-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "retry-note": {
+    "tag": "p",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "submit-button": {
+    "tag": "button",
+    "attributes": {
+      "type": "submit"
+    }
+  },
+  "abandon-button": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "submission-success": {
+    "tag": "section",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "success-title": {
+    "tag": "h2",
+    "attributes": {}
+  },
+  "success-case-id": {
+    "tag": "dd",
+    "attributes": {}
+  },
+  "success-query-key": {
+    "tag": "dd",
+    "attributes": {}
+  },
+  "copy-case": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "copy-key": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "copy-all": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "copy-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "lookup-created": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "new-submission": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "recent-cases-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "recent-cases": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "recent-cases-member": {
+    "tag": "a",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "view-lookup": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "hidden": ""
+    }
+  },
+  "lookup-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "lookup-member-shortcut": {
+    "tag": "a",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "lookup-form": {
+    "tag": "form",
+    "attributes": {}
+  },
+  "lookup-id": {
+    "tag": "input",
+    "attributes": {
+      "required": "",
+      "autocomplete": "off",
+      "maxlength": "28"
+    }
+  },
+  "lookup-key": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "required": "",
+      "autocomplete": "off",
+      "maxlength": "43"
+    }
+  },
+  "lookup-help": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "lookup-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "lookup-button": {
+    "tag": "button",
+    "attributes": {
+      "type": "submit"
+    }
+  },
+  "lookup-result": {
+    "tag": "article",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "case-details": {
+    "tag": "dl",
+    "attributes": {}
+  },
+  "view-leaderboards": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "hidden": ""
+    }
+  },
+  "leaderboards-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "boards-refresh": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "leader-tabs": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "board-select": {
+    "tag": "select",
+    "attributes": {}
+  },
+  "board-name": {
+    "tag": "h2",
+    "attributes": {}
+  },
+  "board-progress": {
+    "tag": "progress",
+    "attributes": {
+      "max": "100"
+    }
+  },
+  "boards-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "board-generated": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "board-table": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "board-results": {
+    "tag": "tbody",
+    "attributes": {}
+  },
+  "board-position-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "board-position-login": {
+    "tag": "a",
+    "attributes": {}
+  },
+  "board-position-content": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "board-member-avatar": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "board-member-name": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "board-member-rank": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "board-member-points": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "board-member-summary": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "view-about": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "hidden": ""
+    }
+  },
+  "about-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "view-register": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "data-auth-view": "",
+      "hidden": ""
+    }
+  },
+  "register-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "register-google": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "register-step": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-expiry": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-email-form": {
+    "tag": "form",
+    "attributes": {}
+  },
+  "register-email": {
+    "tag": "input",
+    "attributes": {
+      "type": "email",
+      "autocomplete": "email",
+      "maxlength": "254",
+      "required": ""
+    }
+  },
+  "register-challenge": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "register-challenge-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-challenge-retry": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "register-code-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "register-sent": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-code": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "pattern": "[0-9]{6}",
+      "required": ""
+    }
+  },
+  "register-code-help": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-resend": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "register-password-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "register-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password",
+      "required": ""
+    }
+  },
+  "register-password-help": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "register-confirm": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password",
+      "required": ""
+    }
+  },
+  "register-totp-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "enrollment-qr": {
+    "tag": "canvas",
+    "attributes": {}
+  },
+  "enrollment-key": {
+    "tag": "code",
+    "attributes": {}
+  },
+  "register-totp": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "required": ""
+    }
+  },
+  "register-remember": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "register-trust": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "register-recovery": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "recovery-codes-title": {
+    "tag": "h2",
+    "attributes": {}
+  },
+  "recovery-codes": {
+    "tag": "ul",
+    "attributes": {}
+  },
+  "copy-recovery-codes": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "recovery-copy-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "recovery-ack": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "registration-done": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "register-success": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "register-restart": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "view-login": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "data-auth-view": "",
+      "hidden": ""
+    }
+  },
+  "login-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "login-session-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "login-content": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "login-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "login-expiry": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "login-methods": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "login-google": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "login-password-options": {
+    "tag": "details",
+    "attributes": {}
+  },
+  "login-password-summary": {
+    "tag": "summary",
+    "attributes": {}
+  },
+  "login-form": {
+    "tag": "form",
+    "attributes": {}
+  },
+  "login-email": {
+    "tag": "input",
+    "attributes": {
+      "name": "email",
+      "type": "email",
+      "autocomplete": "username",
+      "maxlength": "254",
+      "required": ""
+    }
+  },
+  "login-password": {
+    "tag": "input",
+    "attributes": {
+      "name": "password",
+      "type": "password",
+      "autocomplete": "current-password",
+      "required": ""
+    }
+  },
+  "login-remember": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "login-totp-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "login-totp": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "required": ""
+    }
+  },
+  "login-trust": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "login-restart": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "view-recover": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "data-auth-view": "",
+      "hidden": ""
+    }
+  },
+  "recover-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "recover-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "recover-expiry": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "recover-proof-form": {
+    "tag": "form",
+    "attributes": {}
+  },
+  "recover-email": {
+    "tag": "input",
+    "attributes": {
+      "type": "email",
+      "autocomplete": "username",
+      "maxlength": "254",
+      "required": ""
+    }
+  },
+  "recover-totp": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "required": ""
+    }
+  },
+  "recover-code": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "off",
+      "maxlength": "43",
+      "required": ""
+    }
+  },
+  "recover-password-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "recover-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password",
+      "required": ""
+    }
+  },
+  "recover-confirm": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password",
+      "required": ""
+    }
+  },
+  "recover-restart": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "recover-success": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "view-member": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "hidden": ""
+    }
+  },
+  "member-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "member-welcome": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "member-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "member-gate": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "member-content": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "member-avatar": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "member-profile-name": {
+    "tag": "h2",
+    "attributes": {}
+  },
+  "member-profile-player": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "member-admin-entry": {
+    "tag": "a",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "profile-form": {
+    "tag": "form",
+    "attributes": {}
+  },
+  "member-id": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "profile-nickname": {
+    "tag": "input",
+    "attributes": {
+      "autocomplete": "nickname",
+      "maxlength": "50",
+      "required": ""
+    }
+  },
+  "profile-player": {
+    "tag": "input",
+    "attributes": {
+      "autocomplete": "off",
+      "maxlength": "100"
+    }
+  },
+  "profile-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "profile-save": {
+    "tag": "button",
+    "attributes": {
+      "type": "submit"
+    }
+  },
+  "points-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "points-content": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "member-points": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "member-tier-artwork": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "member-tier": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "tier-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "tier-next": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "tier-gap": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "tier-progress": {
+    "tag": "progress",
+    "attributes": {
+      "max": "100"
+    }
+  },
+  "member-refresh": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "member-record-total": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "member-cases-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "member-cases": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "member-cases-more": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "member-case-detail": {
+    "tag": "section",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "member-case-fields": {
+    "tag": "dl",
+    "attributes": {}
+  },
+  "view-google": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "data-auth-view": "",
+      "hidden": ""
+    }
+  },
+  "google-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "google-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "google-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "google-email": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "google-step-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "google-step-code": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "required": ""
+    }
+  },
+  "google-step-cancel": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "google-confirm-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "google-profile": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "google-nickname": {
+    "tag": "input",
+    "attributes": {
+      "autocomplete": "nickname",
+      "maxlength": "50"
+    }
+  },
+  "google-player": {
+    "tag": "input",
+    "attributes": {
+      "maxlength": "100",
+      "autocomplete": "off"
+    }
+  },
+  "google-remember": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "google-cancel": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "view-security": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "data-auth-view": "",
+      "hidden": ""
+    }
+  },
+  "security-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "security-error": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "security-google": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "security-password": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "security-totp": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "security-connect": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-reauth": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-link-notice": {
+    "tag": "p",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-link-confirm": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-link-cancel": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-add": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-add-notice": {
+    "tag": "p",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-add-confirm": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-add-cancel": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-password-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-qr": {
+    "tag": "canvas",
+    "attributes": {}
+  },
+  "security-key": {
+    "tag": "code",
+    "attributes": {}
+  },
+  "security-new-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password"
+    }
+  },
+  "security-confirm-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password"
+    }
+  },
+  "security-code": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "maxlength": "6",
+      "autocomplete": "one-time-code"
+    }
+  },
+  "security-recovery": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-recovery-codes": {
+    "tag": "ul",
+    "attributes": {}
+  },
+  "security-recovery-ack": {
+    "tag": "input",
+    "attributes": {
+      "type": "checkbox"
+    }
+  },
+  "security-done": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "security-change": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-change-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-current-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "current-password"
+    }
+  },
+  "security-change-code": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "maxlength": "6",
+      "autocomplete": "one-time-code"
+    }
+  },
+  "security-change-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password"
+    }
+  },
+  "security-change-confirm": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "new-password"
+    }
+  },
+  "security-manage": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-regenerate": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "security-reset": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "security-enroll": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-refresh": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "security-google-step": {
+    "tag": "button",
+    "attributes": {
+      "type": "button",
+      "hidden": ""
+    }
+  },
+  "security-step-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-step-password": {
+    "tag": "input",
+    "attributes": {
+      "type": "password",
+      "autocomplete": "current-password",
+      "required": ""
+    }
+  },
+  "security-step-code": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "required": ""
+    }
+  },
+  "security-step-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "security-enroll-form": {
+    "tag": "form",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "security-enroll-qr": {
+    "tag": "canvas",
+    "attributes": {}
+  },
+  "security-enroll-key": {
+    "tag": "code",
+    "attributes": {}
+  },
+  "security-enroll-code": {
+    "tag": "input",
+    "attributes": {
+      "data-role": "auth-code",
+      "autocomplete": "one-time-code",
+      "maxlength": "6",
+      "required": ""
+    }
+  },
+  "security-devices-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "security-devices": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "security-revoke-others": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "view-admin": {
+    "tag": "section",
+    "attributes": {
+      "data-view-panel": "",
+      "hidden": ""
+    }
+  },
+  "admin-title": {
+    "tag": "h1",
+    "attributes": {
+      "data-view-title": ""
+    }
+  },
+  "admin-status": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "admin-gate": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "admin-retry": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "admin-content": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "admin-tabs": {
+    "tag": "nav",
+    "attributes": {}
+  },
+  "admin-panel": {
+    "tag": "section",
+    "attributes": {}
+  },
+  "admin-ui-copy": {
+    "tag": "template",
+    "attributes": {}
+  },
+  "admin-copy-001": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-002": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-003": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-004": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-005": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-006": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-007": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-008": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-009": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-010": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-011": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-012": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-013": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-014": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-015": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-016": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-017": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-018": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-019": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-020": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-021": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-022": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-023": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-024": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-025": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-026": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-027": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-028": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-029": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-030": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-031": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-032": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-033": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-034": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-035": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-036": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-037": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-038": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-039": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-040": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-041": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-042": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-043": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-044": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-045": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-046": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-047": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-048": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-049": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-050": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-051": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-052": {
+    "tag": "span",
+    "attributes": {
+      "data-copy-suffix": " "
+    }
+  },
+  "admin-copy-053": {
+    "tag": "span",
+    "attributes": {
+      "data-copy-suffix": " "
+    }
+  },
+  "admin-copy-054": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-055": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-056": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-057": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-058": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-059": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-060": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-061": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-062": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-063": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-064": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-065": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-066": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-067": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-068": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-069": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-070": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-071": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-072": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-073": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-074": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-075": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-076": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-077": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-078": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-079": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-080": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-081": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-082": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-083": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-084": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-085": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-086": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-087": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-088": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-089": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-090": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-091": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-092": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-093": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-094": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-095": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-096": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-097": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-098": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-099": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-100": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-101": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-102": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-103": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-104": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-105": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-106": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-107": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-108": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-109": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-110": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-111": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-112": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-113": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-114": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-115": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-116": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-117": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-118": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-119": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-120": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-121": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-122": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-123": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-124": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-125": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-126": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-127": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-128": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-129": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-130": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-131": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-132": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-133": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-134": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-135": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-136": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-137": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-138": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-139": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-140": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-141": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-142": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-143": {
+    "tag": "span",
+    "attributes": {}
+  },
+  "admin-copy-144": {
+    "tag": "span",
+    "attributes": {}
+  }
+}

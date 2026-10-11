@@ -1,29 +1,23 @@
 # 核准會員等級 artwork
 
-本機 artwork gate，基準 commit：`e71fdbd944121018f5388f1885f53b4e299e5a75`。原基準尚未含本圖，會員等級使用簡化標記；本次只整合核准圖片與前端呈現，不修改 backend/schema/權限或投稿設定。
+目前使用 operator 提供的八張獨立 PNG（1.png～8.png），取代原本從合成圖裁切的徽章。本次只替換本機 assets 與圖片尺寸，不修改 backend/schema/權限、等級門檻或投稿設定。
 
-## 唯一圖片來源與裁切
+## 圖片來源與對應
 
-Operator 提供的 `codex-clipboard-fcaa2e90-d0a1-40e7-ad1a-c06484f92b79.jpg`，1122×1402 RGB。
+保留完整圖片、邊框、光暈與裝飾，無裁切、重繪、背景移除、色彩調整、resampling 或放大。原 PNG 以原始尺寸轉為無損 WebP；八張重新 decode 後與各自 PNG 逐 pixel 完全一致。HTML 繼續呈現實際 API 等級名稱。
 
-來源 SHA256：`c3c6ec436438f9bca022e043cacc682e6751ce141b8f64bafafa51c61ff7a996`。
-
-直接從 decoded 原圖裁切，無重繪、AI 替換、背景移除、色彩調整、resampling 或放大。輸出無損 WebP；八張重新 decode 後與相應原圖裁切逐 pixel 完全一致。保留徽章、光暈與裝飾，避開圖片內中文名稱，讓 HTML 呈現實際 API 名稱。
-
-裁切座標以原圖左上為原點，右／下界不含端點。
-
-| Backend ID | 名稱 | Asset | 原圖 crop (left, top, right, bottom) | 像素 |
+| Backend ID | 名稱 | Asset | 原圖 | 原始像素 |
 | --- | --- | --- | --- | --- |
-| normal | 普通 | public/assets/tiers/normal.webp | 64,14,526,255 | 462×241 |
-| bronze | 青銅 | public/assets/tiers/bronze.webp | 610,14,1072,255 | 462×241 |
-| silver | 白銀 | public/assets/tiers/silver.webp | 64,342,526,596 | 462×254 |
-| gold | 黃金 | public/assets/tiers/gold.webp | 610,342,1072,596 | 462×254 |
-| platinum | 白金 | public/assets/tiers/platinum.webp | 64,678,526,942 | 462×264 |
-| emerald | 翡翠 | public/assets/tiers/emerald.webp | 610,678,1072,942 | 462×264 |
-| diamond | 鑽石 | public/assets/tiers/diamond.webp | 64,1010,526,1310 | 462×300 |
-| stellar | 星耀 | public/assets/tiers/stellar.webp | 610,1010,1072,1310 | 462×300 |
+| normal | 普通 | public/assets/tiers/normal.webp | 1.png | 1576×998 |
+| bronze | 青銅 | public/assets/tiers/bronze.webp | 2.png | 1536×1024 |
+| silver | 白銀 | public/assets/tiers/silver.webp | 3.png | 1536×1024 |
+| gold | 黃金 | public/assets/tiers/gold.webp | 4.png | 1536×1024 |
+| platinum | 白金 | public/assets/tiers/platinum.webp | 5.png | 1536×1024 |
+| emerald | 翡翠 | public/assets/tiers/emerald.webp | 6.png | 1536×1024 |
+| diamond | 鑽石 | public/assets/tiers/diamond.webp | 7.png | 1536×1024 |
+| stellar | 星耀 | public/assets/tiers/stellar.webp | 8.png | 1536×1024 |
 
-八張共 935,496 bytes。只加入分離 assets，未部署來源 composite 或本機截圖。
+八張共 11,240,170 bytes。僅網站使用的 WebP 放入 public，不加入原圖所在資料夾的其他檔案。
 
 ## 呈現與安全
 
@@ -43,6 +37,6 @@ WebKit 會對既有原生 select 的內部樣式回報 `style-src-attr`（以單
 
 驗證八個 identifier 與 immutable backend schema 一致、無損 WebP 尺寸、未知 identifier fail gracefully；browser 驗證實際 decode、會員各等級、八張 admin 圖及 disabled/null threshold、broken-image fallback、可及性、desktop/320/390/430px、深淺色、不溢出與 CSP。
 
-已通過：755 個 unit tests（含 55 個 frontend unit tests）、429 個完整 browser tests（含 36 個 artwork tests）、Member/Admin 真實 Worker 本機 smoke、八張原圖 crop pixels 比對、Wrangler dry-run、public assets 與 sensitive scan（195 個 reviewable Git files，0 findings）。最終 commit 見本次完成回報。
+本次原 PNG 與 WebP 逐 pixel 比對為 8/8 PASS。其餘測試結果見本次完成回報，不沿用先前部署測試數量當成本次結果。
 
-Production、新會員權限、tier thresholds 及 submissions_enabled 均未操作。前端部署仍須另行授權，之後再做實機 smoke；本次手機尺寸檢查是瀏覽器測試，不宣稱新增實機驗收。
+本次僅本機修改；未 commit、push 或部署。Production、新會員權限、tier thresholds 及 submissions_enabled 均未操作；本次手機尺寸檢查是瀏覽器測試，不宣稱新增實機驗收。

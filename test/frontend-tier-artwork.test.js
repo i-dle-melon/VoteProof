@@ -13,7 +13,7 @@ test("approved artwork mapping matches the eight immutable backend tier identiti
     assert.ok(schema.includes(`THEN '${tierArtwork(id).name}'`));
   }
 });
-test("all approved crop files are native-size lossless WebP, not upscaled placeholders", async () => {
+test("all approved tier files are native-size lossless WebP, not upscaled placeholders", async () => {
   for (const art of Object.values(TIER_ARTWORK)) {
     const buffer = await readFile(new URL("../public" + art.src, import.meta.url));
     assert.equal(buffer.subarray(0, 4).toString(), "RIFF"); assert.equal(buffer.subarray(8, 12).toString(), "WEBP");

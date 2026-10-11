@@ -1,11 +1,12 @@
 // Public/Guest API adapter. Responses and credential-bearing URLs never log.
+import { PREVIEW, previewFetch } from "./preview.js";
 export class PublicError extends Error {
   constructor(code, status = 0) { super(code); this.code = code; this.status = status; }
 }
 export async function api(path, { method = "GET", body, headers = {} } = {}) {
   let response;
   try {
-    response = await fetch(path, { method, credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
+    response = await (PREVIEW ? previewFetch : fetch)(path, { method, credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
       signal: AbortSignal.timeout(30000), headers: { ...headers, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
       ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
   } catch { throw new PublicError("NETWORK_ERROR"); }
@@ -15,6 +16,7 @@ export async function api(path, { method = "GET", body, headers = {} } = {}) {
   return result.data;
 }
 export function putImage(upload, file, onProgress) {
+  if (PREVIEW) return Promise.reject(new PublicError("UI_PREVIEW_ONLY", 403));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", upload.upload_url);
@@ -33,6 +35,7 @@ export function putImage(upload, file, onProgress) {
 }
 
 const messages = {
+  UI_PREVIEW_ONLY: "這是 UI 預覽，無法登入、投稿或保存變更。",
   SUBMISSIONS_DISABLED: "投稿目前暫停開放，請稍後再試。",
   SUBMISSIONS_UNAVAILABLE: "投稿服務暫時無法使用，請稍後再試。",
   NETWORK_ERROR: "網路連線中斷或等待逾時。請檢查連線後重試，投稿資料會保留。",

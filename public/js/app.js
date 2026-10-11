@@ -4,8 +4,12 @@ import { Challenge } from "./turnstile.js";
 import { adminUI } from "./admin.js";
 import { memberUI } from "./member.js";
 import { authMessage } from "./member-api.js";
+import { setupPreview } from "./preview.js";
+
+setupPreview();
 
 const $ = (id) => document.getElementById(id);
+const submitLabel = $("submit-button").textContent.trim();
 const node = (tag, text, className) => {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -23,7 +27,7 @@ const dateLabel = (value) => {
 let campaigns = [], campaignLoaded = false, campaignLoading = false, images = [], success = null;
 let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateRequest = null, gateChecking = false, submissionStarting = false;
 let campaignAvailability = "正在載入活動…";
-let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false;
+let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
 const submission = new Submission({ api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
@@ -43,7 +47,7 @@ let admin;
 const member = memberUI({ campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
   $("member-mode").disabled = !identity;
   $("member-mode").textContent = identity ? "會員 · " + identity.nickname : "會員 · 請先登入";
-  syncOwnership(); admin?.identity(identity);
+  syncOwnership(); admin?.identity(identity); renderBoardPosition();
 } });
 admin = adminUI(member.session);
 
@@ -82,7 +86,7 @@ function syncForm() {
   syncOwnership();
   $("submission-fields").disabled = !ready || submission.pending;
   $("submit-button").disabled = !ready || submissionStarting || submission.busy || (!submission.pending && !campaignLoaded);
-  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !ready ? "投稿暫停" : submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : "送出投稿";
+  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !ready ? "投稿暫停" : submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : submitLabel;
   $("submission-form").setAttribute("aria-busy", String(submission.busy || submissionStarting));
   $("abandon-button").hidden = !submission.pending;
   $("abandon-button").disabled = submission.busy;
@@ -214,8 +218,10 @@ $("proof-images").addEventListener("change", () => {
 });
 for (const type of ["dragover", "drop"]) $("proof-dropzone").addEventListener(type, event => {
   event.preventDefault();
+  $("proof-dropzone").classList.toggle("drag", type === "dragover" && submissionReady() && !submission.pending);
   if (type === "drop") addImages([...event.dataTransfer.files]);
 });
+$("proof-dropzone").addEventListener("dragleave", () => $("proof-dropzone").classList.remove("drag"));
 async function mountChallenge() {
   if (!submissionReady() || success || location.hash !== "#submit") return;
   try { await challenge.mount(); }
@@ -245,6 +251,7 @@ $("submission-form").addEventListener("submit", async (event) => {
   const attempt = submission.attempt(); syncForm();
   try {
     success = await attempt;
+    void member.loadRecentCases();
     $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = success.query_key;
     $("submission-form").hidden = true; $("submission-success").hidden = false;
     clearImages(); $("success-title").focus();
@@ -317,17 +324,53 @@ function renderHomeBoard(board, message) {
   }
   $("home-boards-message").textContent = ""; $("home-board-table").hidden = false;
 }
+function renderBoardPosition() {
+  const identity = member.session.member;
+  $("board-position-login").hidden = Boolean(identity);
+  $("board-position-content").hidden = !identity;
+  $("board-member-summary").replaceChildren();
+  $("board-member-name").textContent = identity?.nickname ?? "";
+  $("board-member-avatar").textContent = [...(identity?.nickname ?? "")][0] || "◎";
+  $("board-member-rank").textContent = "—";
+  $("board-member-points").textContent = "—";
+  if (!identity) { $("board-position-message").textContent = "登入後可查看你在已公布成績中的位置。"; return; }
+  const own = currentBoard?.rankings?.find(row => row.member_id === identity.member_id);
+  $("board-position-message").textContent = own ? "" : currentBoard ? "你尚未列入這個排行榜的已公布名單。" : "目前沒有可查看的公開排行榜。";
+  if (own) { $("board-member-rank").textContent = "#" + own.rank; $("board-member-points").textContent = Number(own.points).toLocaleString("zh-TW") + " 點"; }
+  for (const board of publicBoards) {
+    const result = board.rankings?.find(row => row.member_id === identity.member_id);
+    const line = node("div", undefined, "mini-kpi");
+    line.append(node("span", board.name), node("strong", result ? Number(result.points).toLocaleString("zh-TW") : "—"));
+    $("board-member-summary").append(line);
+  }
+}
+function renderBoardTabs() {
+  $("leader-tabs").replaceChildren();
+  for (const board of publicBoards) {
+    const tab = node("button", board.name, "tab"); tab.type = "button"; tab.dataset.board = board.leaderboard_id;
+    tab.classList.toggle("active", board.leaderboard_id === $("board-select").value);
+    tab.setAttribute("aria-pressed", String(board.leaderboard_id === $("board-select").value));
+    tab.disabled = boardLoading;
+    tab.addEventListener("click", () => { $("board-select").value = board.leaderboard_id; void selectBoard(); });
+    $("leader-tabs").append(tab);
+  }
+}
 function renderBoard(board) {
+  currentBoard = board ?? null;
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
   $("board-generated").textContent = board?.generated_at ? `更新時間：${dateLabel(board.generated_at)}` : "";
+  $("board-progress").value = board ? 100 : 0;
+  renderBoardPosition();
   if (!board) { $("boards-message").textContent = "目前沒有公開排行榜。"; return; }
   if (!Array.isArray(board.rankings)) throw new Error();
   if (!board.rankings.length) { $("boards-message").textContent = "這個排行榜目前還沒有成績。"; return; }
   for (const row of board.rankings) {
-    // Preserve the server rank and order; never recalculate or request members.
-    const tr = node("tr");
-    for (const field of ["rank", "nickname", "points", "proof_count"]) tr.append(node("td", String(row[field] ?? "—")));
+    // Keep authoritative snapshot ranks and order, including gaps and ties.
+    const tr = node("tr"), rank = node("td"), name = node("td", undefined, "grow");
+    rank.append(node("span", String(row.rank), "rank-badge" + (Number(row.rank) <= 3 ? " top" : "")));
+    name.append(node("strong", row.nickname ?? "—"), node("span", board.name));
+    tr.append(rank, name, node("td", Number(row.points).toLocaleString("zh-TW") + " 點", "points"), node("td", String(row.proof_count ?? "—"), "board-proof-count"));
     $("board-results").append(tr);
   }
   $("boards-message").textContent = ""; $("board-table").hidden = false;
@@ -335,39 +378,46 @@ function renderBoard(board) {
 async function loadBoards() {
   if (boardLoading) return;
   boardLoading = true; const sequence = ++boardSequence;
-  $("board-select").disabled = true; $("boards-refresh").disabled = true; renderBoard(null);
+  $("board-select").disabled = true; $("boards-refresh").disabled = true;
+  publicBoards = []; renderBoardTabs(); renderBoard(null);
   $("boards-message").textContent = "正在載入排行榜…";
   renderHomeBoard(null, "正在載入排行榜…");
   try {
     const data = await api("/api/leaderboards");
     if (!Array.isArray(data?.leaderboards)) throw new Error();
     if (sequence !== boardSequence) return;
-    const boards = data.leaderboards, previous = $("board-select").value;
-    $("board-select").replaceChildren(...boards.map((b) => new Option(b.name, b.leaderboard_id)));
-    if (boards.some((b) => b.leaderboard_id === previous)) $("board-select").value = previous;
-    if (!boards.length) $("board-select").append(new Option("沒有公開排行榜", ""));
-    renderBoard(boards.find((b) => b.leaderboard_id === $("board-select").value));
-    renderHomeBoard(boards[0]);
-    boardLoaded = true; $("board-select").disabled = !boards.length;
+    publicBoards = data.leaderboards; const previous = $("board-select").value;
+    $("board-select").replaceChildren(...publicBoards.map(b => new Option(b.name, b.leaderboard_id)));
+    if (publicBoards.some(b => b.leaderboard_id === previous)) $("board-select").value = previous;
+    if (!publicBoards.length) $("board-select").append(new Option("沒有公開排行榜", ""));
+    renderBoard(publicBoards.find(b => b.leaderboard_id === $("board-select").value));
+    renderHomeBoard(publicBoards[0]);
+    boardLoaded = true; $("board-select").disabled = !publicBoards.length;
   } catch {
-    boardLoaded = false; renderBoard(null); $("boards-message").textContent = "排行榜暫時無法載入，請按重新載入。";
+    boardLoaded = false; publicBoards = []; renderBoard(null); $("boards-message").textContent = "排行榜暫時無法載入，請按重新載入。";
     renderHomeBoard(null, "排行榜暫時無法載入，請前往排行榜重新載入。");
-  } finally { boardLoading = false; $("boards-refresh").disabled = false; }
+  } finally { boardLoading = false; $("boards-refresh").disabled = false; renderBoardTabs(); }
 }
-$("board-select").addEventListener("change", async () => {
+async function selectBoard() {
   const id = $("board-select").value, sequence = ++boardSequence;
-  renderBoard(null); $("boards-message").textContent = "正在載入成績…";
+  renderBoardTabs(); renderBoard(null); $("boards-message").textContent = "正在載入成績…";
   try {
     const data = await api("/api/leaderboards?id=" + encodeURIComponent(id));
-    if (sequence === boardSequence) renderBoard(data.leaderboards?.find((b) => b.leaderboard_id === id));
+    if (sequence === boardSequence) {
+      const board = data.leaderboards?.find(b => b.leaderboard_id === id);
+      if (board) publicBoards = publicBoards.map(b => b.leaderboard_id === id ? board : b);
+      renderBoard(board);
+    }
   } catch { if (sequence === boardSequence) $("boards-message").textContent = "成績暫時無法載入，請重新選擇或按重新載入。"; }
-});
+}
+$("board-select").addEventListener("change", selectBoard);
 $("boards-refresh").addEventListener("click", loadBoards);
 
 function theme(value) {
   const light = value === "light";
   document.documentElement.dataset.theme = light ? "light" : "dark";
-  $("theme-toggle").textContent = light ? "切換深色" : "切換淺色";
+  $("theme-toggle").textContent = light ? "☾ 深色" : "☀ 淺色";
+  $("theme-toggle").setAttribute("aria-label", light ? "切換深色" : "切換淺色");
   $("theme-toggle").setAttribute("aria-pressed", String(light));
   document.querySelector('meta[name="theme-color"]').content = light ? "#faf8fc" : "#121212";
 }
@@ -381,11 +431,11 @@ function navigate(focus = true) {
   if (requested === "main") { $("main").focus(); return; }
   const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"].includes(requested) ? requested : "home";
   member.enter(view); admin.enter(view);
-  for (const section of document.querySelectorAll("main > .view")) section.hidden = section.id !== "view-" + view;
+  for (const section of $("main").querySelectorAll("[data-view-panel]")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-view]")) {
     if (link.dataset.view === view) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
   }
-  if (focus) { document.querySelector(`#view-${view} h1`).focus(); window.scrollTo(0, 0); }
+  if (focus) { $("view-" + view).querySelector("[data-view-title]").focus(); window.scrollTo(0, 0); }
   if (view === "submit") void loadSubmissionStatus().then(mountChallenge);
   if (view === "leaderboards" && !boardLoaded) void loadBoards();
 }

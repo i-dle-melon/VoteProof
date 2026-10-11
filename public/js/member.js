@@ -19,7 +19,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
   let registration = "email", challengeId = "", transactionId = "", deadline = 0, cooldown = 0;
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
-  let profileSnapshot = null;
+  let profileSnapshot = null, recentSequence = 0;
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
   let loginSessionChecked = false, linkPurpose = "connect", setupKind = "enroll", setupTx = "", setupDeadline = 0, recoveryLogout = false;
   const session = new MemberSession({ changed: member => {
@@ -30,6 +30,9 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     }
     wasLoggedIn = Boolean(member);
     $("lookup-member-shortcut").hidden = !member;
+    $("top-avatar").textContent = member ? [...(member.nickname || "")][0] || "◎" : "G";
+    $("top-avatar").href = member ? "#member" : "#login";
+    $("top-avatar").setAttribute("aria-label", member ? "會員中心" : "會員登入");
     $("login-entry").hidden = Boolean(member); $("member-entry").hidden = $("logout-button").hidden = !member;
     $("member-welcome").textContent = member ? `${member.nickname}，歡迎回來。` : "";
     $("member-gate").hidden = Boolean(member); $("member-content").hidden = !member;
@@ -37,11 +40,15 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       $("member-id").textContent = member.member_id;
       $("member-avatar").textContent = [...(member.nickname || "")][0] || "◎"; $("member-profile-name").textContent = member.nickname; $("member-profile-player").textContent = member.player_id ? "玩家 ID · " + member.player_id : "尚未設定玩家 ID";
       const newOwner = profileSnapshot?.member_id !== member.member_id;
+      if (newOwner) $("member-record-total").textContent = "—";
       for (const [id, key] of [["profile-nickname", "nickname"], ["profile-player", "player_id"]]) {
         if (newOwner || $(id).value === (profileSnapshot?.[key] ?? "")) $(id).value = member[key] ?? "";
       }
       profileSnapshot = { member_id: member.member_id, nickname: member.nickname, player_id: member.player_id };
     } else {
+      recentSequence++; $("recent-cases").replaceChildren(); $("recent-cases-member").hidden = true;
+      $("recent-cases-status").textContent = "登入後可查看最近投稿；訪客可使用案件編號與查詢碼查詢。";
+      $("member-record-total").textContent = "—";
       profileSnapshot = null; memberEpoch++; $("member-id").textContent = ""; for (const id of ["member-avatar", "member-profile-name", "member-profile-player"]) $(id).textContent = ""; $("profile-form").reset();
       $("member-cases").replaceChildren(); $("member-case-fields").replaceChildren();
       $("member-case-detail").hidden = true; $("points-content").hidden = true;
@@ -50,6 +57,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     }
     syncLogin();
     changed(member);
+    if (view === "submit" && member) void loadRecentCases();
   } });
   const challenge = new Challenge($("register-challenge"), text => { $("register-challenge-status").textContent = text; });
   function syncLogin() {
@@ -57,7 +65,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     $("login-content").hidden = !loginSessionChecked || Boolean(session.member);
     if (view === "login" && session.member) location.hash = "member";
   }
-  for (const button of document.querySelectorAll('.auth-view button[type="submit"]')) button.dataset.idleLabel = button.textContent;
+  for (const button of document.querySelectorAll('[data-auth-view] button[type="submit"]')) button.dataset.idleLabel = button.textContent;
 
   const clearSetup = () => { clearEnrollment($("enrollment-qr")); $("enrollment-key").textContent = ""; };
   const clearRecovery = () => {
@@ -312,7 +320,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     if (data.logged_out) session.clear(); // Clear triggers resetAuth before the new one-time codes are rendered.
     recoveryLogout = Boolean(data.logged_out); showSecurityRecovery(data);
   });
-  $("login-password-options").addEventListener("toggle", () => $("login-password-options").querySelector("summary").setAttribute("aria-expanded", String($("login-password-options").open)));
+  $("login-password-options").addEventListener("toggle", () => $("login-password-summary").setAttribute("aria-expanded", String($("login-password-options").open)));
 
   form("register-email-form", "register", async current => {
     const email = emailValue($("register-email").value);
@@ -425,7 +433,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     });
   }
   // Single accessible control accepts an entire pasted code, preserving zeros.
-  for (const input of document.querySelectorAll(".code-input")) input.addEventListener("paste", event => {
+  for (const input of document.querySelectorAll('[data-role="auth-code"]')) input.addEventListener("paste", event => {
     const code = event.clipboardData?.getData("text").trim();
     if (/^\d{6}$/.test(code ?? "")) { event.preventDefault(); input.value = code; input.dispatchEvent(new Event("input", { bubbles: true })); }
   });
@@ -447,6 +455,31 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     catch (error) { if (current === epoch) $("register-challenge-status").textContent = authMessage(error); }
     if (view !== "register") challenge.clear();
   }
+  function caseRow(row) {
+    const card = element("div", "", "row member-case legacy-case-row"), text = element("div", "", "grow");
+    text.append(element("strong", row.case_id + " · " + (session.member?.nickname ?? "")),
+      element("span", [campaignName(row.campaign_id), row.vote_type, row.vote_date].filter(Boolean).join("｜")));
+    const status = element("span", statuses[row.status] ?? "狀態更新中", "status");
+    if (Object.hasOwn(statuses, row.status)) status.classList.add(row.status);
+    card.append(text, status); return card;
+  }
+  async function loadRecentCases() {
+    if (view !== "submit" || !session.member) return;
+    const owner = session.member.member_id, sequence = ++recentSequence;
+    $("recent-cases").replaceChildren(); $("recent-cases-status").textContent = "正在載入最近投稿…";
+    $("recent-cases-member").hidden = true;
+    const sameOwner = () => view === "submit" && recentSequence === sequence && session.member?.member_id === owner;
+    try {
+      const data = await session.request("/api/me/cases?limit=3");
+      if (!sameOwner()) return;
+      for (const row of data.cases) {
+        const card = caseRow(row), icon = element("span", "▣", "case-icon"); icon.setAttribute("aria-hidden", "true");
+        card.prepend(icon); $("recent-cases").append(card);
+      }
+      $("recent-cases-status").textContent = data.cases.length ? "" : "目前沒有案件紀錄。";
+      $("recent-cases-member").hidden = false;
+    } catch (error) { if (sameOwner()) $("recent-cases-status").textContent = authMessage(error); }
+  }
   const sameMember = (owner, sequence) => view === "member" && memberEpoch === sequence && session.member?.member_id === owner;
   async function loadCases(append = false, sequence = memberEpoch) {
     if (!session.member || casesBusy === sequence || append && !casesCursor) return;
@@ -457,8 +490,9 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       if (!sameMember(owner, sequence)) return;
       if (!append) $("member-cases").replaceChildren();
       for (const row of data.cases) {
-        const card = element("div", "", "member-case"), button = element("button", "查看案件", "btn btn-white"); button.type = "button";
-        card.append(element("strong", row.case_id), element("p", `${row.vote_date} · ${statuses[row.status] ?? "狀態更新中"}`), element("p", campaignName(row.campaign_id)), element("p", "投稿時間 · " + memberDate(row.created_at)));
+        const card = caseRow(row), button = element("button", "▣", "case-icon"); button.type = "button";
+        button.setAttribute("aria-label", "查看案件 " + row.case_id);
+        card.prepend(button);
         button.addEventListener("click", async () => {
           if (!sameMember(owner, sequence) || button.disabled) return;
           button.disabled = true;
@@ -472,7 +506,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
           } catch (error) { if (sameMember(owner, sequence)) $("member-cases-status").textContent = error.status === 404 ? "無法查詢此案件。" : authMessage(error); }
           finally { button.disabled = false; }
         });
-        card.append(button); $("member-cases").append(card);
+        $("member-cases").append(card);
       }
       casesCursor = data.next_cursor; $("member-cases-more").hidden = !casesCursor;
       $("member-cases-status").textContent = $("member-cases").children.length ? "" : "目前沒有案件紀錄。";
@@ -482,6 +516,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
   async function loadMember() {
     const sequence = ++memberEpoch;
     $("member-error").textContent = "";
+    $("member-record-total").textContent = "—";
     try { await session.refresh(); }
     catch (error) { if (view === "member") $("member-error").textContent = authMessage(error); return; }
     if (view !== "member" || !session.member || sequence !== memberEpoch) return;
@@ -492,6 +527,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     try {
       const data = await session.request("/api/me/points");
       if (!sameMember(owner, sequence)) return;
+      $("member-record-total").textContent = Number(data.total_points).toLocaleString("zh-TW");
       $("member-points").textContent = String(data.total_points); $("member-tier").textContent = data.tier.name;
       renderTierArtwork($("member-tier-artwork"), data.tier.tier_id);
       $("tier-message").textContent = !data.tier_configuration_ready ? "目前開放普通等級，其他等級尚未開放。" : data.next_tier ? `下一等級：${data.next_tier.name}` : data.tier.tier_id === "normal" ? "目前開放普通等級，其他等級尚未開放。" : "已達目前最高開放等級";
@@ -504,7 +540,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
   $("member-refresh").addEventListener("click", () => { if (!$("member-refresh").disabled) void loadMember(); });
   $("member-cases-more").addEventListener("click", () => { void loadCases(true); });
   $("profile-form").addEventListener("submit", async event => {
-    event.preventDefault(); const button = $("profile-form").querySelector("button"); if (button.disabled || !session.member) return;
+    event.preventDefault(); const button = $("profile-save"); if (button.disabled || !session.member) return;
     const nickname = $("profile-nickname").value.trim(), player_id = $("profile-player").value.trim();
     if (!nickname || [...nickname].length > 50 || [...player_id].length > 100 || /[\u0000-\u001f\u007f]/.test(nickname + player_id)) {
       $("profile-status").textContent = "請填寫 1～50 字暱稱；玩家 ID 最多 100 字。"; return;
@@ -538,6 +574,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     if (authViews.includes(view)) ticker = setInterval(syncCooldown, 1000);
     if (view === "register") void mountRegistration();
     if (view === "member") void loadMember();
+    if (view === "submit") void loadRecentCases();
     if (view === "google") void loadGoogle();
     if (view === "security") void loadSecurity();
   }
@@ -553,5 +590,5 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     if (view === "security") void loadSecurity();
     if (view === "member") void loadMember(); else void session.refresh().catch(() => {});
   });
-  return { session, enter };
+  return { session, enter, loadRecentCases };
 }

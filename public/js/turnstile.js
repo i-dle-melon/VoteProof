@@ -1,4 +1,5 @@
 import { PublicError } from "./api.js";
+import { PREVIEW } from "./preview.js";
 // Lazy official script: homepage/lookup/leaderboards need no challenge request.
 let loading;
 function load() {
@@ -22,6 +23,7 @@ export class Challenge {
   #active = false;
   constructor(container, changed) { this.container = container; this.changed = changed; }
   mount() {
+    if (PREVIEW) return Promise.reject(new PublicError("UI_PREVIEW_ONLY", 403));
     if (this.#id !== undefined) {
       if (!this.#active) { this.#active = true; globalThis.turnstile.reset(this.#id); }
       return Promise.resolve();

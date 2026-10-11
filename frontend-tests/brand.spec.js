@@ -36,5 +36,5 @@ test("legacy navigation glyphs remain visible after member session refresh", asy
   await page.reload();
   await expect(page.locator("#member-entry span[aria-hidden]")).toHaveText("◎");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(page.locator('a[href*="admin"]')).toHaveCount(0);
+  await expect(page.locator("#admin-nav-group")).toBeHidden();
 });

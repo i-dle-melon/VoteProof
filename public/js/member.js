@@ -9,16 +9,18 @@ const element = (tag, text, className) => {
   if (className) node.className = className;
   return node;
 };
+const memberDate = value => { const d = new Date(value); return Number.isFinite(d.valueOf()) ? d.toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false }) : "—"; };
 const statuses = { pending: "待審核", approved: "已通過", completed: "已完成", rejected: "未通過", duplicate: "重複投稿", revoked: "已撤銷" };
 const authViews = ["register", "login", "recover", "google", "security"];
 
-export function memberUI({ changed = () => {} } = {}) {
+export function memberUI({ changed = () => {}, campaignName = () => "活動資訊目前無法取得" } = {}) {
   let view = "", epoch = 0, busy = false, controller = new AbortController();
   let registration = "email", challengeId = "", transactionId = "", deadline = 0, cooldown = 0;
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
+  let profileSnapshot = null;
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
-  let loginSessionChecked = false;
+  let loginSessionChecked = false, linkPurpose = "connect", setupKind = "enroll", setupTx = "", setupDeadline = 0, recoveryLogout = false;
   const session = new MemberSession({ changed: member => {
     if (member) { $("account-status").hidden = true; $("account-status").textContent = ""; }
     else if (wasLoggedIn) {
@@ -26,14 +28,20 @@ export function memberUI({ changed = () => {} } = {}) {
       if (["security", "google"].includes(view)) resetAuth();
     }
     wasLoggedIn = Boolean(member);
+    $("lookup-member-shortcut").hidden = !member;
     $("login-entry").hidden = Boolean(member); $("member-entry").hidden = $("logout-button").hidden = !member;
     $("member-welcome").textContent = member ? `${member.nickname}，歡迎回來。` : "";
     $("member-gate").hidden = Boolean(member); $("member-content").hidden = !member;
     if (member) {
       $("member-id").textContent = member.member_id;
-      $("profile-nickname").value = member.nickname ?? ""; $("profile-player").value = member.player_id ?? "";
+      $("member-avatar").textContent = [...(member.nickname || "")][0] || "◎"; $("member-profile-name").textContent = member.nickname; $("member-profile-player").textContent = member.player_id ? "玩家 ID · " + member.player_id : "尚未設定玩家 ID";
+      const newOwner = profileSnapshot?.member_id !== member.member_id;
+      for (const [id, key] of [["profile-nickname", "nickname"], ["profile-player", "player_id"]]) {
+        if (newOwner || $(id).value === (profileSnapshot?.[key] ?? "")) $(id).value = member[key] ?? "";
+      }
+      profileSnapshot = { member_id: member.member_id, nickname: member.nickname, player_id: member.player_id };
     } else {
-      memberEpoch++; $("member-id").textContent = ""; $("profile-form").reset();
+      profileSnapshot = null; memberEpoch++; $("member-id").textContent = ""; for (const id of ["member-avatar", "member-profile-name", "member-profile-player"]) $(id).textContent = ""; $("profile-form").reset();
       $("member-cases").replaceChildren(); $("member-case-fields").replaceChildren();
       $("member-case-detail").hidden = true; $("points-content").hidden = true;
       for (const id of ["member-points", "member-tier", "tier-message", "tier-gap"]) $(id).textContent = "";
@@ -97,7 +105,9 @@ export function memberUI({ changed = () => {} } = {}) {
     $("login-methods").hidden = false; $("login-password-options").open = false;
     $("recover-proof-form").hidden = false; $("recover-password-form").hidden = $("recover-success").hidden = true;
     $("logout-button").disabled = false; challenge.clear();
-    googleTx = methodTx = ""; googleDeadline = methodDeadline = 0;
+    googleTx = methodTx = setupTx = ""; googleDeadline = methodDeadline = setupDeadline = 0;
+    clearEnrollment($("security-enroll-qr")); $("security-enroll-key").textContent = ""; $("security-devices").replaceChildren(); $("security-step-status").textContent = "";
+    for (const id of ["google-step-form", "security-enroll-form", "security-step-form", "security-google-step", "security-enroll"]) $(id).hidden = true;
     clearEnrollment($("security-qr")); $("security-key").textContent = "";
     $("security-recovery-codes").replaceChildren(); $("security-recovery-ack").checked = false;
     $("security-done").disabled = true; $("google-email").textContent = ""; $("google-message").textContent = "";
@@ -149,11 +159,16 @@ export function memberUI({ changed = () => {} } = {}) {
       await session.refresh().catch(() => {});
       const data = await session.request("/api/auth/google/result", { signal: controller.signal });
       if (current !== epoch || view !== "google") return;
-      if (data.purpose === "security") throw new PublicError("AUTH_STEP_UP_REQUIRED");
+      if (data.purpose === "security") {
+        googleTx = data.transaction_id; googleDeadline = expires(data);
+        $("google-title").textContent = "重新驗證身份"; $("google-step-form").hidden = false;
+        $("google-step-code").focus(); return;
+      }
+      $("google-title").textContent = "Google 登入確認";
       googleTx = data.transaction_id; googleDeadline = expires(data); googleProfile = data.status === "GOOGLE_PROFILE_REQUIRED";
       $("google-email").textContent = data.email;
       $("google-message").textContent = googleProfile ? "Google 已驗證信箱。請設定 VoteProof 資料，即可建立會員；不需要 VoteProof 密碼。" :
-        data.provider_already_linked && data.status === "GOOGLE_CONFIRM_REQUIRED" ? "這個 Google 帳號符合既有 VoteProof 會員。Supabase 已連結 provider identity。確認後啟用同一會員的 Google 登入；取消只停止 VoteProof 啟用，不會移除 provider identity。" : "Google 已驗證身份，繼續登入同一 VoteProof 會員。取消不會移除 provider identity。";
+        data.provider_already_linked && data.status === "GOOGLE_CONFIRM_REQUIRED" ? "這個 Google 帳號符合既有 VoteProof 會員。Google 已連結至既有帳號。確認後啟用同一會員的 Google 登入；取消只停止本次啟用，不會解除登入方式。" : "Google 已驗證身份，繼續登入同一 VoteProof 會員。取消不會解除登入方式。";
       $("google-profile").hidden = !googleProfile; $("google-confirm-form").hidden = false;
     } catch (error) { if (current === epoch && view === "google") $("google-error").textContent = authMessage(error); }
   }
@@ -187,11 +202,16 @@ export function memberUI({ changed = () => {} } = {}) {
       $("security-connect").hidden = data.google.connected; $("security-reauth").hidden = !data.google.connected;
       $("security-add").hidden = data.password.configured; $("security-change").hidden = !data.password.configured;
       $("security-manage").hidden = !data.authenticator.configured;
+      $("security-enroll").hidden = data.authenticator.configured || !data.google.connected;
+      $("security-google-step").hidden = !data.google.connected || !data.authenticator.configured;
+      $("security-step-form").hidden = !data.password.configured;
+      $("security-step-status").textContent = "";
+      void loadDevices(current);
     } catch (error) { if (current === epoch && view === "security") $("security-error").textContent = authMessage(error); }
   }
-  const explainLink = () => { $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = false; };
-  $("security-connect").addEventListener("click", explainLink); $("security-reauth").addEventListener("click", explainLink);
-  $("security-link-confirm").addEventListener("click", () => void run("security", current => beginGoogle(current, "connect")));
+  const explainLink = () => { linkPurpose = "connect"; $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = false; };
+  $("security-connect").addEventListener("click", explainLink); $("security-reauth").addEventListener("click", () => { explainLink(); });
+  $("security-link-confirm").addEventListener("click", () => void run("security", current => beginGoogle(current, linkPurpose)));
   $("security-link-cancel").addEventListener("click", () => { $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = true; });
   $("security-add").addEventListener("click", () => { $("security-add-notice").hidden = $("security-add-confirm").hidden = $("security-add-cancel").hidden = false; });
   $("security-add-cancel").addEventListener("click", () => { pendingEmailAdd = null; $("security-add-notice").hidden = $("security-add-confirm").hidden = $("security-add-cancel").hidden = true; });
@@ -218,7 +238,7 @@ export function memberUI({ changed = () => {} } = {}) {
     $("security-password-form").hidden = true; $("security-recovery").hidden = false;
   });
   $("security-recovery-ack").addEventListener("change", () => { $("security-done").disabled = !$("security-recovery-ack").checked; });
-  $("security-done").addEventListener("click", () => { if ($("security-recovery-ack").checked) { $("security-recovery-codes").replaceChildren(); $("security-recovery").hidden = true; void loadSecurity(); } });
+  $("security-done").addEventListener("click", () => { if ($("security-recovery-ack").checked) { $("security-recovery-codes").replaceChildren(); $("security-recovery").hidden = true; if (recoveryLogout) { recoveryLogout = false; location.hash = "login"; } else void loadSecurity(); } });
   $("security-change").addEventListener("click", () => { $("security-change-form").hidden = false; $("security-current-password").focus(); });
   form("security-change-form", "security", async current => {
     const password = passwordValue($("security-current-password").value), code = codeValue($("security-change-code").value), new_password = passwordValue($("security-change-password").value, $("security-change-confirm").value);
@@ -227,6 +247,70 @@ export function memberUI({ changed = () => {} } = {}) {
     await post("password/change", { transaction_id: tx.transaction_id, new_password });
     if (current()) { session.clear(); location.hash = "login"; }
   });
+
+
+  const confirmed = text => window.confirm(text);
+  function securityComplete(data) {
+    document.dispatchEvent(new CustomEvent("voteproof-security-verified", { detail: { elevated_until: data.elevated_until } }));
+    $("account-status").textContent = "身份驗證完成。"; $("account-status").hidden = false;
+  }
+  form("google-step-form", "google", async current => {
+    unexpired(googleDeadline); const code = codeValue($("google-step-code").value); $("google-step-code").value = "";
+    const data = await post("google/step-up", { transaction_id: googleTx, code });
+    if (current()) { googleTx = ""; securityComplete(data); location.hash = "security"; }
+  });
+  $("google-step-cancel").addEventListener("click", () => void run("google", async current => {
+    await post("google/cancel", { transaction_id: googleTx }); if (current()) location.hash = "security";
+  }));
+  $("security-google-step").addEventListener("click", () => {
+    if (confirmed("重新驗證 Google，並使用 Authenticator 完成身份驗證？")) void run("security", current => beginGoogle(current, "security"));
+  });
+  form("security-step-form", "security", async current => {
+    const password = passwordValue($("security-step-password").value), code = codeValue($("security-step-code").value);
+    $("security-step-form").reset(); const data = await post("step-up", { password, code });
+    if (current()) { securityComplete(data); $("security-step-status").textContent = "身份驗證完成，可繼續安全設定與已授權的管理操作。"; }
+  });
+  async function loadDevices(sequence = epoch) {
+    const owner = session.member?.member_id; $("security-devices-status").textContent = "正在載入裝置…"; $("security-devices").replaceChildren();
+    try {
+      const data = await session.request("/api/auth/trusted-devices", { signal: controller.signal });
+      if (sequence !== epoch || view !== "security" || owner !== session.member?.member_id) return;
+      $("security-devices-status").textContent = data.devices.length ? "" : "目前沒有信任的裝置。";
+      for (const device of data.devices) {
+        const card = element("article", "", "member-case"), revoke = element("button", "撤銷裝置信任", "btn btn-white"); revoke.type = "button";
+        const stamp = value => new Date(value * 1000).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
+        card.append(element("strong", device.label || "信任裝置"), element("p", "到期時間 · " + stamp(device.expires_at)), revoke);
+        revoke.addEventListener("click", () => { if (confirmed("撤銷這個裝置的信任？下次密碼登入將需要 Authenticator。")) void run("security", async current => {
+          await post("trusted-devices/" + device.id + "/revoke", {}); if (current()) await loadDevices();
+        }); }); $("security-devices").append(card);
+      }
+    } catch (error) { if (sequence === epoch && view === "security") $("security-devices-status").textContent = authMessage(error); }
+  }
+  function showSecurityRecovery(data) {
+    if (!Array.isArray(data.recovery_codes) || data.recovery_codes.length !== 10 || data.recovery_codes.some(code => !/^[A-Za-z0-9_-]{43}$/.test(code))) throw new PublicError("SERVICE_UNAVAILABLE");
+    $("security-recovery-codes").replaceChildren(...data.recovery_codes.map(code => element("li", code)));
+    $("security-recovery-ack").checked = false; $("security-done").disabled = true; $("security-recovery").hidden = false;
+    $("security-recovery").scrollIntoView({ block: "start" });
+  }
+  $("security-refresh").addEventListener("click", () => { if (!busy) void loadSecurity(); });
+  $("security-revoke-others").addEventListener("click", () => { if (confirmed("撤銷其他信任裝置？仍保留目前裝置的信任。")) void run("security", async current => { await post("trusted-devices/revoke-others", {}); if (current()) await loadDevices(); }); });
+  $("security-regenerate").addEventListener("click", () => { if (confirmed("重新產生復原碼？所有舊復原碼將立即失效。")) void run("security", async current => { const data = await post("recovery-codes/regenerate", {}); if (current()) showSecurityRecovery(data); }); });
+  async function startAuthenticator(kind, current) {
+    const data = await post(kind === "reset" ? "totp/reset/start" : "google/totp/enroll/start", kind === "reset" ? {} : { confirmed: true });
+    if (!current()) return; setupKind = kind; setupTx = data.transaction_id; setupDeadline = expires(data);
+    drawEnrollment($("security-enroll-qr"), data.otpauth_uri); $("security-enroll-key").textContent = enrollmentKey(data.otpauth_uri);
+    $("security-enroll-form").hidden = false; $("security-enroll-code").focus();
+  }
+  $("security-enroll").addEventListener("click", () => { if (confirmed("為額外安全驗證設定 Authenticator？一般 Google 登入仍不需要此驗證。")) void run("security", current => startAuthenticator("enroll", current)); });
+  $("security-reset").addEventListener("click", () => { if (confirmed("重設 Authenticator？完成後所有登入與裝置信任將失效，並需保存新的復原碼。")) void run("security", current => startAuthenticator("reset", current)); });
+  form("security-enroll-form", "security", async current => {
+    unexpired(setupDeadline); const code = codeValue($("security-enroll-code").value); $("security-enroll-code").value = "";
+    const data = await post(setupKind === "reset" ? "totp/reset/verify" : "google/totp/enroll/verify", { transaction_id: setupTx, code });
+    if (!current()) return; setupTx = ""; clearEnrollment($("security-enroll-qr")); $("security-enroll-key").textContent = ""; $("security-enroll-form").hidden = true;
+    if (data.logged_out) session.clear(); // Clear triggers resetAuth before the new one-time codes are rendered.
+    recoveryLogout = Boolean(data.logged_out); showSecurityRecovery(data);
+  });
+  $("login-password-options").addEventListener("toggle", () => $("login-password-options").querySelector("summary").setAttribute("aria-expanded", String($("login-password-options").open)));
 
   form("register-email-form", "register", async current => {
     const email = emailValue($("register-email").value);
@@ -372,7 +456,7 @@ export function memberUI({ changed = () => {} } = {}) {
       if (!append) $("member-cases").replaceChildren();
       for (const row of data.cases) {
         const card = element("div", "", "member-case"), button = element("button", "查看案件", "btn btn-white"); button.type = "button";
-        card.append(element("strong", row.case_id), element("p", `${row.vote_date} · ${statuses[row.status] ?? "狀態更新中"}`));
+        card.append(element("strong", row.case_id), element("p", `${row.vote_date} · ${statuses[row.status] ?? "狀態更新中"}`), element("p", campaignName(row.campaign_id)), element("p", "投稿時間 · " + memberDate(row.created_at)));
         button.addEventListener("click", async () => {
           if (!sameMember(owner, sequence) || button.disabled) return;
           button.disabled = true;
@@ -380,7 +464,7 @@ export function memberUI({ changed = () => {} } = {}) {
             const detail = await session.request("/api/me/cases/" + encodeURIComponent(row.case_id));
             if (!sameMember(owner, sequence)) return;
             $("member-case-fields").replaceChildren();
-            for (const [name, value] of [["案件編號", detail.case_id], ["活動", detail.campaign_id], ["投票日期", detail.vote_date],
+            for (const [name, value] of [["案件編號", detail.case_id], ["活動", campaignName(detail.campaign_id)], ["投稿時間", memberDate(detail.created_at)], ["已給點數", detail.points_awarded ?? "—"], ["投票日期", detail.vote_date],
               ["類型", detail.vote_type], ["狀態", statuses[detail.status] ?? "狀態更新中"]]) $("member-case-fields").append(element("dt", name), element("dd", value));
             $("member-case-detail").hidden = false;
           } catch (error) { if (sameMember(owner, sequence)) $("member-cases-status").textContent = error.status === 404 ? "無法查詢此案件。" : authMessage(error); }
@@ -389,7 +473,7 @@ export function memberUI({ changed = () => {} } = {}) {
         card.append(button); $("member-cases").append(card);
       }
       casesCursor = data.next_cursor; $("member-cases-more").hidden = !casesCursor;
-      $("member-cases-status").textContent = $("member-cases").children.length ? "" : "目前沒有會員案件。";
+      $("member-cases-status").textContent = $("member-cases").children.length ? "" : "目前沒有案件紀錄。";
     } catch (error) { if (sameMember(owner, sequence)) $("member-cases-status").textContent = authMessage(error); }
     finally { if (casesBusy === sequence) { casesBusy = null; $("member-cases-more").disabled = false; } }
   }
@@ -407,7 +491,7 @@ export function memberUI({ changed = () => {} } = {}) {
       const data = await session.request("/api/me/points");
       if (!sameMember(owner, sequence)) return;
       $("member-points").textContent = String(data.total_points); $("member-tier").textContent = data.tier.name;
-      $("tier-message").textContent = !data.tier_configuration_ready ? "會員等級門檻尚未設定" : data.next_tier ? `下一等級：${data.next_tier.name}` : "已達目前最高開放等級";
+      $("tier-message").textContent = !data.tier_configuration_ready ? "目前開放普通等級，其他等級尚未開放。" : data.next_tier ? `下一等級：${data.next_tier.name}` : data.tier.tier_id === "normal" ? "目前開放普通等級，其他等級尚未開放。" : "已達目前最高開放等級";
       $("tier-next").hidden = !data.tier_configuration_ready || !data.next_tier;
       $("tier-gap").textContent = data.next_tier ? `還差 ${data.points_to_next_tier} 點` : "";
       $("tier-progress").value = data.tier_progress; $("points-status").textContent = ""; $("points-content").hidden = false;
@@ -419,12 +503,12 @@ export function memberUI({ changed = () => {} } = {}) {
   $("profile-form").addEventListener("submit", async event => {
     event.preventDefault(); const button = $("profile-form").querySelector("button"); if (button.disabled || !session.member) return;
     const nickname = $("profile-nickname").value.trim(), player_id = $("profile-player").value.trim();
-    if (!nickname || !player_id || [...nickname].length > 50 || [...player_id].length > 100 || /[\u0000-\u001f\u007f]/.test(nickname + player_id)) {
-      $("profile-status").textContent = "請填寫 1～50 字暱稱與 1～100 字玩家 ID。"; return;
+    if (!nickname || [...nickname].length > 50 || [...player_id].length > 100 || /[\u0000-\u001f\u007f]/.test(nickname + player_id)) {
+      $("profile-status").textContent = "請填寫 1～50 字暱稱；玩家 ID 最多 100 字。"; return;
     }
     const owner = session.member.member_id, sequence = memberEpoch; button.disabled = true;
     try {
-      const data = await session.request("/api/me/profile", { method: "PATCH", body: { nickname, player_id } });
+      const data = await session.request("/api/me/profile", { method: "PATCH", body: { nickname, ...(player_id ? { player_id } : {}) } });
       if (sameMember(owner, sequence)) { session.updateProfile(data.member); $("profile-status").textContent = "會員資料已保存。"; }
     } catch (error) { if (view === "member") $("profile-status").textContent = authMessage(error); }
     finally { button.disabled = false; }

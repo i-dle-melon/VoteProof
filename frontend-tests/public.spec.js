@@ -114,7 +114,7 @@ test("initial pending status is closed with all five navigation positions preser
     await expect(page.locator("#submit-button")).toBeDisabled();
     await expect(page.locator("#submission-verification")).toBeHidden();
     for (const nav of [".sidebar nav", ".bottom-nav"]) {
-      await expect(page.locator(`${nav} a`)).toHaveCount(5);
+      await expect(page.locator(`${nav} a:not(#admin-nav-group a)`)).toHaveCount(nav === ".bottom-nav" ? 5 : 6);
       await expect(page.locator(`${nav} [data-view="submit"] [data-submission-status]`)).toHaveText("暫停");
     }
     release(); await expect(page.locator("#proof-images")).toBeEnabled();
@@ -230,7 +230,7 @@ test("theme preference is the only local storage value", async ({ page }) => {
 });
 test("empty campaign disables submission without sample IDs", async ({ page }) => {
   const state = await fixture(page, { emptyCampaigns: true }); await page.goto("/#submit");
-  await expect(page.locator("#submit-availability")).toHaveText("目前沒有開放中的投票活動");
+  await expect(page.locator("#submit-availability")).toHaveText("目前沒有進行中的活動。");
   await expect(page.locator("#submit-button")).toBeDisabled(); expect(state.calls.some((c) => c.path.includes("uploads"))).toBe(false); await noOverflow(page);
 });
 test("campaign service failure has a usable reload path", async ({ page }) => {
@@ -303,9 +303,9 @@ test("Turnstile rejection remains a failure, with no PUT/case bypass", async ({ 
 test("wrong credential and nonexistent case produce the same generic lookup message", async ({ page }) => {
   const state = await fixture(page); await page.goto("/#lookup");
   await page.locator("#lookup-id").fill(state.caseId); await page.locator("#lookup-key").fill(randomBytes(32).toString("base64url"));
-  await page.locator("#lookup-button").click(); await expect(page.locator("#lookup-message")).toHaveText("無法查詢此案件，請確認案件編號與查詢碼。");
+  await page.locator("#lookup-button").click(); await expect(page.locator("#lookup-message")).toHaveText("找不到案件，請確認案件編號與查詢碼。");
   await page.locator("#lookup-id").fill("VP-20261009-" + "B".repeat(16)); await page.locator("#lookup-key").fill(state.query);
-  await page.locator("#lookup-button").click(); await expect(page.locator("#lookup-message")).toHaveText("無法查詢此案件，請確認案件編號與查詢碼。");
+  await page.locator("#lookup-button").click(); await expect(page.locator("#lookup-message")).toHaveText("找不到案件，請確認案件編號與查詢碼。");
   await expect(page.locator("#lookup-result")).toBeHidden();
 });
 test("lookup network error can retry successfully", async ({ page }) => {
@@ -330,7 +330,7 @@ test("public leaderboard list/detail preserves server ranking without member req
 });
 test("empty public board list stays empty without sample fallback", async ({ page }) => {
   await fixture(page, { emptyBoards: true }); await page.goto("/#leaderboards");
-  await expect(page.locator("#boards-message")).toHaveText("目前沒有公開排行榜"); await expect(page.locator("#board-select")).toBeDisabled();
+  await expect(page.locator("#boards-message")).toHaveText("目前沒有公開排行榜。"); await expect(page.locator("#board-select")).toBeDisabled();
 });
 test("leaderboard network failure has a working reload", async ({ page }) => {
   const state = await fixture(page); state.failBoards = 1; await page.goto("/#leaderboards");
@@ -340,7 +340,7 @@ test("leaderboard network failure has a working reload", async ({ page }) => {
 test("external text is inert, labels target controls and navigation targets are usable", async ({ page }) => {
   await fixture(page); await form(page); await noOverflow(page);
   expect(await page.locator("#submission-fields label").evaluateAll((labels) => labels.every((label) => Boolean(document.getElementById(label.htmlFor))))).toBe(true);
-  const nav = page.locator(await page.locator(".sidebar").isVisible() ? ".sidebar nav a" : ".bottom-nav a");
+  const nav = page.locator(await page.locator(".sidebar").isVisible() ? ".sidebar nav a:visible" : ".bottom-nav a");
   expect(await nav.evaluateAll((links) => links.every((link) => link.getBoundingClientRect().height >= 44))).toBe(true);
 });
 test("API strings render as text and cannot create HTML elements", async ({ page }) => {

@@ -33,7 +33,7 @@ try {
   assert.equal((await local.db.prepare("SELECT count(*) n FROM members").first()).n, 1);
   assert.equal((await local.db.prepare("SELECT count(*) n FROM member_credentials").first()).n, 0);
   assert.equal(local.provider.mails.length, 0);
-  await page.locator("a[href='#security']").click(); await page.locator("#security-add").waitFor(); await page.locator("#security-add").click(); await page.locator("#security-add-confirm").click(); await page.locator("#security-password-form").waitFor();
+  await page.locator("#profile-form a[href='#security']").click(); await page.locator("#security-add").waitFor(); await page.locator("#security-add").click(); await page.locator("#security-add-confirm").click(); await page.locator("#security-password-form").waitFor();
   const secret = await page.locator("#security-key").textContent(), otp = new TOTP({ secret: Secret.fromBase32(secret) });
   await page.locator("#security-new-password").fill(password); await page.locator("#security-confirm-password").fill(password); await page.locator("#security-code").fill(otp.generate()); await submit("security-password-form"); await page.locator("#security-recovery").waitFor();
   const recovery = await page.locator("#security-recovery-codes li").allTextContents(); assert.equal(recovery.length, 10);

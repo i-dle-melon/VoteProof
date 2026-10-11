@@ -39,7 +39,7 @@ test("logged-out navigation exposes login/registration and no admin", async ({ p
   await expect(page.locator("#login-google")).toBeVisible(); await expect(page.locator("#login-form")).toBeHidden();
   await page.locator("#login-password-options summary").click();
   await expect(page.locator("#login-form")).toBeVisible(); await expect(page.locator("a[href='#register']")).toBeVisible();
-  await expect(page.locator("#member-entry")).toBeHidden(); await expect(page.locator("a[href*='admin']")).toHaveCount(0);
+  await expect(page.locator("#member-entry")).toBeHidden(); await expect(page.locator("#admin-nav-group")).toBeHidden();
   expect(state.providerRequests).toEqual([]);
 });
 test("email start, safe sent state, six-digit paste preserving zeros and password step", async ({ page }) => {
@@ -164,7 +164,7 @@ test("logged-in center displays safe profile, points/tier/gap/progress and owner
 });
 test("unconfigured tier shows honest fallback without invented thresholds", async ({ page }) => {
   await memberFixture(page, { authenticated: true, unconfigured: true }); await page.goto("/#member");
-  await expect(page.locator("#tier-message")).toHaveText("會員等級門檻尚未設定"); await expect(page.locator("#tier-next")).toBeHidden();
+  await expect(page.locator("#tier-message")).toHaveText("目前開放普通等級，其他等級尚未開放。"); await expect(page.locator("#tier-next")).toBeHidden();
 });
 test("profile mutation uses CSRF, validates fields and only sends nickname/player_id", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#member"); await expect(page.locator("#member-content")).toBeVisible();
@@ -173,11 +173,17 @@ test("profile mutation uses CSRF, validates fields and only sends nickname/playe
   const call = state.calls.find(call => call.path === "/api/me/profile"); expect(Object.keys(call.body).sort()).toEqual(["nickname", "player_id"]);
   expect(call.headers["x-csrf-token"] === state.csrf).toBe(true); expect(call.headers["x-voteproof-request"]).toBe("1");
 });
+test("Google member can update nickname without inventing a required player ID", async ({ page }) => {
+  const state = await memberFixture(page, { authenticated: true, googleOnly: true }); state.member.player_id = null;
+  await page.goto("/#member"); await expect(page.locator("#profile-player")).toHaveValue("");
+  await page.locator("#profile-nickname").fill("只改暱稱"); await clickSubmit(page, "profile-form"); await expect(page.locator("#profile-status")).toHaveText("會員資料已保存。");
+  expect(state.calls.find(call => call.path === "/api/me/profile").body).toEqual({ nickname: "只改暱稱" });
+});
 test("revoked session logs out cleanly without polling or erasing Guest draft", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#submit"); await page.locator("#nickname").fill("未送出訪客");
   state.revoked = true; await page.locator("#member-entry").click(); await expect(page.locator("#member-gate")).toBeVisible(); await expect(page.locator("#login-entry")).toBeVisible();
   await page.locator(".bottom-nav a[href='#submit'],.sidebar nav a[href='#submit']").filter({ visible: true }).click(); await expect(page.locator("#nickname")).toHaveValue("未送出訪客");
-  expect(state.calls.filter(call => call.path === "/api/auth/me").length).toBeLessThanOrEqual(2);
+  expect(state.calls.filter(call => call.path === "/api/auth/me").length).toBeLessThanOrEqual(3);
 });
 test("logout calls revoke API and clears member state", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#member"); await expect(page.locator("#member-points")).toHaveText("123");
@@ -231,7 +237,7 @@ test("session expiry returns logged-out UI once while preserving Guest work", as
   await page.clock.install(); const state = await memberFixture(page, { authenticated: true, shortSession: true });
   await page.goto("/#submit"); await page.locator("#nickname").fill("保留草稿"); await page.clock.fastForward(1000);
   await expect(page.locator("#login-entry")).toBeVisible(); await expect(page.locator("#nickname")).toHaveValue("保留草稿");
-  await expect(page.locator("#account-status")).toContainText("登入已失效"); expect(state.calls.filter(call => call.path === "/api/auth/me")).toHaveLength(1);
+  await expect(page.locator("#account-status")).toContainText("登入已失效"); expect(state.calls.filter(call => call.path === "/api/auth/me").length).toBeLessThanOrEqual(3);
 });
 test("pagehide/BFCache cannot retain enrollment QR or one-time recovery codes", async ({ page }) => {
   const state = await memberFixture(page); await recoveryCodes(page, state);

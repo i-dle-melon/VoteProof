@@ -1,6 +1,7 @@
 import { api, putImage, errorMessage, PublicError } from "./api.js";
 import { Submission, validateImages, queryInformation } from "./submission.js";
 import { Challenge } from "./turnstile.js";
+import { adminUI } from "./admin.js";
 import { memberUI } from "./member.js";
 import { authMessage } from "./member-api.js";
 
@@ -38,11 +39,13 @@ put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putI
   $("progress").value = Math.round(state.fraction * 100);
   $("progress-label").textContent = labels[state.phase];
 } });
-const member = memberUI({ changed: (identity) => {
+let admin;
+const member = memberUI({ campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
   $("member-mode").disabled = !identity;
   $("member-mode").textContent = identity ? "會員 · " + identity.nickname : "會員 · 請先登入";
-  syncOwnership();
+  syncOwnership(); admin?.identity(identity);
 } });
+admin = adminUI(member.session);
 
 function syncOwnership() {
   $("submission-mode").disabled = !submissionReady() || submission.pending;
@@ -155,7 +158,7 @@ async function loadCampaigns({ refreshGate = true } = {}) {
     }
     if (campaigns.some((c) => c.campaign_id === previous)) $("campaign").value = previous;
     else if (campaigns.length === 1) $("campaign").value = campaigns[0].campaign_id;
-    const message = campaigns.length ? `目前有 ${campaigns.length} 個開放中的活動。` : "目前沒有開放中的投票活動";
+    const message = campaigns.length ? `目前有 ${campaigns.length} 個開放中的活動。` : "目前沒有進行中的活動。";
     campaignAvailability = message;
     $("campaign-message").textContent = message; $("submit-availability").textContent = message;
     campaignHint();
@@ -278,7 +281,7 @@ $("lookup-created").addEventListener("click", () => {
   $("lookup-id").value = success.case_id; $("lookup-key").value = success.query_key; location.hash = "lookup";
 });
 
-const lookupGeneric = "無法查詢此案件，請確認案件編號與查詢碼。";
+const lookupGeneric = "找不到案件，請確認案件編號與查詢碼。";
 $("lookup-form").addEventListener("submit", async (event) => {
   event.preventDefault(); if (lookupBusy) return;
   const id = $("lookup-id").value.trim(), key = $("lookup-key").value.trim();
@@ -292,7 +295,7 @@ $("lookup-form").addEventListener("submit", async (event) => {
     if (!data || data.case_id !== id) throw new Error();
     const campaign = campaigns.find((c) => c.campaign_id === data.campaign_id);
     for (const [label, value] of [["案件編號", data.case_id], ["建立時間", dateLabel(data.created_at)],
-      ["投票活動", campaign?.name ?? data.campaign_id], ["投票類型", data.vote_type], ["投票日期", data.vote_date], ["案件狀態", statusLabels[data.status] ?? "狀態更新中"]]) {
+      ["投票活動", campaign?.name ?? "活動資訊目前無法取得"], ["投票類型", data.vote_type], ["投票日期", data.vote_date], ["案件狀態", statusLabels[data.status] ?? "狀態更新中"]]) {
       const description = node("dd", value ?? "—");
       if (label === "案件狀態") { description.replaceChildren(node("span", value, "status")); }
       $("case-details").append(node("dt", label), description);
@@ -318,7 +321,7 @@ function renderBoard(board) {
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
   $("board-generated").textContent = board?.generated_at ? `更新時間：${dateLabel(board.generated_at)}` : "";
-  if (!board) { $("boards-message").textContent = "目前沒有公開排行榜"; return; }
+  if (!board) { $("boards-message").textContent = "目前沒有公開排行榜。"; return; }
   if (!Array.isArray(board.rankings)) throw new Error();
   if (!board.rankings.length) { $("boards-message").textContent = "這個排行榜目前還沒有成績。"; return; }
   for (const row of board.rankings) {
@@ -376,8 +379,8 @@ $("theme-toggle").addEventListener("click", () => {
 function navigate(focus = true) {
   const requested = location.hash.slice(1);
   if (requested === "main") { $("main").focus(); return; }
-  const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security"].includes(requested) ? requested : "home";
-  member.enter(view);
+  const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"].includes(requested) ? requested : "home";
+  member.enter(view); admin.enter(view);
   for (const section of document.querySelectorAll("main > .view")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-view]")) {
     if (link.dataset.view === view) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
@@ -390,6 +393,7 @@ window.addEventListener("hashchange", () => navigate());
 function refreshAvailability() { void loadSubmissionStatus().then(mountChallenge); }
 window.addEventListener("focus", refreshAvailability);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshAvailability(); });
+document.addEventListener("voteproof-submissions-updated", refreshAvailability);
 window.addEventListener("beforeunload", (event) => {
   if (submission.pending) { event.preventDefault(); event.returnValue = ""; }
 });

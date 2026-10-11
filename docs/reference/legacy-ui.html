@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#121212" />
+<title>VoteProof｜投票證明中心</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#121212;
+    --surface:#1e1e1e;
+    --surface-2:#181818;
+    --card:#1e1e1e;
+    --text:#f5f5f5;
+    --muted:#b4b4b4;
+    --line:#2a2a2a;
+    --primary:#00cd3c;
+    --primary-2:#00e34a;
+    --accent-purple:#8a2be2;
+    --accent-pink:#ff007f;
+    --accent-orange:#ff9900;
+    --accent-blue:#5b8def;
+    --success:#00cd3c;
+    --warning:#ff9900;
+    --danger:#ff4f72;
+    --shadow:0 14px 34px rgba(0,0,0,.30);
+    --radius:14px;
+    --hero-bg:linear-gradient(135deg,#1e1e1e 0%,#202020 100%);
+    --soft-bg:#202020;
+    --soft-bg-2:#252525;
+    --input-bg:#181818;
+  }
+
+  html[data-theme="light"]{
+    color-scheme:light;
+    --bg:#ffffff;
+    --surface:#ffffff;
+    --surface-2:#f7f8fb;
+    --card:#ffffff;
+    --text:#202124;
+    --muted:#6d7380;
+    --line:#e2e5eb;
+    --primary:#5e0e8b;
+    --primary-2:#7310a8;
+    --accent-purple:#5e0e8b;
+    --accent-pink:#e4002b;
+    --accent-orange:#ef8a00;
+    --accent-blue:#5a76a8;
+    --success:#278a5f;
+    --warning:#c87900;
+    --danger:#c63e5b;
+    --shadow:0 10px 28px rgba(30,45,70,.08);
+    --radius:14px;
+    --hero-bg:linear-gradient(135deg,#ffffff 0%,#f8f5fb 100%);
+    --soft-bg:#f4f0f7;
+    --soft-bg-2:#f8f9fb;
+    --input-bg:#ffffff;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+  }
+  button,input,select{font:inherit}
+  button{cursor:pointer}
+  a{color:inherit;text-decoration:none}
+
+  .app-shell{min-height:100vh;display:flex}
+  .sidebar{
+    width:248px;position:fixed;inset:0 auto 0 0;
+    background:var(--surface);border-right:1px solid var(--line);
+    padding:24px 16px;display:flex;flex-direction:column;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:11px;padding:4px 10px 22px}
+  .brand-mark{
+    width:40px;height:40px;border-radius:13px;
+    background:linear-gradient(135deg,#20c97a 0%,#39b7d8 42%,#6546d4 100%);
+    display:grid;place-items:center;color:#fff;font-weight:900;
+    font-size:12px;letter-spacing:-.06em;white-space:nowrap;font-family:Arial Black,Arial,sans-serif;
+    text-shadow:0 1px 8px rgba(255,255,255,.22);
+    box-shadow:0 10px 24px rgba(76,118,215,.24);
+    border:1px solid rgba(255,255,255,.28)
+  }
+  .brand-copy strong{display:block;font-size:16px}
+  .brand-copy span{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+  .nav-title{font-size:11px;color:#9ba0aa;padding:0 10px;margin:10px 0 7px}
+  .nav-btn{
+    display:flex;align-items:center;gap:10px;width:100%;
+    border:0;background:transparent;border-radius:13px;padding:11px 12px;
+    color:#5d4f5d;text-align:left;font-weight:600;margin-bottom:3px;
+  }
+  .nav-btn:hover,.nav-btn.active{background:var(--soft-bg);color:var(--primary)}
+  .nav-icon{width:24px;text-align:center}
+  .sidebar-footer{margin-top:auto;background:var(--surface-2);border:1px solid var(--line);border-radius:16px;padding:14px}
+  .sidebar-footer .role{font-size:11px;color:var(--muted);margin-bottom:4px}
+  .sidebar-footer strong{font-size:13px}
+
+  .main{margin-left:248px;width:calc(100% - 248px);min-width:0}
+  .topbar{
+    position:sticky;top:0;z-index:15;background:color-mix(in srgb,var(--bg) 86%, transparent);
+    backdrop-filter:blur(14px);border-bottom:1px solid var(--line);
+    padding:16px 28px;display:flex;align-items:center;justify-content:space-between;gap:14px
+  }
+  .mobile-brand{display:none}
+  .topbar-right{display:flex;align-items:center;gap:10px}
+  .pill{
+    padding:8px 11px;border:1px solid var(--line);background:var(--surface);border-radius:999px;
+    color:#626873;font-size:12px
+  }
+  .avatar{width:36px;height:36px;border-radius:50%;background:var(--soft-bg);display:grid;place-items:center;color:var(--primary);font-weight:800}
+  .content{max-width:1180px;margin:0 auto;padding:28px}
+  .view{display:none}
+  .view.active{display:block}
+  .page-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:20px}
+  .eyebrow{font-size:12px;color:var(--primary);font-weight:800;letter-spacing:.04em}
+  h1{font-size:32px;line-height:1.15;margin:6px 0 8px}
+  .sub{color:var(--muted);font-size:14px}
+  .grid{display:grid;gap:16px}
+  .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .stat{padding:19px}
+  .stat .label{color:var(--muted);font-size:12px}
+  .stat .value{font-size:26px;font-weight:800;margin-top:7px}
+  .stat .hint{font-size:11px;color:#9aa0a9;margin-top:5px}
+  .hero,.leader-card,.form-card,.case-card{backdrop-filter:blur(6px)}
+  .section-title{letter-spacing:.01em}
+  .eyebrow{letter-spacing:.12em}
+  .brand-mark{border:1px solid rgba(255,255,255,.28)}
+  .hero{
+    padding:26px;background:var(--hero-bg);
+    position:relative;overflow:hidden
+  }
+  .hero:after{
+    content:"";position:absolute;width:240px;height:240px;border-radius:50%;
+    right:-80px;top:-80px;background:rgba(120,111,239,.12)
+  }
+  .hero h2{margin:0 0 7px;font-size:25px}
+  .hero p{margin:0;color:var(--muted);font-size:14px;max-width:640px}
+  .hero-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:18px}
+  .btn{
+    border:0;border-radius:13px;padding:11px 16px;font-weight:750;
+    transition:.18s transform,.18s box-shadow,.18s background
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--primary);color:#fff;box-shadow:0 10px 20px color-mix(in srgb,var(--primary) 22%, transparent)}
+  .btn-primary:hover{background:var(--primary-2)}
+  .btn-soft{background:color-mix(in srgb,var(--primary) 11%, var(--surface));color:var(--primary)}
+  .btn-white{background:var(--surface);color:#4b515b;border:1px solid var(--line)}
+  .btn-danger{background:color-mix(in srgb,var(--danger) 12%, var(--surface));color:var(--danger)}
+  .btn-success{background:color-mix(in srgb,var(--success) 12%, var(--surface));color:var(--success)}
+  .section-title{font-size:17px;font-weight:800;margin:24px 0 12px}
+  .quick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  .quick{
+    padding:18px;min-height:128px;display:flex;flex-direction:column;justify-content:space-between
+  }
+  .quick .icon{
+    width:40px;height:40px;border-radius:12px;background:#f0f1ff;display:grid;place-items:center;font-size:20px
+  }
+  .quick strong{font-size:15px}
+  .quick span{font-size:12px;color:var(--muted);line-height:1.45}
+  .list{display:flex;flex-direction:column}
+  .row{
+    padding:14px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:13px
+  }
+  .row:last-child{border-bottom:0}
+  .rank-badge{width:34px;height:34px;border-radius:11px;background:var(--soft-bg-2);display:grid;place-items:center;font-size:12px;font-weight:800}
+  .rank-badge.top{background:color-mix(in srgb,var(--primary) 13%, var(--surface));color:var(--primary)}
+  .grow{flex:1;min-width:0}
+  .grow strong{font-size:13px;display:block}
+  .grow span{display:block;font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .points{font-weight:850;font-size:14px}
+  .tabs{display:flex;gap:7px;overflow:auto;padding-bottom:3px;margin-bottom:16px}
+  .tab{
+    white-space:nowrap;border:1px solid var(--line);background:var(--surface);color:#5c626d;
+    border-radius:999px;padding:9px 13px;font-size:12px;font-weight:700
+  }
+  .tab.active{background:color-mix(in srgb,var(--primary) 12%, var(--surface));border-color:color-mix(in srgb,var(--primary) 28%, var(--line));color:var(--primary)}
+  .leader-card{padding:18px}
+  .leaderboard-list{display:flex;flex-direction:column}
+  .profile-banner{padding:18px;display:flex;align-items:center;gap:14px}
+  .big-avatar{width:56px;height:56px;border-radius:18px;background:#ececff;display:grid;place-items:center;color:var(--primary);font-weight:900;font-size:18px}
+  .profile-info{flex:1}
+  .profile-info strong{display:block;font-size:17px}
+  .profile-info span{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+  .score-box{text-align:right}
+  .score-box strong{font-size:24px;display:block}
+  .score-box span{font-size:11px;color:var(--muted)}
+
+  .form-card{padding:20px}
+  .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .field{display:flex;flex-direction:column;gap:7px}
+  .field.full{grid-column:1 / -1}
+  label{font-size:12px;font-weight:750}
+  input,select,textarea{
+    width:100%;border:1px solid var(--line);background:var(--surface);border-radius:13px;padding:12px 13px;outline:0;
+    color:var(--text)
+  }
+  input:focus,select:focus,textarea:focus{border-color:#b8b9f5;box-shadow:0 0 0 4px rgba(91,92,226,.08)}
+  textarea{min-height:100px;resize:vertical}
+  .dropzone{
+    border:1.5px dashed #c8c9d7;background:var(--soft-bg-2);border-radius:17px;padding:24px;text-align:center;
+    transition:.15s
+  }
+  .dropzone.drag{border-color:var(--primary);background:#f1f1ff}
+  .dropzone input{display:none}
+  .drop-icon{font-size:30px}
+  .dropzone strong{display:block;margin-top:7px}
+  .dropzone span{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+  .preview{margin-top:13px;display:none;position:relative}
+  .preview img{width:100%;max-height:330px;object-fit:contain;border-radius:14px;background:var(--soft-bg-2);border:1px solid var(--line)}
+  .preview .remove{position:absolute;right:8px;top:8px}
+  .tiny{font-size:11px;color:var(--muted)}
+  .notice{padding:12px 14px;border-radius:14px;font-size:12px;line-height:1.55}
+  .notice.info{background:color-mix(in srgb,var(--primary) 11%, var(--surface));color:var(--primary)}
+  .notice.warn{background:color-mix(in srgb,var(--warning) 12%, var(--surface));color:var(--warning)}
+  .notice.ok{background:color-mix(in srgb,var(--success) 12%, var(--surface));color:var(--success)}
+  .case-card{padding:18px}
+  .status{
+    display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 9px;font-size:11px;font-weight:800
+  }
+  .status.pending{background:#fff6e8;color:#aa6b14}
+  .status.done{background:#ebfaf4;color:#16845d}
+  .status.review{background:var(--soft-bg);color:var(--primary)}
+  .status.reject{background:color-mix(in srgb,var(--danger) 12%, var(--surface));color:var(--danger)}
+  .case-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+  .meta-box{padding:11px;border:1px solid var(--line);border-radius:13px;background:var(--surface-2)}
+  .meta-box span{display:block;color:var(--muted);font-size:10px}
+  .meta-box strong{display:block;font-size:13px;margin-top:4px}
+  .admin-toolbar{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px}
+  .filter{padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:12px}
+  .case-list{display:flex;flex-direction:column}
+  .case-item{
+    display:grid;grid-template-columns:76px 1.5fr 1fr 1fr auto;gap:14px;align-items:center;
+    padding:13px 0;border-bottom:1px solid var(--line)
+  }
+  .case-item:last-child{border-bottom:0}
+  .thumb{
+    width:68px;height:54px;border-radius:10px;background:var(--soft-bg-2);display:grid;place-items:center;
+    color:#959aa5;font-size:20px;overflow:hidden
+  }
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .case-main strong,.case-col strong{display:block;font-size:12px}
+  .case-main span,.case-col span{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+  .action-row{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+  .icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 9px;font-size:11px}
+  .table-wrap{overflow:auto}
+  table{width:100%;border-collapse:collapse;min-width:720px}
+  th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:12px}
+  th{color:#7c818b;font-size:11px;background:var(--surface-2)}
+  .settings-list{display:flex;flex-direction:column}
+  .setting{padding:15px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;align-items:center}
+  .setting:last-child{border-bottom:0}
+  .setting strong{font-size:13px}.setting span{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+  .toggle{width:44px;height:26px;border-radius:999px;background:#4a4a4a;padding:3px;transition:.15s}
+  .toggle i{display:block;width:20px;height:20px;background:var(--surface);border-radius:50%;transition:.15s;box-shadow:0 2px 5px rgba(0,0,0,.12)}
+  .toggle.on{background:var(--primary)}.toggle.on i{transform:translateX(18px)}
+  .bottom-nav{display:none}
+  .modal{
+    position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:flex-end;justify-content:center;
+    z-index:50;padding:0
+  }
+  .modal.show{display:flex}
+  .modal-panel{
+    width:min(620px,100%);background:var(--surface);border-radius:26px 26px 0 0;padding:20px;max-height:90vh;overflow:auto
+  }
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .modal-head h3{margin:0;font-size:18px}
+  .close{border:0;background:#f4f4f7;width:34px;height:34px;border-radius:10px}
+  .toast{
+    position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+    background:#101010;color:#fff;border-radius:12px;padding:11px 14px;font-size:12px;opacity:0;pointer-events:none;
+    transition:.22s;z-index:70;max-width:calc(100vw - 30px)
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .empty{padding:35px 10px;text-align:center;color:var(--muted);font-size:13px}
+  .progress{height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:8px}
+  .progress i{display:block;height:100%;width:72%;background:linear-gradient(90deg,var(--primary),var(--primary-2));border-radius:999px}
+  .mini-kpi{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
+  .mini-kpi:last-child{border-bottom:0}
+  .mini-kpi span{font-size:11px;color:var(--muted)}.mini-kpi strong{font-size:13px}
+  .security-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  .security-item{padding:13px;border:1px solid var(--line);border-radius:14px;background:#fff}
+  .security-item strong{display:block;font-size:12px}.security-item span{display:block;color:var(--muted);font-size:10px;margin-top:4px;line-height:1.45}
+  .footer-note{text-align:center;color:#999da6;font-size:10px;margin:22px 0 8px}
+
+
+  /* Reference-style theme tuning */
+  .section-title{color:var(--primary)}
+  .hero h2{color:var(--primary)}
+  .hero-actions .btn-soft{border:1px solid color-mix(in srgb,var(--primary) 28%, var(--line))}
+  .progress i{background:linear-gradient(90deg,var(--primary),var(--primary-2))}
+  .rank-badge.top{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 25%, transparent)}
+  .status.pending{background:color-mix(in srgb,var(--accent-orange) 12%, var(--surface));color:var(--accent-orange)}
+  .status.review{background:color-mix(in srgb,var(--primary) 12%, var(--surface));color:var(--primary)}
+  .status.reject{background:color-mix(in srgb,var(--accent-pink) 12%, var(--surface));color:var(--accent-pink)}
+  .status.done{background:color-mix(in srgb,var(--success) 12%, var(--surface));color:var(--success)}
+  .brand-mark{background:linear-gradient(135deg,#20c97a 0%,#39b7d8 42%,#6546d4 100%);box-shadow:0 10px 24px rgba(76,118,215,.24)}
+  .topbar-right .pill{border-color:color-mix(in srgb,var(--primary) 22%, var(--line))}
+  .tabs .tab:nth-child(2).active{color:var(--accent-orange)}
+  .tabs .tab:nth-child(3).active{color:var(--accent-purple)}
+  .tabs .tab:nth-child(4).active{color:var(--accent-pink)}
+  .tabs .tab:nth-child(5).active{color:var(--accent-blue)}
+  .hero:after{background:color-mix(in srgb,var(--primary) 11%, transparent)}
+
+  /* Dark mode: UI surfaces stay dark; white is reserved for text/icons only. */
+  html[data-theme="dark"]{
+    --surface:#181818;
+    --surface-2:#151515;
+    --card:#1b1b1b;
+    --line:#2b2b2b;
+    --soft-bg:#1b1b1b;
+    --soft-bg-2:#202020;
+    --input-bg:#171717;
+    --hero-bg:#1b1b1b;
+  }
+  html[data-theme="dark"] .quick .icon{background:#202020;color:var(--text)}
+  html[data-theme="dark"] .big-avatar{background:#202020}
+  html[data-theme="dark"] .dropzone{background:#171717;border-color:#343434}
+  html[data-theme="dark"] .dropzone.drag{background:#202020}
+  html[data-theme="dark"] .close{background:#202020;color:var(--text)}
+  html[data-theme="dark"] .security-item{background:#181818}
+  html[data-theme="dark"] .bottom-nav{background:rgba(24,24,24,.97);border-color:#2b2b2b;box-shadow:0 12px 35px rgba(0,0,0,.42)}
+  html[data-theme="dark"] .bottom-btn{color:#a9a9a9}
+  html[data-theme="dark"] .btn-white{background:#1b1b1b;color:var(--text);border-color:#303030}
+  html[data-theme="dark"] .btn-white:hover{background:#222}
+  html[data-theme="dark"] .status.pending{background:rgba(255,153,0,.12);color:var(--accent-orange)}
+  html[data-theme="dark"] .status.done{background:rgba(0,205,60,.12);color:var(--success)}
+  html[data-theme="dark"] .status.review{background:rgba(0,205,60,.10);color:var(--primary)}
+  html[data-theme="dark"] .status.reject{background:rgba(255,0,127,.12);color:var(--accent-pink)}
+  html[data-theme="dark"] .brand-mark,
+  html[data-theme="dark"] .mobile-brand .mini-mark{
+    background:linear-gradient(135deg,#20c97a 0%,#39b7d8 42%,#6546d4 100%);
+    color:#fff;
+    border:1px solid rgba(255,255,255,.28);
+    box-shadow:0 10px 24px rgba(76,118,215,.24);
+  }
+  html[data-theme="dark"] .brand-mark{font-size:12px;letter-spacing:-.06em;font-family:Arial Black,Arial,sans-serif;}
+
+  @media (max-width: 980px){
+    .sidebar{display:none}
+    .main{margin-left:0;width:100%}
+    .topbar{padding:12px 16px}
+    .mobile-brand{display:flex;align-items:center;gap:9px;font-weight:850}
+    .mobile-brand .mini-mark{
+      width:40px;height:40px;border-radius:13px;
+      background:linear-gradient(135deg,#20c97a 0%,#39b7d8 42%,#6546d4 100%);
+      color:#fff;display:grid;place-items:center;
+      font-size:12px;font-weight:900;letter-spacing:-.06em;white-space:nowrap;font-family:Arial Black,Arial,sans-serif;
+      text-shadow:0 1px 8px rgba(255,255,255,.22);
+      box-shadow:0 10px 24px rgba(76,118,215,.24);
+      border:1px solid rgba(255,255,255,.28);
+      flex:0 0 40px;
+    }
+    .content{padding:20px 16px 96px}
+    .grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-3{grid-template-columns:1fr}
+    .quick-grid{grid-template-columns:1fr}
+    .bottom-nav{
+      display:flex;position:fixed;left:10px;right:10px;bottom:10px;height:66px;
+      background:rgba(255,255,255,.96);backdrop-filter:blur(14px);
+      border:1px solid var(--line);box-shadow:0 12px 35px rgba(20,24,50,.12);
+      border-radius:20px;z-index:30;align-items:center;justify-content:space-around
+    }
+    .bottom-btn{border:0;background:transparent;color:#757b85;font-size:10px;font-weight:700;display:flex;flex-direction:column;gap:4px;align-items:center}
+    .bottom-btn.active{color:var(--primary)}
+    .bottom-btn b{font-size:18px;line-height:1}
+    .case-item{grid-template-columns:58px 1fr auto;gap:10px}
+    .case-col.hide-sm{display:none}
+    .action-row{grid-column:2 / -1;justify-content:flex-start}
+    .hero h2{font-size:22px}
+  }
+
+  @media (max-width: 620px){
+    .page-head{display:block}
+    h1{font-size:27px}
+    .grid-4{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .grid-2{grid-template-columns:1fr}
+    .stat{padding:15px}.stat .value{font-size:22px}
+    .hero{padding:20px}
+    .form-grid{grid-template-columns:1fr}
+    .field.full{grid-column:auto}
+    .case-meta{grid-template-columns:1fr 1fr}
+    .security-grid{grid-template-columns:1fr}
+    .score-box strong{font-size:20px}
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">i-dle*</div>
+      <div class="brand-copy"><strong>VoteProof</strong><span>投票證明中心</span></div>
+    </div>
+
+    <div class="nav-title">使用者</div>
+    <button class="nav-btn active" data-view="home"><span class="nav-icon">⌂</span>首頁</button>
+    <button class="nav-btn" data-view="upload"><span class="nav-icon">＋</span>快速上傳</button>
+    <button class="nav-btn" data-view="cases"><span class="nav-icon">▣</span>我的案件</button>
+    <button class="nav-btn" data-view="leaderboard"><span class="nav-icon">♛</span>排行榜</button>
+
+    <div class="nav-title">會員</div>
+    <button class="nav-btn" data-view="member"><span class="nav-icon">◎</span>會員中心</button>
+
+    <div class="nav-title">管理</div>
+    <button class="nav-btn" data-view="admin"><span class="nav-icon">⚙</span>管理後台</button>
+
+    <div class="sidebar-footer">
+      <div class="role">目前示範身份</div>
+      <strong id="sidebarRole">訪客 / Guest</strong>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="mobile-brand"><span class="mini-mark">i-dle*</span><span>VoteProof</span></div>
+      <div class="topbar-right">
+        <button class="pill" id="themeToggle" type="button" onclick="toggleTheme()">☾ 深色</button>
+        <span class="pill" id="topStatus">訪客模式</span>
+        <div class="avatar" id="topAvatar">G</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- HOME -->
+      <section class="view active" id="view-home">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">VOTEPROOF</div>
+            <h1>投票證明中心</h1>
+            <div class="sub">手機優先、案件化管理，讓提交與返圖更簡單。</div>
+          </div>
+        </div>
+
+        <div class="card hero">
+          <h2>先提交證明，不需要註冊。</h2>
+          <p>快速上傳可以直接建立案件；會員則可累積點數、查看歷史紀錄與參與排行榜。</p>
+          <div class="hero-actions">
+            <button class="btn btn-primary" onclick="showView('upload')">📷 快速上傳證明</button>
+            <button class="btn btn-soft" onclick="showView('member')">👤 會員模式</button>
+            <button class="btn btn-white" onclick="showView('leaderboard')">🏆 查看排行榜</button>
+          </div>
+        </div>
+
+        <div class="section-title">目前活動</div>
+        <div class="grid grid-3">
+          <div class="card stat">
+            <div class="label">本次回歸活動</div>
+            <div class="value">進行中</div>
+            <div class="hint">2026/10/01－2026/10/15</div>
+          </div>
+          <div class="card stat">
+            <div class="label">本次有效證明</div>
+            <div class="value">1,284</div>
+            <div class="hint">示範資料</div>
+          </div>
+          <div class="card stat">
+            <div class="label">目前累計點數</div>
+            <div class="value">18,760</div>
+            <div class="hint">全部會員合計</div>
+          </div>
+        </div>
+
+        <div class="section-title">快速入口</div>
+        <div class="quick-grid">
+          <div class="card quick">
+            <div class="icon">📷</div>
+            <div><strong>快速上傳</strong><span>不登入也能提交，完成後取得案件編號與查詢碼。</span></div>
+          </div>
+          <div class="card quick">
+            <div class="icon">🏆</div>
+            <div><strong>排行榜</strong><span>歷史累計、回歸、團體、Solo，以及自訂排行。</span></div>
+          </div>
+          <div class="card quick">
+            <div class="icon">🔐</div>
+            <div><strong>會員中心</strong><span>登入後累積點數、查看個人案件與歷史紀錄。</span></div>
+          </div>
+        </div>
+
+        <div class="section-title">前 5 名｜本次回歸</div>
+        <div class="card leader-card" id="homeTop5"></div>
+        <div class="footer-note">初版展示資料｜後續可接 Supabase / Cloudflare 等正式服務</div>
+      </section>
+
+      <!-- UPLOAD -->
+      <section class="view" id="view-upload">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">GUEST / MEMBER</div>
+            <h1>快速上傳證明</h1>
+            <div class="sub">不需要註冊即可提交。登入會員會自動累積有效點數。</div>
+          </div>
+        </div>
+
+        <div class="card form-card">
+          <div class="notice info" style="margin-bottom:15px">
+            🔎 系統會在提交前檢查：檔案格式、檔案大小，以及是否可能與既有證明重複。
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label>暱稱</label>
+              <input id="uploadName" placeholder="例如：小明" />
+            </div>
+            <div class="field">
+              <label>玩家 / 平台 ID</label>
+              <input id="uploadUid" placeholder="例如：ABC123" />
+            </div>
+            <div class="field">
+              <label>投票活動</label>
+              <select id="uploadCampaign">
+                <option>2026 XXX 回歸</option>
+                <option>2026 音樂銀行</option>
+                <option>2026 音樂中心</option>
+                <option>2026 冠軍秀</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>投票類型</label>
+              <select id="uploadType">
+                <option value="solo">Solo</option>
+                <option value="group">團體</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>投票日期</label>
+              <input type="date" id="uploadDate" />
+            </div>
+            <div class="field">
+              <label>備註（選填）</label>
+              <input id="uploadNote" placeholder="例如：第 2 次投票" />
+            </div>
+
+            <div class="field full">
+              <label>投票證明截圖</label>
+              <div class="dropzone" id="dropzone">
+                <div class="drop-icon">🖼️</div>
+                <strong>點擊選擇圖片，或拖曳到這裡</strong>
+                <span>JPG / PNG / WEBP，示範上限 10 MB</span>
+                <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" />
+              </div>
+              <div class="preview" id="previewBox">
+                <img id="previewImage" alt="預覽" />
+                <button class="btn btn-danger remove" type="button" onclick="removePreview()">移除</button>
+              </div>
+            </div>
+
+            <div class="field full">
+              <div class="notice warn">
+                ⚠️ 若系統判斷為疑似重複證明，不會只靠圖片外觀直接拒絕，而是送入人工審核。
+              </div>
+            </div>
+
+            <div class="field full">
+              <button class="btn btn-primary" type="button" onclick="submitProof()">提交證明</button>
+              <div class="tiny">本頁為前端初版；真正上線時會改成私人儲存、權限控管與後端檔案驗證。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">最近提交範例</div>
+        <div class="card case-card" id="recentCases"></div>
+      </section>
+
+      <!-- CASES -->
+      <section class="view" id="view-cases">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">MY CASES</div>
+            <h1>我的案件</h1>
+            <div class="sub">會員可看完整歷史；訪客以案件編號＋查詢碼查詢。</div>
+          </div>
+          <button class="btn btn-primary" onclick="openLookup()">🔎 查詢案件</button>
+        </div>
+        <div class="grid grid-2">
+          <div class="card profile-banner">
+            <div class="big-avatar">小</div>
+            <div class="profile-info">
+              <strong id="caseProfileName">訪客</strong>
+              <span id="caseProfileDesc">目前未登入會員</span>
+            </div>
+            <div class="score-box">
+              <strong id="caseProfilePoints">—</strong>
+              <span>有效點數</span>
+            </div>
+          </div>
+          <div class="card form-card">
+            <div class="section-title" style="margin-top:0">案件查詢</div>
+            <div class="field">
+              <label>案件編號</label>
+              <input id="lookupCase" placeholder="例如：A7K3P9" />
+            </div>
+            <div class="field" style="margin-top:10px">
+              <label>查詢密鑰</label>
+              <input id="lookupKey" placeholder="例如：8F4-XQ7-2MN" />
+            </div>
+            <button class="btn btn-soft" style="margin-top:12px" onclick="lookupCase()">查詢</button>
+          </div>
+        </div>
+        <div class="section-title">案件紀錄</div>
+        <div class="card case-card" id="caseList"></div>
+      </section>
+
+      <!-- LEADERBOARD -->
+      <section class="view" id="view-leaderboard">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">LEADERBOARD</div>
+            <h1>排行榜</h1>
+            <div class="sub">排行榜條件可以在後台建立與調整。</div>
+          </div>
+          <span class="pill">即時示範</span>
+        </div>
+
+        <div class="tabs" id="leaderTabs">
+          <button class="tab active" data-board="history">歷史累計</button>
+          <button class="tab" data-board="return">本次回歸</button>
+          <button class="tab" data-board="group">團體排行</button>
+          <button class="tab" data-board="solo">Solo排行</button>
+          <button class="tab" data-board="custom">自訂排行</button>
+        </div>
+
+        <div class="grid grid-2">
+          <div class="card leader-card">
+            <div style="font-size:12px;color:var(--muted)" id="boardCaption">全部有效點數</div>
+            <div class="progress"><i id="boardProgress"></i></div>
+            <div class="leaderboard-list" id="leaderboardList"></div>
+          </div>
+          <div class="card form-card">
+            <div class="section-title" style="margin-top:0">我的位置</div>
+            <div class="profile-banner" style="padding:12px 0">
+              <div class="big-avatar">小</div>
+              <div class="profile-info">
+                <strong>小明</strong>
+                <span>會員示範資料</span>
+              </div>
+              <div class="score-box">
+                <strong>#18</strong>
+                <span>120 點</span>
+              </div>
+            </div>
+            <div class="mini-kpi"><span>歷史累計</span><strong>2,480</strong></div>
+            <div class="mini-kpi"><span>本次回歸</span><strong>120</strong></div>
+            <div class="mini-kpi"><span>團體</span><strong>1,580</strong></div>
+            <div class="mini-kpi"><span>Solo</span><strong>900</strong></div>
+            <div class="notice info" style="margin-top:14px">📌 會員自己的排名可固定顯示，即使不在前 100 名也能快速找到自己。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MEMBER -->
+      <section class="view" id="view-member">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">MEMBER</div>
+            <h1>會員中心</h1>
+            <div class="sub">會員的價值在於歷史紀錄、點數與排行榜，而不是單純登入。</div>
+          </div>
+        </div>
+
+        <div class="card profile-banner" style="margin-bottom:16px">
+          <div class="big-avatar">小</div>
+          <div class="profile-info">
+            <strong>小明</strong>
+            <span>會員編號：M-20261003-018</span>
+          </div>
+          <div class="score-box">
+            <strong>2,480</strong>
+            <span>歷史累計點數</span>
+          </div>
+        </div>
+
+        <div class="grid grid-4">
+          <div class="card stat"><div class="label">歷史累計</div><div class="value">2,480</div><div class="hint">總有效點數</div></div>
+          <div class="card stat"><div class="label">本次回歸</div><div class="value">120</div><div class="hint">2026 XXX 回歸</div></div>
+          <div class="card stat"><div class="label">團體</div><div class="value">1,580</div><div class="hint">團體有效點數</div></div>
+          <div class="card stat"><div class="label">Solo</div><div class="value">900</div><div class="hint">Solo 有效點數</div></div>
+        </div>
+
+        <div class="section-title">會員模式</div>
+        <div class="grid grid-2">
+          <div class="card form-card">
+            <div class="section-title" style="margin-top:0">免密碼登入</div>
+            <p class="sub">初版先用示意按鈕；正式版可接 Google、Apple、Email OTP 或 Passkey。</p>
+            <div class="hero-actions">
+              <button class="btn btn-primary" onclick="loginDemo()">模擬會員登入</button>
+              <button class="btn btn-white" onclick="toast('正式版可接 Magic Link / OTP')">免密碼登入說明</button>
+            </div>
+          </div>
+          <div class="card form-card">
+            <div class="section-title" style="margin-top:0">點數紀錄</div>
+            <div class="mini-kpi"><span>10/03 音樂銀行</span><strong>+10</strong></div>
+            <div class="mini-kpi"><span>10/03 音樂中心</span><strong>+10</strong></div>
+            <div class="mini-kpi"><span>10/02 回歸活動</span><strong>+20</strong></div>
+            <div class="mini-kpi"><span>09/30 修正案件</span><strong>-10</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ADMIN -->
+      <section class="view" id="view-admin">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">ADMIN · DEMO</div>
+            <h1>管理後台</h1>
+            <div class="sub">初版展示審核、疑似重複、返圖與排行榜管理的工作區。</div>
+          </div>
+          <span class="pill">Super Admin 示範</span>
+        </div>
+
+        <div class="grid grid-4">
+          <div class="card stat"><div class="label">待審核</div><div class="value">37</div><div class="hint">需要人工查看</div></div>
+          <div class="card stat"><div class="label">疑似重複</div><div class="value">6</div><div class="hint">需進一步確認</div></div>
+          <div class="card stat"><div class="label">待返圖</div><div class="value">18</div><div class="hint">審核通過</div></div>
+          <div class="card stat"><div class="label">今日新增</div><div class="value">146</div><div class="hint">全部來源</div></div>
+        </div>
+
+        <div class="section-title">案件審核</div>
+        <div class="card form-card">
+          <div class="admin-toolbar">
+            <button class="tab active">待審核</button>
+            <button class="tab">疑似重複</button>
+            <button class="tab">待返圖</button>
+            <button class="tab">已完成</button>
+            <input class="filter" id="adminSearch" placeholder="搜尋案件 / 暱稱 / ID" oninput="filterAdmin()" />
+          </div>
+          <div class="case-list" id="adminCases"></div>
+        </div>
+
+        <div class="section-title">排行榜設定</div>
+        <div class="card form-card">
+          <div class="grid grid-3">
+            <div>
+              <label>排行榜名稱</label>
+              <input id="customBoardName" value="10月第一週衝刺排行" />
+            </div>
+            <div>
+              <label>時間範圍</label>
+              <input value="2026/10/01－2026/10/07" />
+            </div>
+            <div>
+              <label>投票類型</label>
+              <select><option>全部</option><option>Solo</option><option>團體</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:14px" onclick="saveBoard()">儲存自訂排行</button>
+        </div>
+
+        <div class="section-title">點數流水概念</div>
+        <div class="card form-card">
+          <div class="notice info">每一筆有效證明應建立 point_transaction，而不是直接覆蓋會員總點數。之後可以完整追溯加分、扣分、修正原因。</div>
+          <div class="table-wrap" style="margin-top:14px">
+            <table>
+              <thead><tr><th>時間</th><th>會員</th><th>案件</th><th>類型</th><th>點數</th><th>原因</th></tr></thead>
+              <tbody>
+                <tr><td>19:20</td><td>小明</td><td>A7K3P9</td><td>Solo</td><td>+10</td><td>審核通過</td></tr>
+                <tr><td>19:15</td><td>ABC</td><td>B2P91X</td><td>團體</td><td>+10</td><td>審核通過</td></tr>
+                <tr><td>18:48</td><td>小明</td><td>Z7T4QA</td><td>修正</td><td>-10</td><td>重複證明</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-title">資安設計方向</div>
+        <div class="security-grid">
+          <div class="security-item"><strong>🔒 私人圖片</strong><span>正式版圖片不公開直連，依案件權限提供短效存取。</span></div>
+          <div class="security-item"><strong>🧩 權限隔離</strong><span>會員只能看自己的資料，管理員依角色取得不同權限。</span></div>
+          <div class="security-item"><strong>🤖 防機器提交</strong><span>正式版可加入 Turnstile、Rate Limit 與後端檔案驗證。</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<nav class="bottom-nav">
+  <button class="bottom-btn active" data-view="home"><b>⌂</b>首頁</button>
+  <button class="bottom-btn" data-view="upload"><b>＋</b>上傳</button>
+  <button class="bottom-btn" data-view="cases"><b>▣</b>案件</button>
+  <button class="bottom-btn" data-view="leaderboard"><b>♛</b>排行</button>
+  <button class="bottom-btn" data-view="member"><b>◎</b>會員</button>
+</nav>
+
+<div class="modal" id="lookupModal">
+  <div class="modal-panel">
+    <div class="modal-head"><h3>查詢案件</h3><button class="close" onclick="closeLookup()">✕</button></div>
+    <div class="field"><label>案件編號</label><input id="modalCase" placeholder="例如：A7K3P9" /></div>
+    <div class="field" style="margin-top:10px"><label>查詢密鑰</label><input id="modalKey" placeholder="例如：8F4-XQ7-2MN" /></div>
+    <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="lookupCaseFromModal()">查詢</button>
+    <div id="lookupResult" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const demoBoards = {
+    history:[
+      ["小宇","7,860"],["Mina","7,240"],["ABC","6,910"],["Sora","6,480"],["小明","2,480"],
+      ["Lily","2,130"],["AAA","1,980"],["BBB","1,720"]
+    ],
+    return:[
+      ["小宇","580"],["Mina","530"],["ABC","490"],["Sora","450"],["小明","120"],
+      ["Lily","110"],["AAA","95"],["BBB","80"]
+    ],
+    group:[
+      ["TEAM A","2,850"],["TEAM B","2,430"],["TEAM C","1,970"],["TEAM D","1,840"],["小明","1,580"],
+      ["AAA","1,420"],["BBB","1,210"],["CCC","1,090"]
+    ],
+    solo:[
+      ["Mina","1,820"],["小宇","1,650"],["ABC","1,440"],["Sora","1,120"],["小明","900"],
+      ["Lily","840"],["AAA","720"],["BBB","650"]
+    ],
+    custom:[
+      ["小宇","310"],["ABC","280"],["Mina","250"],["Sora","230"],["小明","120"],
+      ["Lily","105"],["AAA","95"],["BBB","80"]
+    ]
+  };
+
+  const demoCases = [
+    {id:"A7K3P9",name:"小明",uid:"ABC123",campaign:"2026 XXX 回歸",type:"Solo",date:"2026/10/03",status:"待審核"},
+    {id:"B2P91X",name:"Mina",uid:"MN4821",campaign:"2026 音樂銀行",type:"團體",date:"2026/10/03",status:"待返圖"},
+    {id:"Q8L20D",name:"ABC",uid:"AB8820",campaign:"2026 音樂中心",type:"Solo",date:"2026/10/03",status:"疑似重複"},
+    {id:"Z7T4QA",name:"小明",uid:"ABC123",campaign:"2026 冠軍秀",type:"團體",date:"2026/10/02",status:"已完成"},
+    {id:"N3K51Q",name:"Sora",uid:"SO7712",campaign:"2026 XXX 回歸",type:"Solo",date:"2026/10/02",status:"已完成"}
+  ];
+
+  const state = {
+    role:"guest",
+    uploadedFile:null,
+    cases:[...demoCases],
+    board:"history"
+  };
+
+  function showView(name){
+    document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+    document.getElementById("view-"+name).classList.add("active");
+    document.querySelectorAll(".nav-btn,.bottom-btn").forEach(b=>{
+      b.classList.toggle("active", b.dataset.view===name);
+    });
+    window.scrollTo({top:0,behavior:"smooth"});
+    if(name==="cases") renderCases();
+    if(name==="admin") renderAdmin();
+  }
+
+  document.querySelectorAll(".nav-btn,.bottom-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>showView(btn.dataset.view));
+  });
+
+  function statusClass(s){
+    if(s==="已完成")return"done";
+    if(s==="待審核")return"pending";
+    if(s==="疑似重複")return"reject";
+    return"review";
+  }
+
+  function caseHTML(c){
+    return `
+      <div class="row">
+        <div class="rank-badge ${c.status==="已完成"?"top":""}">▣</div>
+        <div class="grow">
+          <strong>${c.id} · ${c.name}</strong>
+          <span>${c.campaign}｜${c.type}｜${c.date}</span>
+        </div>
+        <span class="status ${statusClass(c.status)}">${c.status}</span>
+      </div>`;
+  }
+
+  function renderHomeTop(){
+    const el=document.getElementById("homeTop5");
+    el.innerHTML=demoBoards.return.slice(0,5).map((r,i)=>`
+      <div class="row">
+        <div class="rank-badge ${i<3?'top':''}">${i+1}</div>
+        <div class="grow"><strong>${r[0]}</strong><span>本次回歸</span></div>
+        <div class="points">${r[1]} 點</div>
+      </div>`).join("");
+  }
+
+  function renderCases(){
+    const list=document.getElementById("caseList");
+    const recent=document.getElementById("recentCases");
+    list.innerHTML = state.cases.map(caseHTML).join("");
+    recent.innerHTML = state.cases.slice(0,3).map(caseHTML).join("");
+    const logged=state.role==="member";
+    document.getElementById("caseProfileName").textContent=logged?"小明":"訪客";
+    document.getElementById("caseProfileDesc").textContent=logged?"會員 M-20261003-018":"目前未登入會員";
+    document.getElementById("caseProfilePoints").textContent=logged?"2,480":"—";
+  }
+
+  function renderLeaderboard(boardKey=state.board){
+    state.board=boardKey;
+    const list=document.getElementById("leaderboardList");
+    const rows=demoBoards[boardKey];
+    const captions={
+      history:"全部有效點數",
+      return:"2026 XXX 回歸｜活動期間點數",
+      group:"團體有效點數",
+      solo:"Solo 有效點數",
+      custom:"10月第一週衝刺排行"
+    };
+    document.getElementById("boardCaption").textContent=captions[boardKey];
+    document.getElementById("boardProgress").style.width=(65 + Math.min(rows.length*4,25))+"%";
+    list.innerHTML=rows.map((r,i)=>`
+      <div class="row">
+        <div class="rank-badge ${i<3?'top':''}">${i+1}</div>
+        <div class="grow"><strong>${r[0]}</strong><span>${captions[boardKey]}</span></div>
+        <div class="points">${r[1]} 點</div>
+      </div>`).join("");
+    document.querySelectorAll("#leaderTabs .tab").forEach(t=>t.classList.toggle("active",t.dataset.board===boardKey));
+  }
+
+  document.querySelectorAll("#leaderTabs .tab").forEach(t=>{
+    t.addEventListener("click",()=>renderLeaderboard(t.dataset.board));
+  });
+
+  function loginDemo(){
+    state.role="member";
+    document.getElementById("topStatus").textContent="會員模式";
+    document.getElementById("topAvatar").textContent="小";
+    document.getElementById("sidebarRole").textContent="會員｜小明";
+    toast("已切換成會員示範模式");
+    showView("member");
+  }
+
+  function openLookup(){
+    document.getElementById("lookupModal").classList.add("show");
+    document.getElementById("lookupResult").innerHTML="";
+  }
+  function closeLookup(){document.getElementById("lookupModal").classList.remove("show")}
+  function lookupCaseFromModal(){
+    const id=document.getElementById("modalCase").value.trim().toUpperCase();
+    const key=document.getElementById("modalKey").value.trim();
+    const c=state.cases.find(x=>x.id===id);
+    const result=document.getElementById("lookupResult");
+    if(!c || !key){
+      result.innerHTML='<div class="notice warn">找不到案件，或查詢碼不完整。</div>';return;
+    }
+    result.innerHTML=`
+      <div class="card case-card" style="box-shadow:none">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
+          <strong>${c.id}</strong><span class="status ${statusClass(c.status)}">${c.status}</span>
+        </div>
+        <div class="case-meta">
+          <div class="meta-box"><span>會員 / 暱稱</span><strong>${c.name}</strong></div>
+          <div class="meta-box"><span>活動</span><strong>${c.campaign}</strong></div>
+          <div class="meta-box"><span>日期</span><strong>${c.date}</strong></div>
+        </div>
+        <div class="notice ${c.status==="已完成"?"ok":"info"}" style="margin-top:12px">
+          ${c.status==="已完成"?"🎁 返圖已完成，可進入返圖區查看。":"⏳ 案件目前正在處理中。"}
+        </div>
+      </div>`;
+  }
+  function lookupCase(){
+    document.getElementById("modalCase").value=document.getElementById("lookupCase").value;
+    document.getElementById("modalKey").value=document.getElementById("lookupKey").value;
+    openLookup();
+    lookupCaseFromModal();
+  }
+
+  function bindUpload(){
+    const dz=document.getElementById("dropzone"), input=document.getElementById("fileInput");
+    dz.addEventListener("click",()=>input.click());
+    dz.addEventListener("dragover",(e)=>{e.preventDefault();dz.classList.add("drag")});
+    dz.addEventListener("dragleave",()=>dz.classList.remove("drag"));
+    dz.addEventListener("drop",(e)=>{e.preventDefault();dz.classList.remove("drag");handleFile(e.dataTransfer.files[0])});
+    input.addEventListener("change",()=>handleFile(input.files[0]));
+  }
+
+  function handleFile(file){
+    if(!file)return;
+    if(!["image/jpeg","image/png","image/webp"].includes(file.type)){toast("只接受 JPG、PNG、WEBP");return}
+    if(file.size>10*1024*1024){toast("圖片超過示範上限 10 MB");return}
+    state.uploadedFile=file;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      document.getElementById("previewImage").src=reader.result;
+      document.getElementById("previewBox").style.display="block";
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removePreview(){
+    state.uploadedFile=null;
+    document.getElementById("previewBox").style.display="none";
+    document.getElementById("fileInput").value="";
+  }
+
+  function makeCaseId(){
+    const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let id="";
+    for(let i=0;i<6;i++)id+=chars[Math.floor(Math.random()*chars.length)];
+    return id;
+  }
+
+  function submitProof(){
+    const name=document.getElementById("uploadName").value.trim() || "訪客";
+    const uid=document.getElementById("uploadUid").value.trim() || "未提供";
+    const campaign=document.getElementById("uploadCampaign").value;
+    const type=document.getElementById("uploadType").value==="solo"?"Solo":"團體";
+    const date=document.getElementById("uploadDate").value || new Date().toISOString().slice(0,10).replaceAll("-","/");
+    if(!state.uploadedFile){toast("請先上傳投票證明");return}
+    const duplicate = state.cases.some(c=>c.uid===uid && c.campaign===campaign && c.date===date);
+    const c={
+      id:makeCaseId(),
+      name,uid,campaign,type,date,
+      status:duplicate?"疑似重複":"待審核"
+    };
+    state.cases.unshift(c);
+    renderCases();
+    const queryKey="8F4-XQ7-2MN";
+    const msg=duplicate
+      ? `⚠️ 已建立案件 ${c.id}。系統發現可能重複，已轉人工審核。查詢碼：${queryKey}`
+      : `✅ 已建立案件 ${c.id}。查詢碼：${queryKey}`;
+    toast(msg,6000);
+    document.getElementById("lookupCase").value=c.id;
+    document.getElementById("lookupKey").value=queryKey;
+    removePreview();
+    document.getElementById("uploadName").value="";
+    document.getElementById("uploadUid").value="";
+    document.getElementById("uploadNote").value="";
+    document.getElementById("uploadDate").value="";
+  }
+
+  function renderAdmin(){
+    const q=(document.getElementById("adminSearch")?.value || "").trim().toLowerCase();
+    const el=document.getElementById("adminCases");
+    const cases=state.cases.filter(c=>!q || `${c.id} ${c.name} ${c.uid} ${c.campaign}`.toLowerCase().includes(q));
+    el.innerHTML=cases.map(c=>`
+      <div class="case-item">
+        <div class="thumb">🖼️</div>
+        <div class="case-main"><strong>${c.id} · ${c.name}</strong><span>${c.campaign}｜${c.type}｜${c.date}</span></div>
+        <div class="case-col hide-sm"><strong>${c.uid}</strong><span>使用者 ID</span></div>
+        <div class="case-col hide-sm"><span class="status ${statusClass(c.status)}">${c.status}</span></div>
+        <div class="action-row">
+          <button class="icon-btn" onclick="approveCase('${c.id}')">通過</button>
+          <button class="icon-btn" onclick="rejectCase('${c.id}')">駁回</button>
+          <button class="icon-btn" onclick="toast('已開啟案件 ${c.id} 預覽')">查看</button>
+        </div>
+      </div>`).join("");
+    if(!cases.length)el.innerHTML='<div class="empty">沒有符合條件的案件</div>';
+  }
+
+  function filterAdmin(){renderAdmin()}
+  function approveCase(id){
+    const c=state.cases.find(x=>x.id===id);if(!c)return;
+    c.status="待返圖";
+    renderAdmin();renderCases();
+    toast(`${id} 已標記為待返圖`);
+  }
+  function rejectCase(id){
+    const c=state.cases.find(x=>x.id===id);if(!c)return;
+    c.status="駁回";
+    renderAdmin();renderCases();
+    toast(`${id} 已駁回`);
+  }
+  function saveBoard(){
+    const name=document.getElementById("customBoardName").value.trim() || "未命名排行";
+    toast(`已儲存：「${name}」`);
+  }
+
+  function toast(msg,duration=3000){
+    const t=document.getElementById("toast");
+    t.textContent=msg;t.classList.add("show");
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer=setTimeout(()=>t.classList.remove("show"),duration);
+  }
+
+  function applyTheme(theme){
+    const safeTheme = theme==="light" ? "light" : "dark";
+    document.documentElement.dataset.theme = safeTheme;
+    localStorage.setItem("voteproof-theme", safeTheme);
+    const btn=document.getElementById("themeToggle");
+    if(btn) btn.textContent = safeTheme==="dark" ? "☀ 淺色" : "☾ 深色";
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if(meta) meta.setAttribute("content", safeTheme==="dark" ? "#121212" : "#ffffff");
+  }
+
+  function toggleTheme(){
+    const current=document.documentElement.dataset.theme || "dark";
+    applyTheme(current==="dark" ? "light" : "dark");
+    toast(current==="dark" ? "已切換為淺色模式" : "已切換為深色模式");
+  }
+
+  function initTheme(){
+    // Default = dark. Returning users retain their previous choice.
+    const saved=localStorage.getItem("voteproof-theme");
+    applyTheme(saved==="light" ? "light" : "dark");
+  }
+
+  // init
+  initTheme();
+  document.getElementById("uploadDate").value=new Date().toISOString().slice(0,10);
+  bindUpload();
+  renderHomeTop();
+  renderCases();
+  renderLeaderboard("history");
+  renderAdmin();
+</script>
+</body>
+</html>

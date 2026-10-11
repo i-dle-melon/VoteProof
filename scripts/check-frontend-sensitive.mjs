@@ -1,10 +1,11 @@
-// Scan only reviewable Git changes. Never open ignored local env/live configs,
+// Scan reviewable Git files. Never open ignored local env/live configs,
 // clipboard, databases, screenshots, mail or provider credentials.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 const git = args => execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim().split(/\r?\n/).filter(Boolean);
-const files = [...new Set([...git(["diff", "--name-only", "HEAD"]), ...git(["ls-files", "--others", "--exclude-standard"])])];
+const tracked = process.argv.includes("--tracked");
+const files = [...new Set([...git(tracked ? ["ls-files"] : ["diff", "--name-only", "HEAD"]), ...git(["ls-files", "--others", "--exclude-standard"])])];
 const rules = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
@@ -25,4 +26,4 @@ for (const file of files) {
 }
 const protectedPaths = git(["diff", "--name-only", "HEAD", "--", "migrations/0001_cases.sql", "migrations/0002_case_idempotency.sql", "migrations/0004_admin_review.sql", "migrations/0005_campaign_point_ledger.sql", "migrations/0006_leaderboards.sql", "migrations/0007_member_tiers.sql", "wrangler.jsonc", "public/_headers"]);
 assert.deepEqual(protectedPaths, [], "B4G must preserve published migrations, B5 schema, bindings and CSP");
-console.log(JSON.stringify({ reviewed_files: files.length, sensitive_findings: 0, published_schema_bindings_headers: "unchanged", ignored_credentials_read: false }));
+console.log(JSON.stringify({ scope: tracked ? "all tracked + reviewable new files" : "changes + reviewable new files", reviewed_files: files.length, sensitive_findings: 0, published_schema_bindings_headers: "unchanged", ignored_credentials_read: false }));

@@ -32,7 +32,7 @@ test("Google-only registration requests profile without password TOTP or recover
 });
 test("same-email confirmation truthfully states provider already linked", async ({ page }) => {
   const state = await memberFixture(page, { googleResult: "GOOGLE_CONFIRM_REQUIRED" }); await page.goto("/#google");
-  await expect(page.locator("#google-message")).toContainText("Supabase 已連結"); await expect(page.locator("#google-message")).toContainText("取消只停止");
+  await expect(page.locator("#google-message")).toContainText("Google 已連結至既有帳號"); await expect(page.locator("#google-message")).toContainText("取消只停止");
   await expect(page.locator("#google-email")).toHaveText("google@local.example"); await expect(page.locator("#google-profile")).toBeHidden();
   await submit(page, "google-confirm-form"); await expect(page.locator("#member-id")).toHaveText(state.member.member_id);
 });

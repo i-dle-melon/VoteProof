@@ -24,8 +24,8 @@ export async function memberFixture(page, options = {}) {
   await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
     state.puts++; await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
   });
-  const session = () => ({ member: state.member, csrf_token: state.csrf, expires_in: options.shortSession ? .2 : 600 });
-  state.googleConnected = Boolean(options.googleOnly || options.dual); state.passwordConfigured = !options.googleOnly;
+  const session = () => ({ member: state.member, csrf_token: state.csrf, ...(options.adminRole ? { elevated_until: state.elevationUntil ?? Date.now() / 1000 + 600 } : {}), expires_in: options.shortSession ? .2 : 600 });
+  state.googleConnected = Boolean(options.googleOnly || options.dual); state.passwordConfigured = !options.googleOnly; state.authenticatorConfigured = !options.googleOnly; state.googlePurpose = options.googlePurpose ?? "login";
   // WebKit cannot fulfill mocked 302 responses; the isolated provider fixture
   // performs the same full-page return using a fixed local navigation.
   await page.route("https://google-auth.local.example/auth/v1/authorize?provider=google", route => route.fulfill({ contentType: "text/html", body: '<script>location.replace("http://127.0.0.1:4173/#google")</script>' }));
@@ -41,19 +41,31 @@ export async function memberFixture(page, options = {}) {
     }
     const tx = () => ({ transaction_id: randomUUID(), expires_in: options.expired ? .1 : 600 });
     if (path === "/api/auth/google/start") {
+      state.googlePurpose = body.purpose;
       if (options.googleDown) return error("AUTH_PROVIDER_UNAVAILABLE", 502);
       return reply({ authorize_url: "https://google-auth.local.example/auth/v1/authorize?provider=google", expires_in: 300 });
     }
-    if (path === "/api/auth/google/result") return reply({ ...tx(), status: options.googleResult ?? "GOOGLE_PROFILE_REQUIRED", purpose: "login", email: options.googleEmail ?? "google@local.example", provider_already_linked: options.googleResult === "GOOGLE_CONFIRM_REQUIRED", cancel_unlinks_provider: false });
+    if (path === "/api/auth/google/result") return reply({ ...tx(), status: options.googleResult ?? "GOOGLE_PROFILE_REQUIRED", purpose: state.googlePurpose, email: options.googleEmail ?? "google@local.example", provider_already_linked: options.googleResult === "GOOGLE_CONFIRM_REQUIRED", cancel_unlinks_provider: false });
     if (path === "/api/auth/google/confirm") { state.authenticated = true; state.googleConnected = true; return reply(session()); }
     if (path === "/api/auth/google/cancel") return reply({ cancelled: true, provider_unlinked: false });
-    if (path === "/api/auth/login-security") return state.authenticated ? reply({ google: { connected: state.googleConnected, email: "google@local.example" }, password: { configured: state.passwordConfigured }, authenticator: { configured: state.passwordConfigured }, current_method: options.googleOnly ? "google" : "password" }) : error("AUTH_REQUIRED", 401);
+    if (path === "/api/auth/login-security") return state.authenticated ? reply({ google: { connected: state.googleConnected, email: "google@local.example" }, password: { configured: state.passwordConfigured }, authenticator: { configured: state.authenticatorConfigured }, current_method: options.googleOnly ? "google" : "password" }) : error("AUTH_REQUIRED", 401);
     if (path === "/api/auth/password/add/start") return reply({ ...tx(), status: "PASSWORD_MFA_REQUIRED", otpauth_uri: otp.toString() }, 202);
     if (path === "/api/auth/password/add/verify") {
       if (state.invalidTotp-- > 0) return error("AUTH_VERIFICATION_FAILED");
-      state.passwordConfigured = true; state.authenticated = true; return reply({ ...session(), recovery_codes: state.recoveryCodes });
+      state.passwordConfigured = true; state.authenticatorConfigured = true; state.authenticated = true; return reply({ ...session(), recovery_codes: state.recoveryCodes });
     }
-    if (path === "/api/auth/step-up") return reply({ reauthenticated_until: Date.now() / 1000 + 300 });
+    if (path === "/api/auth/step-up" || path === "/api/auth/google/step-up") {
+      if (state.invalidTotp-- > 0) return error("AUTH_VERIFICATION_FAILED");
+      state.elevationUntil = Date.now()/1000 + 300; return reply({ elevated_until: state.elevationUntil, reauthenticated_until: state.elevationUntil });
+    }
+    if (path === "/api/auth/google/totp/enroll/start" || path === "/api/auth/totp/reset/start") return reply({ ...tx(), otpauth_uri: otp.toString() }, 202);
+    if (path === "/api/auth/google/totp/enroll/verify" || path === "/api/auth/totp/reset/verify") {
+      state.authenticatorConfigured = true; const logged_out = path.includes("reset"); if (logged_out) state.authenticated = false;
+      return reply({ authenticator_configured: true, logged_out, recovery_codes: state.recoveryCodes });
+    }
+    if (path === "/api/auth/recovery-codes/regenerate") return reply({ recovery_codes: state.recoveryCodes });
+    if (path === "/api/auth/trusted-devices") return reply({ devices: state.devices ?? [] });
+    if (path.endsWith("/revoke") || path === "/api/auth/trusted-devices/revoke-others") { state.devices = []; return reply({ revoked: true }); }
     if (path === "/api/auth/password/change/start") return reply(tx(), 202);
     if (path === "/api/auth/password/change") { state.authenticated = false; return reply({ password_changed: true, logged_out: true }); }
     if (path === "/api/auth/me") return state.authenticated && !state.revoked ? reply(session()) : error("AUTH_REQUIRED", 401);

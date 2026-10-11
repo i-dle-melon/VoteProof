@@ -43,8 +43,21 @@ export class MemberSession {
     this.changed(this.#member);
   }
   async request(path, { method = "GET", body, headers = {}, signal } = {}) {
-    if (!/^\/api\/(?:auth\/[a-z/-]+|me\/(?:profile|points|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|cases)$/.test(path))
+    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|cases)$/.test(path))
       throw new PublicError("INVALID_AUTH_REQUEST");
+    return this.#send(path, { method, body, headers, signal });
+  }
+  async adminRequest(path, options = {}) {
+    if (!adminPath(path) || /\/files\//.test(path)) throw new PublicError("INVALID_AUTH_REQUEST");
+    if (!this.member) throw new PublicError("AUTH_REQUIRED");
+    return this.#send(path, options);
+  }
+  async adminProof(path, signal) {
+    if (!adminPath(path) || !/\/files\/[a-f0-9-]{36}$/.test(path)) throw new PublicError("INVALID_AUTH_REQUEST");
+    if (!this.member) throw new PublicError("AUTH_REQUIRED");
+    return this.#send(path, { signal, image: true });
+  }
+  async #send(path, { method = "GET", body, headers = {}, signal, image = false } = {}) {
     const revision = this.#revision;
     let response;
     try {
@@ -54,6 +67,12 @@ export class MemberSession {
           ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
         ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
     } catch { throw new PublicError(signal?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR"); }
+    if (image && response.ok) {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(response.headers.get("Content-Type"))) throw new PublicError("PROOF_INTEGRITY_ERROR");
+      const blob = await response.blob();
+      if (blob.size <= 0 || blob.size > 5 * 1024 * 1024) throw new PublicError("PROOF_INTEGRITY_ERROR");
+      return blob;
+    }
     let result;
     try { result = await response.json(); } catch { throw new PublicError("SERVICE_UNAVAILABLE", response.status); }
     if (!response.ok || result?.ok !== true) {
@@ -86,6 +105,16 @@ export class MemberSession {
   }
 }
 
+// Explicit admin surface: no arbitrary endpoint, external URL, dot segment,
+// fragment or proof path carrying credentials in query parameters.
+export function adminPath(path) {
+  if (typeof path !== "string" || /[.#\\]/.test(path)) return false;
+  const [pathname, query, extra] = path.split("?");
+  if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
+  if (pathname.includes("/files/") && query !== undefined) return false;
+  return /^\/api\/admin\/(?:me|audit-logs|cases(?:\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}(?:\/review|\/files\/[a-f0-9-]{36})?)?|campaigns(?:\/[A-Za-z0-9_-]{1,100}(?:\/update)?)?|leaderboards(?:\/[A-Za-z0-9_-]{1,100}(?:\/(?:update|rebuild|results))?)?|member-tiers(?:\/[a-z]+\/update)?|submissions(?:\/update)?)$/.test(pathname);
+}
+
 export function emailValue(value) {
   const email = value.trim().toLowerCase();
   if (email.length > 254 || !/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]{1,64}@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(email) ||
@@ -108,6 +137,7 @@ export const authMessage = (error) => ({
   AUTH_GOOGLE_REAUTH_REQUIRED: "請先重新驗證 Google，再為同一會員新增密碼登入。",
   AUTH_PROVIDER_UNAVAILABLE: "會員服務暫時無法使用（Google 或身份服務）。請稍後重試；免登入功能仍可使用。",
   AUTH_STEP_UP_REQUIRED: "此操作需要重新驗證登入身份及 Authenticator。",
+  AUTH_MFA_ENROLLMENT_REQUIRED: "請先在登入與安全設定 Authenticator，再重新驗證身份。",
   EMAIL_FORMAT: "請輸入有效的電子信箱。",
   PASSWORD_FORMAT: "密碼需為 12～128 個字元，不可包含空字元。",
   PASSWORD_MISMATCH: "兩次輸入的密碼不相同。",
@@ -119,10 +149,10 @@ export const authMessage = (error) => ({
   MEMBER_SUSPENDED: "登入已失效，請重新登入。未完成的投稿資料仍在此分頁。",
   AUTH_IDENTITY_CHANGED: "登入身份已改變。請重新登入原會員後重試，或明確放棄本次投稿。",
   AUTH_RATE_LIMITED: "操作過於頻繁，請等待後再試。",
-  AUTH_REGISTRATION_UNAVAILABLE: "會員註冊暫時無法使用，請稍後再試。你仍可免登入投稿。",
+  AUTH_REGISTRATION_UNAVAILABLE: "會員註冊暫時無法使用，請稍後再試。案件查詢與排行榜仍可使用。",
   CSRF_REJECTED: "登入驗證已更新，請重新登入後再試。",
   NETWORK_ERROR: "連線中斷或等待逾時，請稍後再試。",
   TURNSTILE_REQUIRED: "請先完成人機驗證。",
   TURNSTILE_INVALID: "人機驗證已失效，請重新驗證。",
   INVALID_AUTH_REQUEST: "資料未通過檢查，請確認欄位內容。",
-}[error?.code] ?? "會員服務暫時無法使用，請稍後再試。免登入投稿與案件查詢仍可使用。");
+}[error?.code] ?? "會員服務暫時無法使用，請稍後再試。案件查詢與排行榜仍可使用。");

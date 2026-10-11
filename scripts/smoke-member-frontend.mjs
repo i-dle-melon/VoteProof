@@ -84,7 +84,7 @@ try {
   await mkdir(".wrangler/frontend-previews", { recursive: true });
   // Member center has only disposable public-profile/points/case metadata.
   await page.screenshot({ path: ".wrangler/frontend-previews/mobile-member.png", fullPage: true });
-  await page.locator("#logout-button").click(); await page.locator("#login-form").waitFor();
+  await page.locator("#logout-button").click(); await page.locator("#login-password-options summary").click(); await page.locator("#login-form").waitFor();
   await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(password); await submit("login-form"); await page.locator("#points-content").waitFor();
   assert.equal(await page.locator("#login-totp-form").isHidden(), true, "Real trusted-device password login");
   await page.goto(origin + "/#recover"); await page.locator("#recover-email").fill(email);
@@ -95,7 +95,7 @@ try {
   assert.equal((await local.db.prepare("SELECT count(*) AS n FROM auth_sessions WHERE revoked_at IS NULL").first()).n, 0);
   assert.equal((await local.db.prepare("SELECT count(*) AS n FROM trusted_devices WHERE revoked_at IS NULL").first()).n, 0);
   assert.equal((await local.db.prepare("SELECT count(*) AS n FROM recovery_codes WHERE used_at IS NOT NULL").first()).n, 1);
-  await page.locator("#recover-success a").click(); await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(replacement); await submit("login-form"); await page.locator("#login-totp-form").waitFor();
+  await page.locator("#recover-success a").click(); await page.locator("#login-password-options summary").click(); await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(replacement); await submit("login-form"); await page.locator("#login-totp-form").waitFor();
   assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0);
   assert.equal(clientRequests.some(host => host.includes("supabase") || host.endsWith("googleapis.com")), false);
   assert.equal(consoleMessages.some(message => [password, replacement, secret, ...recoveryCodes].some(value => message.includes(value))), false);

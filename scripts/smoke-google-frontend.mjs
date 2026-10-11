@@ -39,9 +39,9 @@ try {
   const recovery = await page.locator("#security-recovery-codes li").allTextContents(); assert.equal(recovery.length, 10);
   assert.equal(await page.locator("#security-done").isDisabled(), true); await page.locator("#security-recovery-ack").check(); await page.locator("#security-done").click();
   assert.equal((await local.db.prepare("SELECT password_enabled FROM auth_identities WHERE member_id=?").bind(member).first()).password_enabled, 1);
-  await page.locator("#logout-button").click(); await page.locator("#login-form").waitFor();
+  await page.locator("#logout-button").click(); await page.locator("#login-google").waitFor();
   await page.locator("#login-google").click(); await page.locator("#google-confirm-form").waitFor(); assert.equal(await page.locator("#google-profile").isVisible(), false); await submit("google-confirm-form"); await page.locator("#member-content").waitFor();
-  assert.equal(await page.locator("#member-id").textContent(), member); await page.locator("#logout-button").click(); await page.locator("#login-form").waitFor();
+  assert.equal(await page.locator("#member-id").textContent(), member); await page.locator("#logout-button").click(); await page.locator("#login-password-options summary").click(); await page.locator("#login-form").waitFor();
   await page.locator("#login-email").fill(email); await page.locator("#login-password").fill(password); await submit("login-form"); await page.locator("#login-totp-form").waitFor();
   await page.locator("#login-totp").fill(otp.generate({ timestamp: Date.now() + 30000 })); await submit("login-totp-form"); await page.locator("#member-content").waitFor();
   assert.equal(await page.locator("#member-id").textContent(), member); assert.equal((await local.db.prepare("SELECT count(*) n FROM members").first()).n, 1);

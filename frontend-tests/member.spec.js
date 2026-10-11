@@ -18,7 +18,7 @@ async function recoveryCodes(page, state) {
   await expect(page.locator("#register-recovery")).toBeVisible();
 }
 async function beginLogin(page, state) {
-  await page.goto("/#login"); await page.locator("#login-email").fill("local@example.com"); await page.locator("#login-password").fill(state.password);
+  await page.goto("/#login"); await page.locator("#login-password-options summary").click(); await page.locator("#login-email").fill("local@example.com"); await page.locator("#login-password").fill(state.password);
 }
 async function recoveryStart(page, state) {
   await page.goto("/#recover"); await page.locator("#recover-email").fill("local@example.com");
@@ -36,6 +36,8 @@ async function submission(page, member = false) {
 
 test("logged-out navigation exposes login/registration and no admin", async ({ page }) => {
   const state = await memberFixture(page); await page.goto("/"); await page.locator("#login-entry").click();
+  await expect(page.locator("#login-google")).toBeVisible(); await expect(page.locator("#login-form")).toBeHidden();
+  await page.locator("#login-password-options summary").click();
   await expect(page.locator("#login-form")).toBeVisible(); await expect(page.locator("a[href='#register']")).toBeVisible();
   await expect(page.locator("#member-entry")).toBeHidden(); await expect(page.locator("a[href*='admin']")).toHaveCount(0);
   expect(state.providerRequests).toEqual([]);
@@ -213,7 +215,7 @@ test("auth sensitive values never enter storage/URL/logs; backend text remains i
   expect(state.providerRequests).toEqual([]); await expect(page.locator("#recovery-codes")).toBeEmpty();
 });
 test("auth forms/member center fit 320/375/390/430/768/desktop, labels/focus/tap targets", async ({ page }) => {
-  await memberFixture(page, { authenticated: true });
+  await memberFixture(page);
   for (const width of [320, 375, 390, 430, 768, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     for (const view of ["login", "register", "recover", "member"]) {

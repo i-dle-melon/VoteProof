@@ -18,6 +18,7 @@ export function memberUI({ changed = () => {} } = {}) {
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
+  let loginSessionChecked = false;
   const session = new MemberSession({ changed: member => {
     if (member) { $("account-status").hidden = true; $("account-status").textContent = ""; }
     else if (wasLoggedIn) {
@@ -38,9 +39,15 @@ export function memberUI({ changed = () => {} } = {}) {
       $("member-case-detail").hidden = true; $("points-content").hidden = true;
       for (const id of ["member-points", "member-tier", "tier-message", "tier-gap"]) $(id).textContent = "";
     }
+    syncLogin();
     changed(member);
   } });
   const challenge = new Challenge($("register-challenge"), text => { $("register-challenge-status").textContent = text; });
+  function syncLogin() {
+    $("login-session-status").hidden = loginSessionChecked || Boolean(session.member);
+    $("login-content").hidden = !loginSessionChecked || Boolean(session.member);
+    if (view === "login" && session.member) location.hash = "member";
+  }
   for (const button of document.querySelectorAll('.auth-view button[type="submit"]')) button.dataset.idleLabel = button.textContent;
 
   const clearSetup = () => { clearEnrollment($("enrollment-qr")); $("enrollment-key").textContent = ""; };
@@ -88,6 +95,7 @@ export function memberUI({ changed = () => {} } = {}) {
     challengeId = transactionId = loginTx = recoveryTx = ""; deadline = cooldown = loginDeadline = recoveryDeadline = 0;
     clearSetup(); clearRecovery(); registrationStep("email");
     $("login-form").hidden = false; $("login-totp-form").hidden = true;
+    $("login-methods").hidden = false; $("login-password-options").open = false;
     $("recover-proof-form").hidden = false; $("recover-password-form").hidden = $("recover-success").hidden = true;
     $("logout-button").disabled = false; challenge.clear();
     googleTx = methodTx = ""; googleDeadline = methodDeadline = 0;
@@ -289,6 +297,7 @@ export function memberUI({ changed = () => {} } = {}) {
     if (data.member) { session.accept(data); location.hash = "member"; }
     else if (data.status === "MFA_REQUIRED") {
       loginTx = data.transaction_id; loginDeadline = expires(data);
+      $("login-methods").hidden = true;
       $("login-form").hidden = true; $("login-totp-form").hidden = false; $("login-totp").focus(); syncCooldown();
     } else throw new PublicError("SERVICE_UNAVAILABLE");
   });
@@ -297,7 +306,9 @@ export function memberUI({ changed = () => {} } = {}) {
     const data = await post("login/totp", { transaction_id: loginTx, code, trust_this_device: $("login-trust").checked });
     if (current()) { session.accept(data); location.hash = "member"; }
   });
-  $("login-restart").addEventListener("click", () => { if (!busy) resetAuth(); });
+  $("login-restart").addEventListener("click", () => {
+    if (!busy) { resetAuth(); $("login-password-options").open = true; $("login-email").focus(); }
+  });
   form("recover-proof-form", "recover", async current => {
     const email = emailValue($("recover-email").value), code = codeValue($("recover-totp").value), recovery_code = $("recover-code").value.trim();
     if (!/^[A-Za-z0-9_-]{43}$/.test(recovery_code)) throw new PublicError("RECOVERY_FORMAT");
@@ -436,6 +447,7 @@ export function memberUI({ changed = () => {} } = {}) {
       if (url.searchParams.has("auth_notice")) {
         url.searchParams.delete("auth_notice"); history.replaceState(null, "", url.pathname + url.search + url.hash);
       }
+      syncLogin();
     }
     if (authViews.includes(view)) ticker = setInterval(syncCooldown, 1000);
     if (view === "register") void mountRegistration();
@@ -445,7 +457,7 @@ export function memberUI({ changed = () => {} } = {}) {
   }
   // One boot probe, independent of all public API loading. No polling/redirect
   // loop and no provider connection; failed auth leaves Guest untouched.
-  void session.refresh().catch(() => {});
+  void session.refresh().catch(() => {}).finally(() => { loginSessionChecked = true; syncLogin(); });
   window.addEventListener("pagehide", () => { pendingEmailAdd = null; resetAuth(); clearInterval(ticker); });
   window.addEventListener("pageshow", event => {
     if (!event.persisted) return;

@@ -15,7 +15,8 @@ test("unknown provider notice cannot reflect untrusted text", async ({ page }) =
   }
 });
 test("login and registration expose two distinct authentication choices", async ({ page }) => {
-  await memberFixture(page); await page.goto("/#login"); await expect(page.locator("#login-google")).toBeVisible(); await expect(page.locator("#login-form")).toBeVisible();
+  await memberFixture(page); await page.goto("/#login"); await expect(page.locator("#login-google")).toBeVisible(); await expect(page.locator("#login-form")).toBeHidden();
+  await page.locator("#login-password-options summary").click(); await expect(page.locator("#login-form")).toBeVisible();
   await page.goto("/#register"); await expect(page.locator("#register-google")).toBeVisible(); await expect(page.locator("#view-register")).toContainText("不需要 VoteProof 密碼");
 });
 test("Google start navigates with no client provider credentials or password", async ({ page }) => {

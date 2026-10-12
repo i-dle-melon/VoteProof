@@ -2,6 +2,8 @@ import { MemberSession, emailValue, passwordValue, codeValue, authMessage } from
 import { PublicError } from "./api.js";
 import { Challenge } from "./turnstile.js";
 import { drawEnrollment, clearEnrollment, enrollmentKey } from "./qr.js";
+import { tierArtwork, renderTierArtwork } from "./tier-artwork.js";
+import { memberTierProgress } from "./member-tier-progress.js";
 
 const $ = id => document.getElementById(id);
 const element = (tag, text, className) => {
@@ -52,6 +54,9 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       $("member-cases").replaceChildren(); $("member-case-fields").replaceChildren();
       $("member-case-detail").hidden = true; $("points-content").hidden = true;
       $("member-points").textContent = "";
+      $("member-tier").textContent = ""; $("member-tier-artwork").replaceChildren();
+      $("tier-message").textContent = $("tier-points").textContent = $("tier-gap").textContent = "";
+      $("tier-next").hidden = true; $("tier-progress").value = 0;
     }
     syncLogin();
     changed(member);
@@ -527,6 +532,15 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       if (!sameMember(owner, sequence)) return;
       $("member-record-total").textContent = Number(data.total_points).toLocaleString("zh-TW");
       $("member-points").textContent = String(data.total_points);
+      const art = tierArtwork(data.tier?.tier_id);
+      $("member-tier").textContent = art ? art.name : "暫時無法取得";
+      renderTierArtwork($("member-tier-artwork"), art ? data.tier.tier_id : null);
+      const progress = memberTierProgress(data);
+      $("tier-message").textContent = progress.state === "unconfigured" ? "升級門檻尚未設定" : progress.state === "highest" ? "已達目前最高等級" : "";
+      $("tier-next").hidden = progress.state !== "next";
+      $("tier-points").textContent = progress.state === "next" ? `${progress.totalPoints} / ${progress.requiredPoints} 點` : "";
+      $("tier-gap").textContent = progress.state === "next" ? `距離「${progress.nextName}」還差 ${progress.remainingPoints} 點` : "";
+      $("tier-progress").value = progress.state === "next" ? progress.percent : 0;
       $("points-status").textContent = ""; $("points-content").hidden = false;
     } catch (error) { if (sameMember(owner, sequence)) $("points-status").textContent = authMessage(error); }
     finally { await cases; $("member-refresh").disabled = false; }

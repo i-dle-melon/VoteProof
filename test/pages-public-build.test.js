@@ -22,7 +22,7 @@ test('Pages artifact contains public source only, no operational runtime or iden
   assert.match(html, /UI PREVIEW · 非正式網站/);
   assert.match(html, /connect-src 'none'/);
   const js = await readdir(resolve(out,'js'));
-  for (const name of ['admin.js','admin-api.js','member.js','member-api.js','qr.js']) assert.ok(!js.includes(name));
+  for (const name of ['admin.js','admin-api.js','member.js','member-api.js','member-tier-progress.js','qr.js']) assert.ok(!js.includes(name));
   assert.doesNotMatch(await readFile(resolve(out,'js/preview-fixtures.js'),'utf8'), /\/api\/admin\/|csrf_token|elevated_until|super_admin|UI-PREVIEW-MEMBER/);
   assert.equal(await readFile('public/index.html','utf8'), before);
 });

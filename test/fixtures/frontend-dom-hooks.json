@@ -1016,6 +1016,38 @@
     "tag": "strong",
     "attributes": {}
   },
+  "member-tier": {
+    "tag": "strong",
+    "attributes": {}
+  },
+  "member-tier-artwork": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "tier-message": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "tier-next": {
+    "tag": "div",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "tier-points": {
+    "tag": "p",
+    "attributes": {}
+  },
+  "tier-progress": {
+    "tag": "progress",
+    "attributes": {
+      "max": "100"
+    }
+  },
+  "tier-gap": {
+    "tag": "p",
+    "attributes": {}
+  },
   "member-refresh": {
     "tag": "button",
     "attributes": {

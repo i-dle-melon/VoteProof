@@ -98,8 +98,8 @@ export async function memberFixture(page, options = {}) {
     if (path.startsWith("/api/me/")) {
       if (state.revoked) return error("AUTH_REQUIRED", 401);
       if (path === "/api/me/profile") { Object.assign(member, body); return reply({ member }); }
-      if (path === "/api/me/points") return reply({ total_points: 123, tier: { tier_id: "bronze", name: "青銅" },
-        next_tier: options.unconfigured ? null : { tier_id: "silver", name: "白銀" }, points_to_next_tier: 77,
+      if (path === "/api/me/points") return reply({ total_points: 123, tier: options.unconfigured ? { tier_id: "normal", name: "普通", min_points: 0, rank_order: 1 } : { tier_id: "bronze", name: "青銅", min_points: 100, rank_order: 2 },
+        next_tier: options.unconfigured ? null : { tier_id: "silver", name: "白銀", min_points: 200, rank_order: 3 }, points_to_next_tier: 77,
         tier_progress: 23, tier_configuration_ready: !options.unconfigured });
       if (path === "/api/me/cases") return reply({ cases: url.searchParams.has("cursor") ? [] : [{ case_id: state.caseId, vote_date: "2026-10-09", status: "approved" }], next_cursor: url.searchParams.has("cursor") ? null : "localCursor" });
       if (path.startsWith("/api/me/cases/")) return reply({ case_id: state.caseId, campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09", status: "approved", query_key_hash: "private", object_key: "private" });

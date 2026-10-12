@@ -148,7 +148,9 @@ test("failed resend cannot advance verification; retry keeps cooldown and rotate
 
 test("Worker graph excludes legacy Gmail OAuth transport",async()=>{
   const bundle=await build({entryPoints:["src/index.js"],bundle:true,write:false,metafile:true,format:"esm",platform:"browser"});
-  assert.equal(Object.keys(bundle.metafile.inputs).some(p=>p.endsWith("/gmail.js")),false);assert.equal(bundle.outputFiles[0].text.includes("oauth2.googleapis.com/token"),false);
+  assert.equal(Object.keys(bundle.metafile.inputs).some(p=>p.endsWith("/gmail.js")),false);
+  const mail=await build({entryPoints:["src/lib/mail-relay.js"],bundle:true,write:false,format:"esm",platform:"browser"});
+  assert.equal(mail.outputFiles[0].text.includes("oauth2.googleapis.com/token"),false);
 });
 
 test("Google registration works without any relay/OAuth sender config and consumes no mail quota",async()=>{

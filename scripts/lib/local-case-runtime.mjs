@@ -8,7 +8,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, providerOptions } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
@@ -26,6 +26,9 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       AUTH_TOTP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     },
     outboundService: async request => {
+      if (backupService && ['oauth2.googleapis.com','www.googleapis.com'].includes(new URL(request.url).hostname)) {
+        const mocked = await backupService(request); if (mocked) return mocked;
+      }
       const response = await provider.fetch(request);
       if (response) return response;
       if (request.url !== "https://challenges.cloudflare.com/turnstile/v0/siteverify") {
@@ -39,6 +42,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     let db = await runtime.getD1Database("DB"), bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
     const migrations = new URL("../../migrations/", import.meta.url);
     for (const name of (await readdir(migrations)).filter(name => /^\d+_.+\.sql$/.test(name)).sort()) {
+      if (migrationThrough && name > migrationThrough) break;
       const migration = await readFile(new URL(name, migrations), "utf8");
       // Static checked-in schema only; no user input or SQL interpolation.
       // Wrangler's splitter preserves trigger BEGIN/END bodies and SQL quotes.

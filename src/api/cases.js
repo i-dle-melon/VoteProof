@@ -9,6 +9,7 @@ import { AuthError } from "./auth-validation.js";
 import { memberSession, memberCsrf } from "../lib/auth-session.js";
 import { requireCaseCampaign } from "../lib/campaign-policy.js";
 import { requireSubmissionsEnabled, SubmissionError } from "../lib/submission-gate.js";
+import { ensureCaseBackups } from "../lib/proof-backup-store.js";
 
 const errorResponse = error => error instanceof CaseError || error instanceof AuthError || error instanceof SubmissionError
   ? jsonError(error.status, error.code, error.message)
@@ -43,6 +44,7 @@ export async function createCase(env, _url, request) {
     await insertCase(db, input, { id, caseId, now: new Date().toISOString(), queryHash,
       idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null }, files, completed.hash);
     committed = true;
+    await ensureCaseBackups(env, id);
     await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {

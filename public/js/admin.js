@@ -1,6 +1,7 @@
 import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage } from "./admin-api.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
+import { backupText, backupLink } from "./admin-backup.js";
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -8,6 +9,7 @@ const copy = id => {
   return label.textContent.trim() + (label.dataset.copySuffix ?? "");
 };
 const node = (tag, text = "", cls) => { const n = document.createElement(tag); n.textContent = text; if (cls) n.className = cls; return n; };
+const { labels: backupLabels, errors: backupErrors } = backupText(copy);
 const statusNames = { pending: copy("admin-copy-001"), approved: copy("admin-copy-002"), completed: copy("admin-copy-003"), rejected: copy("admin-copy-004"), duplicate: copy("admin-copy-005"), revoked: copy("admin-copy-006"), draft: copy("admin-copy-007"), active: copy("admin-copy-008"), closed: copy("admin-copy-009"), archived: copy("admin-copy-010"), disabled: copy("admin-copy-011") };
 const reviewNames = { approve: copy("admin-copy-012"), reject: copy("admin-copy-013"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016") };
 const stamp = value => { const d = new Date(value); return Number.isFinite(d.valueOf()) ? d.toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false }) : "—"; };
@@ -109,6 +111,7 @@ export function adminUI(session) {
   }
   async function cases() {
     heading(copy("admin-copy-017"), copy("admin-copy-032"));
+    if (management(access.actor)) await backupOverview();
     const filters = node("form", "", "admin-filter"), params = new URLSearchParams();
     const status = field(filters, "filter-status", copy("admin-copy-033"), "select", "", { choices: [["", copy("admin-copy-034")], ...["pending", "approved", "completed", "rejected", "duplicate", "revoked"].map(k => [k, statusNames[k]])] });
     const campaign = field(filters, "filter-campaign", copy("admin-copy-035"), "text", "", { maxLength: 100 });
@@ -128,11 +131,58 @@ export function adminUI(session) {
       void run(loadFiltered);
     }); await loadFiltered();
   }
+  async function backupOverview() {
+    const box = node('section', '', 'member-case'); $('admin-panel').append(box);
+    box.append(node('h3', copy('backup-title')));
+    try {
+      const data = await request('backups');
+      box.append(node('p', Object.entries(backupLabels).map(([key, label]) => label + '：' + data.counts[key]).join(' · ')));
+      if (!data.enabled) box.append(node('p', copy('backup-off'), 'tiny'));
+      if (data.blocked_error_code) box.append(node('p', backupErrors[data.blocked_error_code] ?? backupErrors.INTERNAL, 'notice warn'));
+      box.append(node('p', copy('backup-missing') + '：' + data.missing));
+      // A bounded dry run first; enqueue requires a separate explicit confirmation.
+      if (data.missing) box.append(button(copy('backup-check'), () => void run(async () => {
+        const preview = await mutate('backups/backfill', { dry_run: true, limit: 25 });
+        box.append(node('p', copy('backup-check-summary').replaceAll('{scanned}',preview.scanned).replaceAll('{ready}',preview.ready.length).replaceAll('{missing}',preview.missing.length).replaceAll('{changed}',preview.changed.length)));
+        if (preview.ready.length) box.append(button(copy('backup-enqueue'), () => void run(async () => {
+          if (!window.confirm(copy('backup-enqueue-confirm'))) return;
+          await mutate('backups/backfill', { dry_run: false, file_ids: preview.ready }); await load();
+        })));
+      })));
+      for (const audit of data.audit ?? []) box.append(node('p', copy(audit.action === 'retry' ? 'backup-retry' : 'backup-enqueue') + ` · ${audit.affected_count} · ` + stamp(audit.created_at * 1000), 'tiny'));
+    } catch (error) {
+      if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
+      box.append(node('p', copy('backup-unavailable'), 'tiny'));
+    }
+  }
   async function caseDetail(id) {
     if (busy) return; clearPanel();
     await run(async current => {
       const data = await request("cases/" + encodeURIComponent(id)); if (!current()) return;
       heading(copy("admin-copy-017")); $("admin-panel").append(button(copy("admin-copy-040"), () => void load()), detailFields(data, [[copy("admin-copy-041"), data.case_id], [copy("admin-copy-042"), data.nickname], [copy("admin-copy-043"), data.player_id], [copy("admin-copy-044"), data.campaign_id], [copy("admin-copy-045"), data.vote_date], [copy("admin-copy-046"), data.vote_type], [copy("admin-copy-047"), stamp(data.created_at)], [copy("admin-copy-048"), statusNames[data.status]], [copy("admin-copy-049"), data.status_reason], [copy("admin-copy-050"), data.note], [copy("admin-copy-051"), data.points_awarded]]));
+      const backupBox = node('section', '', 'member-case'); backupBox.append(node('h3', copy('backup-title'))); $('admin-panel').append(backupBox);
+      try {
+        const backups = await request('cases/' + encodeURIComponent(id) + '/backups');
+        if (!backups.backups.length) backupBox.append(node('p', copy('backup-missing')));
+        for (const item of backups.backups) {
+          backupBox.append(node('p', backupLabels[item.status] ?? copy('backup-unknown')));
+          if (item.status === 'confirmed') {
+            backupBox.append(node('p', stamp(item.completed_at * 1000)));
+            const href = backupLink(item.drive_file_id);
+            if (href) { const a = node('a', copy('backup-open')); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; backupBox.append(a); }
+          }
+          if (item.status === 'failed') {
+            backupBox.append(node('p', backupErrors[item.last_error_code] ?? backupErrors.INTERNAL));
+            if (management(access.actor)) backupBox.append(button(copy('backup-retry'), () => void run(async () => {
+              if (!window.confirm(copy('backup-retry-confirm'))) return;
+              await mutate('backups/' + item.id + '/retry', { expected_version: item.version }); await load();
+            })));
+          }
+        }
+      } catch (error) {
+        if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
+        backupBox.append(node('p', copy('backup-proof-unavailable')));
+      }
       const preview = node("div", "", "admin-proof-grid"); $("admin-panel").append(preview);
       for (const [index, file] of data.files.entries()) {
         const card = node("article", "", "member-case"), loadProof = button(copy("admin-copy-052") + (index + 1), () => void run(async stillCurrent => {

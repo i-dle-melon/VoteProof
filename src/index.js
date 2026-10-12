@@ -1,6 +1,11 @@
 import { routeApi } from "./api/router.js";
+import { processBackups } from "./lib/proof-backup-processor.js";
 
 export default {
+  async scheduled(_event, env, ctx) {
+    // No trigger is configured by this change; activation is a separate rollout.
+    ctx.waitUntil(processBackups(env));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
 

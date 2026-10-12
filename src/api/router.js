@@ -9,6 +9,7 @@ import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel,
 import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
 import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
+import { backupAdminRoute } from "./admin-backups.js";
 import { campaignRoute } from "./admin-campaigns.js";
 import { pointRoute } from "./points.js";
 import { leaderboardRoute } from "./admin-leaderboards.js";
@@ -94,6 +95,7 @@ export async function routeApi(request, env, url) {
     (/^\/api\/auth\/trusted-devices\/[^/]+\/revoke$/.test(url.pathname)
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??
+    backupAdminRoute(url.pathname) ??
     adminRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??
     pointRoute(url.pathname) ??

@@ -10,7 +10,7 @@ test('0008 to 0009 preserves populated campaigns, ledger, published snapshot, au
   const member='M-'+randomUUID(),session=randomUUID(),caseId=randomUUID(),transaction=randomUUID(),run=randomUUID(),audit=randomUUID();
   const tables=['members','campaigns','cases','completed_uploads','point_transactions','leaderboards','leaderboard_runs','leaderboard_results','admin_audit_logs','member_tiers','submission_settings'];
   const oldRows={}; let oldSchema;
-  const local=await localCaseRuntime({seedCampaign:false,submissionsEnabled:false,migrationHook:async(db,name)=>{
+  const local=await localCaseRuntime({migrationThrough:'0009_campaign_unlimited_daily_limit.sql',seedCampaign:false,submissionsEnabled:false,migrationHook:async(db,name)=>{
     if(name!=='0008_submission_gate.sql')return;
     const now=new Date().toISOString();
     await db.prepare(`INSERT INTO members(id,member_id,login_name,nickname,status,created_at,updated_at,last_login_at)

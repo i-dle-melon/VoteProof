@@ -2,7 +2,6 @@ import { MemberSession, emailValue, passwordValue, codeValue, authMessage } from
 import { PublicError } from "./api.js";
 import { Challenge } from "./turnstile.js";
 import { drawEnrollment, clearEnrollment, enrollmentKey } from "./qr.js";
-import { renderTierArtwork } from "./tier-artwork.js";
 
 const $ = id => document.getElementById(id);
 const element = (tag, text, className) => {
@@ -52,8 +51,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       profileSnapshot = null; memberEpoch++; $("member-id").textContent = ""; for (const id of ["member-avatar", "member-profile-name", "member-profile-player"]) $(id).textContent = ""; $("profile-form").reset();
       $("member-cases").replaceChildren(); $("member-case-fields").replaceChildren();
       $("member-case-detail").hidden = true; $("points-content").hidden = true;
-      for (const id of ["member-points", "member-tier", "tier-message", "tier-gap"]) $(id).textContent = "";
-      $("member-tier-artwork").replaceChildren();
+      $("member-points").textContent = "";
     }
     syncLogin();
     changed(member);
@@ -528,12 +526,8 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       const data = await session.request("/api/me/points");
       if (!sameMember(owner, sequence)) return;
       $("member-record-total").textContent = Number(data.total_points).toLocaleString("zh-TW");
-      $("member-points").textContent = String(data.total_points); $("member-tier").textContent = data.tier.name;
-      renderTierArtwork($("member-tier-artwork"), data.tier.tier_id);
-      $("tier-message").textContent = !data.tier_configuration_ready ? "目前開放普通等級，其他等級尚未開放。" : data.next_tier ? `下一等級：${data.next_tier.name}` : data.tier.tier_id === "normal" ? "目前開放普通等級，其他等級尚未開放。" : "已達目前最高開放等級";
-      $("tier-next").hidden = !data.tier_configuration_ready || !data.next_tier;
-      $("tier-gap").textContent = data.next_tier ? `還差 ${data.points_to_next_tier} 點` : "";
-      $("tier-progress").value = data.tier_progress; $("points-status").textContent = ""; $("points-content").hidden = false;
+      $("member-points").textContent = String(data.total_points);
+      $("points-status").textContent = ""; $("points-content").hidden = false;
     } catch (error) { if (sameMember(owner, sequence)) $("points-status").textContent = authMessage(error); }
     finally { await cases; $("member-refresh").disabled = false; }
   }

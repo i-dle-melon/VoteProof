@@ -1016,34 +1016,6 @@
     "tag": "strong",
     "attributes": {}
   },
-  "member-tier-artwork": {
-    "tag": "div",
-    "attributes": {}
-  },
-  "member-tier": {
-    "tag": "strong",
-    "attributes": {}
-  },
-  "tier-message": {
-    "tag": "p",
-    "attributes": {}
-  },
-  "tier-next": {
-    "tag": "div",
-    "attributes": {
-      "hidden": ""
-    }
-  },
-  "tier-gap": {
-    "tag": "p",
-    "attributes": {}
-  },
-  "tier-progress": {
-    "tag": "progress",
-    "attributes": {
-      "max": "100"
-    }
-  },
   "member-refresh": {
     "tag": "button",
     "attributes": {

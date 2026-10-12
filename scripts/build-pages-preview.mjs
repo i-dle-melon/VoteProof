@@ -2,7 +2,6 @@
 import { cp, mkdir, readFile, writeFile, readdir, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { TIER_ARTWORK } from "../public/js/tier-artwork.js";
 
 // Remove whole balanced elements, including nested sections. Fail the build if
 // an operator accidentally renames a boundary; never publish the private view.
@@ -44,7 +43,7 @@ export async function buildPagesPreview(output) {
   await mkdir(allowed, { recursive: true });
   // Explicit file allowlist: stale protected JS from an earlier artifact cannot
   // survive a rebuild. Only files under this fixed generated directory removed.
-  const files = ["index.html", "css/app.css", "js/app.js", "js/api.js", "js/submission.js", "js/turnstile.js", "js/preview.js", "js/preview-fixtures.js", "js/tier-artwork.js", ...Object.values(TIER_ARTWORK).map(a => a.src.slice(1))];
+  const files = ["index.html", "css/app.css", "js/app.js", "js/api.js", "js/submission.js", "js/turnstile.js", "js/preview.js", "js/preview-fixtures.js"];
   async function discardStale(folder) {
     for (const entry of await readdir(folder, { withFileTypes: true })) {
       const file = resolve(folder, entry.name);
@@ -67,10 +66,6 @@ export async function buildPagesPreview(output) {
   html = removeMatchingElements(html, /^<button\b[^>]*data-preview-scene="(?:admin|member)"/);
   html = removeMatchingElements(html, /^<a\b[^>]*href="#security"/);
   html = html.replace(/href="#(?:member|register|recover|google)"/g, 'href="#login"').replace(/data-view="member"/g, 'data-view="login"');
-  const gallery = `<section id="preview-tier-artwork"><h2>等級圖案預覽</h2><p>僅供外觀檢視，不代表已開放等級。</p><div class="grid grid-2">${Object.values(TIER_ARTWORK).map(a => `<article class="card tier-card"><div class="tier-artwork"><img class="approved-tier-artwork" src=".${a.src}" alt="${a.name}等級" width="${a.width}" height="${a.height}" loading="lazy"></div><h3>${a.name}</h3></article>`).join("")}</div></section>`;
-  const about = elementRange(html, opening => /\bid="view-about"/.test(opening));
-  if (!about) throw new Error("Required public artwork container missing");
-  html = html.slice(0, about.close) + gallery + html.slice(about.close);
   let app = await readFile(resolve(allowed, "js/app.js"), "utf8");
   for (const module of ["admin", "member", "member-api"]) app = replaceRequired(app, `from "./${module}.js"`, 'from "./pages-public-ui.js"');
   app = replaceRequired(app, '["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"]', '["home", "submit", "lookup", "leaderboards", "about", "login"]');

@@ -154,18 +154,19 @@ test("invalid recovery remains generic at finish without falsely asserting verif
   await page.locator("#recover-password").fill(state.password); await page.locator("#recover-confirm").fill(state.password);
   await clickSubmit(page, "recover-password-form"); await expect(page.locator("#recover-error")).toContainText("驗證未完成"); await expect(page.locator("#recover-success")).toBeHidden();
 });
-test("logged-in center displays safe profile, points/tier/gap/progress and owner cases", async ({ page }) => {
+test("logged-in center displays safe profile, points and owner cases without tier information", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#member");
-  await expect(page.locator("#member-points")).toHaveText("123"); await expect(page.locator("#member-tier")).toHaveText("青銅");
-  await expect(page.locator("#tier-gap")).toContainText("77"); await expect(page.locator("#tier-progress")).toHaveAttribute("value", "23");
+  await expect(page.locator("#member-points")).toHaveText("123");
+  await expect(page.locator("#member-tier, #tier-gap, #tier-progress, #member-tier-artwork")).toHaveCount(0);
   await page.locator("#member-cases button").click(); await expect(page.locator("#member-case-detail")).toContainText("已通過");
   expect((await page.locator("#member-content").innerText()).includes("private")).toBe(false);
   await page.locator("#member-cases-more").click(); await expect(page.locator("#member-cases-more")).toBeHidden();
   expect(state.calls.filter(call => call.path === "/api/me/points")).toHaveLength(1);
 });
-test("unconfigured tier shows honest fallback without invented thresholds", async ({ page }) => {
+test("unconfigured tiers do not affect member points or expose tier information", async ({ page }) => {
   await memberFixture(page, { authenticated: true, unconfigured: true }); await page.goto("/#member");
-  await expect(page.locator("#tier-message")).toHaveText("目前開放普通等級，其他等級尚未開放。"); await expect(page.locator("#tier-next")).toBeHidden();
+  await expect(page.locator("#member-points")).toHaveText("123");
+  await expect(page.locator("#member-content")).not.toContainText("等級");
 });
 test("profile mutation uses CSRF, validates fields and only sends nickname/player_id", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#member"); await expect(page.locator("#member-content")).toBeVisible();

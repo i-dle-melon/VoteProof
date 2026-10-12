@@ -1017,7 +1017,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
           </section>
 
           <!-- =========================================================
-     MEMBER CENTER · 會員中心／我的案件／點數與等級
+     MEMBER CENTER · 會員中心／我的案件／點數
      ✅ 可修改：中文、標題、說明、樣式 class；完整卡片僅在同一授權容器內移動。
      ⚠️ DO NOT CHANGE：id / data-* / name / type / required / hidden / aria-*。
      API 動態容器請保持原狀；不要填入固定活動、分數或身份。
@@ -1078,18 +1078,10 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   <button class="btn btn-primary" type="submit" id="profile-save">保存資料</button>
                 </form>
                 <article class="card form-card">
-                  <h2>點數與會員等級</h2>
+                  <h2>我的點數</h2>
                   <p id="points-status" role="status" aria-live="polite">正在載入…</p>
                   <div id="points-content" hidden>
                     <p>目前點數 <strong class="point-total" id="member-points"></strong></p>
-                    <div class="tier-artwork" id="member-tier-artwork"></div>
-                    <p>目前等級：<strong id="member-tier"></strong></p>
-                    <p id="tier-message"></p>
-                    <div id="tier-next" hidden>
-                      <p id="tier-gap"></p>
-                      <label for="tier-progress">等級進度</label
-                      ><progress id="tier-progress" max="100" value="0"></progress>
-                    </div>
                   </div>
                   <button class="btn btn-white" type="button" id="member-refresh">重新載入</button>
                 </article>
@@ -1198,7 +1190,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
           >
             <div class="page-head">
               <h1 data-view-title id="security-title" tabindex="-1">登入與安全</h1>
-              <p class="sub">新增登入方式會保留同一會員的資料、點數、等級與案件。</p>
+              <p class="sub">新增登入方式會保留同一會員的資料、點數與案件。</p>
             </div>
             <div class="card form-card">
               <p class="error" id="security-error" role="alert"></p>

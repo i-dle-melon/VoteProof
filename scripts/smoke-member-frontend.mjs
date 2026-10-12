@@ -65,7 +65,7 @@ try {
   assert.equal(await page.evaluate(() => document.cookie.includes("__Host-vp-session")), false);
   assert.equal(await page.locator("#enrollment-key").textContent(), "");
   await page.locator("#recovery-ack").check(); await page.locator("#registration-done").click(); await page.locator("#register-success a").click(); await page.locator("#points-content").waitFor();
-  assert.equal(await page.locator("#member-points").textContent(), "0"); assert.equal(await page.locator("#tier-message").textContent(), "目前開放普通等級，其他等級尚未開放。");
+  assert.equal(await page.locator("#member-points").textContent(), "0"); assert.equal(await page.locator("#member-tier, #member-tier-artwork, #tier-message").count(), 0);
   await page.locator("#profile-nickname").fill("本機會員驗收"); await page.locator("#profile-player").fill("local-player"); await submit("profile-form");
   await page.locator("#profile-status").filter({ hasText: "已保存" }).waitFor();
   await page.goto(origin + "/#submit"); await page.waitForFunction(() =>

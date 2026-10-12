@@ -16,6 +16,9 @@ test('Pages artifact contains public source only, no operational runtime or iden
   const out = await buildPagesPreview(resolve('.wrangler/pages-preview'));
   const html = await readFile(resolve(out,'index.html'), 'utf8');
   assert.doesNotMatch(html, /id="(?:view-(?:admin|security|member|register|recover|google)|admin-ui-copy|login-totp-form)"|data-preview-scene="(?:admin|member)"/);
+  assert.doesNotMatch(html, /preview-tier-artwork|approved-tier-artwork|assets\/tiers\//);
+  await assert.rejects(readFile(resolve(out, 'js/tier-artwork.js')));
+  await assert.rejects(readFile(resolve(out, 'assets/tiers/normal.webp')));
   assert.match(html, /UI PREVIEW · 非正式網站/);
   assert.match(html, /connect-src 'none'/);
   const js = await readdir(resolve(out,'js'));

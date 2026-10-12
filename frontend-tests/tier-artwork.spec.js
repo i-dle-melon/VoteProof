@@ -7,13 +7,15 @@ const points = (tier_id, name) => ({ total_points: 123, tier: { tier_id, name },
 const setTier = (page, id, name) => page.route("**/api/me/points", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: points(id, name) }) }));
 const decoded = images => images.evaluateAll(rows => rows.every(img => img.complete && img.naturalWidth === Number(img.getAttribute("width")) && img.naturalHeight === Number(img.getAttribute("height"))));
 
-for (const [id, art] of Object.entries(TIER_ARTWORK)) test(`member ${id} uses real API tier and approved artwork`, async ({ page }) => {
-  await memberFixture(page, { authenticated: true }); await setTier(page, id, art.name); await page.goto("/#member");
-  await expect(page.locator("#member-tier")).toHaveText(art.name);
-  await expect(page.locator("#member-tier").locator("..")).toHaveText("目前等級：" + art.name);
-  const image = page.locator("#member-tier-artwork img"); await expect(image).toHaveAttribute("src", art.src);
-  await expect.poll(() => decoded(image)).toBe(true); await expect(image).toHaveAttribute("alt", ""); await expect(image).toHaveAttribute("aria-hidden", "true");
+for (const [id, art] of Object.entries(TIER_ARTWORK)) test(`member ${id} sees points without tier information or artwork`, async ({ page }) => {
+  const loaded = []; page.on('request', request => loaded.push(request.url()));
+  await memberFixture(page, { authenticated: true }); await setTier(page, id, art.name); await page.goto('/#member');
+  await expect(page.locator('#member-points')).toHaveText('123');
+  await expect(page.locator('#member-content')).not.toContainText('等級');
+  await expect(page.locator('#member-tier, #member-tier-artwork, .approved-tier-artwork')).toHaveCount(0);
+  expect(loaded.some(url => url.includes('/assets/tiers/'))).toBe(false);
 });
+
 test("all eight admin artworks retain disabled labels and fit themes and small screens", async ({ page }) => {
   const state = await adminFixture(page); const violations = [];
   await page.addInitScript(() => { globalThis.__tierCsp = []; document.addEventListener("securitypolicyviolation", e => globalThis.__tierCsp.push(e.effectiveDirective)); });
@@ -39,23 +41,24 @@ test("all eight admin artworks retain disabled labels and fit themes and small s
   expect(await page.evaluate(() => globalThis.__tierCsp)).toEqual(violations); expect(state.calls.some(c => c.method === "POST")).toBe(false);
   expect(state.tiers.filter(t => t.min_points === null)).toHaveLength(7);
 });
-test("unknown member tier and missing artwork keep real text without an invented normal badge", async ({ page }) => {
-  await memberFixture(page, { authenticated: true }); await setTier(page, "unknown", "等級資訊待確認"); await page.goto("/#member");
-  await expect(page.locator("#member-tier")).toHaveText("等級資訊待確認"); await expect(page.locator("#member-tier-artwork img")).toHaveCount(0);
-  await setTier(page, "bronze", "青銅"); await page.route("**/assets/tiers/bronze.webp", route => route.abort()); await page.reload();
-  await expect(page.locator("#member-tier")).toHaveText("青銅"); await expect(page.locator("#member-tier-artwork img")).toHaveCount(0);
+test('unknown tier metadata does not affect points or expose a member badge', async ({ page }) => {
+  await memberFixture(page, { authenticated: true }); await setTier(page, 'unknown', '等級資訊待確認'); await page.goto('/#member');
+  await expect(page.locator('#member-points')).toHaveText('123');
+  await expect(page.locator('#member-content')).not.toContainText('等級');
+  await expect(page.locator('.approved-tier-artwork')).toHaveCount(0);
 });
-test("member artwork fits dark/light 320/390/430 and standalone image has descriptive alt", async ({ page }) => {
-  await memberFixture(page, { authenticated: true }); await setTier(page, "stellar", "星耀"); await page.goto("/#member");
-  await expect.poll(() => decoded(page.locator("#member-tier-artwork img"))).toBe(true);
-  for (const width of [1440, 320, 390, 430]) for (const theme of ["dark", "light"]) {
+
+test('member points fit dark/light 320/390/430 without tier information', async ({ page }) => {
+  await memberFixture(page, { authenticated: true }); await setTier(page, 'stellar', '星耀'); await page.goto('/#member');
+  await expect(page.locator('#member-points')).toHaveText('123');
+  for (const width of [1440, 320, 390, 430]) for (const theme of ['dark', 'light']) {
     await page.setViewportSize({ width, height: 560 });
-    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").evaluate(button => button.click());
+    if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').evaluate(button => button.click());
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.locator('#member-content')).not.toContainText('等級');
   }
-  const alt = await page.evaluate(async () => { const { renderTierArtwork } = await import("/js/tier-artwork.js"); const host = document.createElement("div"); renderTierArtwork(host, "stellar", { adjacentText: false }); return host.firstChild.alt; });
-  expect(alt).toBe("星耀等級");
 });
+
 test("leaderboard without tier metadata does not infer artwork or fetch member tiers", async ({ page }) => {
   const state = await memberFixture(page);
   const leaderboard = { leaderboard_id: "LOCAL-ART-BOARD", name: "本機排行榜", generated_at: new Date().toISOString(), rankings: [{ rank: 1, member_id: "LOCAL-MEMBER", nickname: "本機會員", points: 123, proof_count: 1 }] };

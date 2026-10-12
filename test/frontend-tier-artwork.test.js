@@ -27,3 +27,13 @@ test("all approved tier files are native-size lossless WebP, not upscaled placeh
 test("unknown or prototype-shaped tier IDs never select another member tier", () => {
   for (const value of [null, undefined, {}, "", "NORMAL", "unconfigured", "__proto__", "constructor", "toString"]) assert.equal(tierArtwork(value), null);
 });
+
+test("tier display is confined to admin UI while members retain real points", async () => {
+  const html = await readFile("public/index.html", "utf8");
+  const member = await readFile("public/js/member.js", "utf8");
+  const admin = await readFile("public/js/admin.js", "utf8");
+  assert.doesNotMatch(html, /id="(?:member-tier(?:-artwork)?|tier-message|tier-next|tier-gap|tier-progress)"/);
+  assert.doesNotMatch(member, /renderTierArtwork|data\.tier|data\.next_tier|points_to_next_tier/);
+  assert.match(member, /String\(data\.total_points\)/);
+  assert.match(admin, /renderTierArtwork\(artwork, row\.tier_id\)/);
+});

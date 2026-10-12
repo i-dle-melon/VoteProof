@@ -79,7 +79,7 @@ test("operator can change HTML admin copy and nest view panels without editing l
   await page.goto("/#leaderboards"); await expect(page.locator("#view-leaderboards")).toBeVisible(); await expect(page.locator("#view-admin")).toBeHidden();
   expect(state.calls.filter(call => call.method === "POST")).toHaveLength(0);
 });
-for (const width of [320, 390, 430, 1440]) test(`preview layouts fit ${width}px in dark/light including all tier artwork`, async ({ page }, testInfo) => {
+for (const width of [320, 390, 430, 1440]) test(`preview layouts fit ${width}px in dark/light without public tier information`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 844 });
   await page.goto(preview); await expect(page.locator("#view-home")).toBeVisible();
   await expect(page.locator('.app-shell > .sidebar > nav')).toHaveCount(1);
@@ -98,20 +98,7 @@ for (const width of [320, 390, 430, 1440]) test(`preview layouts fit ${width}px 
       if (width > 980) {
         expect(await page.locator('.sidebar .brand').evaluate(brand => brand.getBoundingClientRect().top)).toBeGreaterThanOrEqual(await page.locator('#ui-preview-banner').evaluate(banner => banner.getBoundingClientRect().bottom));
       }
-      if (view !== 'about') await expect(page.locator('#preview-tier-artwork')).toBeHidden();
-      if (view === "about") {
-        await expect(page.locator('#view-about #preview-tier-artwork')).toBeVisible();
-        await expect(page.locator("#preview-tier-artwork img")).toHaveCount(8);
-        expect(await page.locator("#preview-tier-artwork img").evaluateAll(images => images.every(image => image.src.includes("/VoteProof/assets/tiers/")))).toBe(true);
-        expect(await page.locator("#preview-tier-artwork img").evaluateAll(async images => {
-          // Explicitly load offscreen artwork; lazy images otherwise never
-          // start decoding until the operator scrolls to them.
-          images.forEach(image => { image.loading = "eager"; });
-          await Promise.all(images.map(image => image.decode()));
-          return images.every(image => image.complete && image.naturalWidth > 0);
-        })).toBe(true);
-        expect(await page.locator('#preview-tier-artwork img').evaluateAll(images => images.every(image => image.getBoundingClientRect().width <= 220))).toBe(true);
-      }
+      await expect(page.locator('#preview-tier-artwork, .approved-tier-artwork, #member-tier')).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
     for (const view of ['home', 'submit', 'login', 'about']) {

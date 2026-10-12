@@ -66,6 +66,18 @@ test("MFA expiry closes admin authority without extending auth", async () => {
   session.accept(me); const access = new AdminAccess(session, () => {}); await access.check();
   await new Promise(resolve => setTimeout(resolve, 140)); assert.equal(access.actor, null); session.clear();
 });
+
+test("30-day admin MFA timer reschedules instead of closing at the timer maximum", async t => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
+  const me = identity(); me.elevated_until = Date.now() / 1000 + 30 * 86400;
+  const access = new AdminAccess({ member: me.member, refresh: async () => me,
+    adminRequest: async () => ({ member_id: me.member.member_id, role: "admin" }) }, () => {});
+  await access.check();
+  t.mock.timers.tick(2147483647); assert.equal(access.actor.role, "admin");
+  t.mock.timers.tick(30 * 86400000 - 2147483647 - 1); assert.equal(access.actor.role, "admin");
+  t.mock.timers.tick(1); assert.equal(access.actor, null);
+  access.clear();
+});
 test("private proof transport rejects HTML/SVG/oversize and uses protected stream", async () => {
   const path = "/api/admin/cases/VP-20261009-" + "A".repeat(16) + "/files/" + randomUUID();
   for (const type of ["text/html", "image/svg+xml"]) {

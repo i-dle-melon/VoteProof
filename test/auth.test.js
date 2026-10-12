@@ -1094,7 +1094,7 @@ test("all B5 mutations and reads require recent MFA for reviewers/admins/super_a
     await h.local.runtime.dispose();
   }
 });
-test("real member TOTP step-up enables admin role but expires independently of long session", async () => {
+test("real admin TOTP step-up lasts for its session; expired legacy elevation still fails closed", async () => {
   const m = await login(local),
     now = new Date().toISOString();
   await local.db
@@ -1127,6 +1127,9 @@ test("real member TOTP step-up enables admin role but expires independently of l
     (await local.fetch("/api/admin/cases", "GET", undefined, m.headers)).status,
     200,
   );
+  const session = await local.db.prepare("SELECT expires_at,elevated_until,reauthenticated_until FROM auth_sessions WHERE member_id=? AND revoked_at IS NULL").bind(m.member.member_id).first();
+  assert.equal(session.elevated_until, session.expires_at);
+  assert.ok(session.reauthenticated_until < session.elevated_until);
   await local.db
     .prepare("UPDATE auth_sessions SET elevated_until=? WHERE member_id=?")
     .bind(Math.floor(Date.now() / 1000) - 1, m.member.member_id)

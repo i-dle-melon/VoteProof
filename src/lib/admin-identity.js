@@ -1,5 +1,5 @@
-// Provider-neutral boundary: verified identity, CSRF and recent MFA.
-// Authentication provider stays behind the session boundary; recent MFA is required.
+// Provider-neutral boundary: verified identity, CSRF and valid MFA elevation.
+// Admin elevation lasts for its verified session; reviewer elevation is time-limited.
 import { memberSession, memberCsrf, authDatabase } from "./auth-session.js";
 
 export class AdminError extends Error {

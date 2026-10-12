@@ -53,9 +53,15 @@ export class AdminAccess {
       this.actor = Object.freeze({ member_id: owner, role: actor.role });
       clearTimeout(this.timer);
       if (Number.isFinite(current.elevated_until)) {
-        const remaining = current.elevated_until * 1000 - Date.now();
-        if (remaining <= 0) throw new PublicError("ADMIN_STEP_UP_REQUIRED");
-        this.timer = setTimeout(() => this.clear(), Math.min(remaining, 2147483647)); this.timer?.unref?.();
+        const deadline = current.elevated_until * 1000;
+        if (deadline <= Date.now()) throw new PublicError("ADMIN_STEP_UP_REQUIRED");
+        const expire = () => {
+          if (epoch !== this.epoch) return;
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) { this.clear(); return; }
+          this.timer = setTimeout(expire, Math.min(remaining, 2147483647)); this.timer?.unref?.();
+        };
+        expire();
       }
       this.changed(this.actor); return this.actor;
     } catch (error) { if (epoch === this.epoch) this.clear(); throw error; }

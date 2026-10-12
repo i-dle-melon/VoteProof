@@ -1,5 +1,6 @@
 import { verifyMemberPassword } from "../lib/auth-identity.js";
 import { updatePassword } from "../lib/password-operation.js";
+import { commitMfaStepUp } from "../lib/auth-elevation.js";
 import { authContext } from "./auth.js";
 import { jsonSuccess } from "./response.js";
 import {
@@ -81,29 +82,19 @@ export const stepUp = authHandler(async (env, _url, request) => {
     throw invalidVerification();
   const step = await totpStep(record, member.member_id, body.code, env),
     now = authNow();
-  await authAtomic(
+  const elevation = await commitMfaStepUp(
     db,
+    member,
+    now,
     [
       activeSessionGuard(member),
       totpGuard(member.member_id, record.version, step),
     ],
     [
       advanceTotp(db, member.member_id, step),
-      db
-        .prepare(
-          "UPDATE auth_sessions SET elevated_until=?,reauthenticated_until=? WHERE token_hash=?",
-        )
-        .bind(
-          now + AUTH_LIMITS.elevationSeconds,
-          now + AUTH_LIMITS.securitySeconds,
-          member.tokenHash,
-        ),
     ],
   );
-  return jsonSuccess({
-    elevated_until: now + AUTH_LIMITS.elevationSeconds,
-    reauthenticated_until: now + AUTH_LIMITS.securitySeconds,
-  });
+  return jsonSuccess(elevation);
 });
 export const passwordChangeStart = authHandler(async (env, _url, request) => {
   const { member, db } = await securityContext(request, env); await emptyBody(request);

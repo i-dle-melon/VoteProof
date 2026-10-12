@@ -91,12 +91,13 @@ AES-GCM random12-byteIV + authenticatedtag，AAD綁member_id/keyversion，cipher
 | remember_me | 30天 absolute；無sliding forever |
 | trusted device | 30天 absolute；獨立token，password仍必要；最多100個live devices，新trust自動撤銷過期/最舊超額記錄 |
 | auth transaction | 10分鐘，browser-bound，最多5次attempt，one-time |
-| admin elevation | 1小時，TOTP login/enrollment或password+TOTP step-up取得；trusted password-only login為0 |
+| admin / super_admin elevation | 實際 session 到期前有效；經 TOTP login、password+TOTP 或 Google+TOTP step-up 取得；trusted password-only / Google login 本身為0 |
+| reviewer / ordinary member elevation | 最多1小時且不超過 session 到期；Google TOTP enrollment 本身不授予 elevation |
 | high-risk security reauth | 5分鐘，password change/codes/device revoke/TOTP reset使用；非30天session自動授權 |
 
 Cookies：`__Host-vp-session`、`__Host-vp-login`、`__Host-voteproof_device`，HttpOnly/Secure/SameSite=Lax/Path=/，無Domain。不放localStorage、URL或JSON bearer token。Session登入時旋轉並撤銷browser前一session；trust與remember獨立。
 
-所有admin endpoints（含read/privateproof）在`adminIdentity`要求角色+active member+session+recent MFA；reviewer也適用。所有B5mutation D1 authorization guard再次驗session/角色/expiry/elevated_until，避免stale actor寫入。角色不因tier或trusted device取得。
+所有admin endpoints（含read/privateproof）在`adminIdentity`要求角色+active member+有效 session+MFA。active admin / super_admin 在該 session 完成 TOTP 後，elevated_until 等於 session expires_at；登出、撤銷、到期或重新登入仍需重新驗證。reviewer / 普通會員維持 1 小時 elevation。Google 登入、TOTP 註冊與 trusted-device 登入本身不授予管理 elevation。安全設定仍使用獨立 5 分鐘 reauthenticated_until。所有B5mutation D1 authorization guard再次驗session/角色/expiry/elevated_until，避免stale actor寫入。角色不因tier或trusted device取得。舊 session 不自動延長，需透過既有 step-up 完成一次真實驗證。
 Suspended login與一般badcredentials同401；已登入member/admin API 403 MEMBER_SUSPENDED，trust不繞過。Guest無cookie流程、query-key查詢仍保持；Member案件ownership/idempotency仍用server member_id，query credential仍向後相容。
 
 ## Atomicity, rate limits and retention

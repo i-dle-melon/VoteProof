@@ -39,6 +39,25 @@ test("privileged role recheck on foreground preserves unsaved profile fields", a
   await expect.poll(() => state.calls.filter(c => c.path === "/api/admin/me").length).toBeGreaterThan(before);
   await expect(page.locator("#profile-nickname")).toHaveValue("尚未送出的暱稱"); await expect(page.locator("#profile-player")).toHaveValue("draft-player");
 });
+
+test("session-bound admin MFA remains available beyond one hour and revocation still closes it", async ({ page }) => {
+  const now = Date.now(), state = await adminFixture(page);
+  state.elevationUntil = now / 1000 + 7 * 86400;
+  await page.clock.setFixedTime(now);
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(6);
+  await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
+  await page.clock.setFixedTime(now + 2 * 3600000);
+  const checks = state.calls.filter(c => c.path === "/api/admin/me").length;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => state.calls.filter(c => c.path === "/api/admin/me").length).toBeGreaterThan(checks);
+  await expect(page.locator("#admin-nav-group")).not.toHaveAttribute("hidden");
+  await expect(page.locator("#admin-content")).toBeVisible();
+  expect(state.calls.filter(c => c.path.endsWith("/step-up"))).toHaveLength(0);
+  state.revoked = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator("#admin-nav-group")).toBeHidden();
+  await expect(page.locator("#admin-content")).toBeHidden();
+});
 test("expired MFA closes all privileged content and offers security reauth", async ({ page }) => {
   await adminFixture(page, { expiredMfa: true }); await page.goto("/#admin"); await expect(page.locator("#admin-content")).toBeHidden();
   await expect(page.locator("#admin-gate a")).toHaveText("重新驗證身份"); await expect(page.locator("#admin-nav-group")).toBeHidden();

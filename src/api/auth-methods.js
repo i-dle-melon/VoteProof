@@ -7,6 +7,7 @@ import { decryptEmail } from "../lib/auth-identity.js";
 import { adminUpdatePassword } from "../lib/supabase-auth.js";
 import { jsonSuccess } from "./response.js";
 import { activeIdentity, identityEvent, googleProof } from "./auth-google.js";
+import { commitMfaStepUp } from "../lib/auth-elevation.js";
 
 const methodUnavailable = () => new AuthError(409, "AUTH_METHOD_CONFLICT", "Login method setup cannot be completed; restart or contact support");
 async function freshGoogle(request, env) {
@@ -109,8 +110,8 @@ export const googleStepUp = authHandler(async (env, _url, request) => {
   const member = await memberSession(request, env), record = await credentials(db, tx.member_id);
   if (!record) throw new AuthError(403, "AUTH_MFA_ENROLLMENT_REQUIRED", "Enroll VoteProof Authenticator before elevated access");
   const step = await totpStep(record, tx.member_id, body.code, env), now = authNow();
-  await authAtomic(db, [activeSessionGuard(member), transactionGuard(tx), activeIdentity(member.member_id, tx.data.provider_subject), totpGuard(member.member_id, record.version, step)], [
+  const elevation = await commitMfaStepUp(db, member, now, [activeSessionGuard(member), transactionGuard(tx), activeIdentity(member.member_id, tx.data.provider_subject), totpGuard(member.member_id, record.version, step)], [
     advanceTotp(db, member.member_id, step), consumeTransaction(db, tx),
-    db.prepare("UPDATE auth_sessions SET elevated_until=?,reauthenticated_until=? WHERE token_hash=?").bind(now + AUTH_LIMITS.elevationSeconds, now + AUTH_LIMITS.securitySeconds, member.tokenHash), identityEvent(db, member.member_id, tx.id, "google_step_up")]);
-  return jsonSuccess({ elevated_until: now + AUTH_LIMITS.elevationSeconds, reauthenticated_until: now + AUTH_LIMITS.securitySeconds });
+    identityEvent(db, member.member_id, tx.id, "google_step_up")]);
+  return jsonSuccess(elevation);
 });

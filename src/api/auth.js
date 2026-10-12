@@ -8,6 +8,7 @@ import {
   transactionId,
 } from "./auth-validation.js";
 import { UploadError } from "./upload-validation.js";
+import { MFA_ELEVATION_SQL, mfaElevationBindings } from "../lib/auth-elevation.js";
 import {
   authDatabase,
   authKey,
@@ -210,14 +211,14 @@ export async function issueSession(
   statements.push(
     db
       .prepare(
-        `INSERT INTO auth_sessions(token_hash,member_id,created_at,expires_at,elevated_until,reauthenticated_until,auth_method,google_authenticated_until) VALUES(?,?,?,?,?,?,?,?)`,
+        `INSERT INTO auth_sessions(token_hash,member_id,created_at,expires_at,elevated_until,reauthenticated_until,auth_method,google_authenticated_until) VALUES(?,?,?,?,${mfa ? MFA_ELEVATION_SQL : "?"},?,?,?)`,
       )
       .bind(
         hash,
         memberId,
         now,
         now + ttl,
-        mfa ? now + AUTH_LIMITS.elevationSeconds : 0,
+        ...(mfa ? mfaElevationBindings(memberId, now + ttl, now) : [0]),
         mfa ? now + AUTH_LIMITS.securitySeconds : 0,
         method,
         method === "google" ? now + AUTH_LIMITS.securitySeconds : 0,

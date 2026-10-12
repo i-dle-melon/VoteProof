@@ -21,6 +21,7 @@ export class Challenge {
   #token = "";
   #mounting;
   #active = false;
+  #waiting;
   constructor(container, changed) { this.container = container; this.changed = changed; }
   mount() {
     if (PREVIEW) return Promise.reject(new PublicError("UI_PREVIEW_ONLY", 403));
@@ -41,9 +42,19 @@ export class Challenge {
     if (!sitekey) throw new PublicError("TURNSTILE_NOT_CONFIGURED");
     this.#id = globalThis.turnstile.render(this.container, { sitekey, theme: document.documentElement.dataset.theme,
       size: this.container.clientWidth < 300 ? "compact" : "flexible",
-      "response-field": false, callback: (token) => { if (!this.#active) return; this.#token = token; this.changed("已完成人機驗證"); },
+      "response-field": false, callback: (token) => { if (!this.#active) return; this.#token = token; this.changed("已完成人機驗證"); this.#waiting?.resolve(); },
       "expired-callback": () => { this.#token = ""; this.changed("驗證已到期，請重新驗證。"); },
-      "error-callback": () => { this.#token = ""; this.changed("人機驗證暫時無法完成，請重試驗證。"); } });
+      "error-callback": () => { this.#token = ""; this.changed("人機驗證暫時無法完成，請重試驗證。"); this.#waiting?.reject(new PublicError("TURNSTILE_UPSTREAM_ERROR")); } });
+  }
+  waitForToken(timeout = 120000) {
+    if (this.#token) return Promise.resolve(this.take());
+    if (!this.#active || this.#waiting) return Promise.reject(new PublicError("TURNSTILE_REQUIRED"));
+    this.changed("請完成人機驗證，批次投稿會接著繼續。");
+    return new Promise((resolve, reject) => {
+      const finish = callback => value => { clearTimeout(timer); this.#waiting = null; callback(value); };
+      const timer = setTimeout(() => this.#waiting?.reject(new PublicError("TURNSTILE_REQUIRED")), timeout);
+      this.#waiting = { resolve: finish(() => resolve(this.take())), reject: finish(reject) };
+    });
   }
   take() {
     const token = this.#token;
@@ -60,5 +71,6 @@ export class Challenge {
     // Clear a registration response without requesting another challenge.
     this.#token = "";
     this.#active = false;
+    this.#waiting?.reject(new PublicError("TURNSTILE_REQUIRED"));
   }
 }

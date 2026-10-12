@@ -97,12 +97,17 @@ export class MemberSession {
   caseSender() {
     const owner = this.#member?.member_id;
     if (!owner) throw new PublicError("AUTH_REQUIRED");
-    return async (path, options) => {
+    const verify = async () => {
       if (this.#member?.member_id !== owner) throw new PublicError("AUTH_IDENTITY_CHANGED");
       const data = await this.refresh();
       if (data.member.member_id !== owner || this.#member?.member_id !== owner) throw new PublicError("AUTH_IDENTITY_CHANGED");
+    };
+    const send = async (path, options) => {
+      await verify();
       return this.request(path, options);
     };
+    send.verify = verify;
+    return send;
   }
 }
 

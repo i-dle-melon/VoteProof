@@ -601,6 +601,12 @@ progress {
   border-radius: 12px;
   padding: 18px;
 }
+.batch-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
 .credentials dt {
   font-size: 13px;
   color: var(--muted);

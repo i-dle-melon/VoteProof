@@ -2,6 +2,12 @@ import { PublicError } from "./api.js";
 // Client UX limits mirror the public contract; backend is authoritative.
 export const FILE_LIMITS = Object.freeze({ count: 5, bytes: 5 * 1024 * 1024, batch: 25 * 1024 * 1024 });
 export const IMAGE_TYPES = Object.freeze({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" });
+export const BATCH_LIMIT = 20;
+export function validateBatchImages(files) {
+  if (!files.length) throw new PublicError("IMAGES_REQUIRED");
+  if (files.length > BATCH_LIMIT) throw new PublicError("BATCH_TOO_MANY_FILES");
+  for (const file of files) validateImages([file]);
+}
 export function validateImages(files) {
   if (!files.length) throw new PublicError("IMAGES_REQUIRED");
   if (files.length > FILE_LIMITS.count) throw new PublicError("TOO_MANY_FILES");
@@ -111,5 +117,76 @@ export class Submission {
         !/^[A-Za-z0-9_-]{43}$/.test(result?.query_key ?? "")) throw new PublicError("SERVICE_UNAVAILABLE");
     this.#context = null;
     return result;
+  }
+}
+
+// Every item owns a single-file upload, immutable case payload and retry key.
+// Keep successful receipts in memory; never send them again on partial retry.
+export class BatchSubmission {
+  #items = [];
+  #running = null;
+  #error = null;
+  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now }) {
+    this.dependencies = { api, put, token, now };
+    this.progress = progress; this.changed = changed;
+    this.gate = gate ?? (async () => {
+      const status = await api("/api/submissions/status");
+      if (status?.submissions_enabled !== true) throw new PublicError("SUBMISSIONS_DISABLED");
+    });
+  }
+  get pending() { return this.#items.some(item => !item.result); }
+  get busy() { return this.#running !== null; }
+  get error() { return this.#error; }
+  get summary() {
+    const items = this.#items.map(({ file, status, result, error }) => ({ name: file.name, status,
+      result: result ? { ...result } : null, error: error?.code ?? null }));
+    const succeeded = items.filter(item => item.result).length;
+    return { items, total: items.length, succeeded, failed: items.filter(item => item.status === "failed").length,
+      queued: items.filter(item => item.status === "queued").length, complete: items.length > 0 && succeeded === items.length };
+  }
+  start(metadata, files, options = {}) {
+    if (this.#items.length) throw new PublicError("SUBMISSION_PENDING");
+    validateBatchImages(files);
+    const input = normalizedMetadata(metadata);
+    this.#error = null;
+    this.#items = files.map((file, index) => {
+      const item = { file, status: "queued", result: null, error: null };
+      item.flow = new Submission({ ...this.dependencies, progress: state => {
+        item.status = state.phase; this.changed(this.summary);
+        this.progress({ ...state, file: index + 1, count: files.length,
+          fraction: (this.summary.succeeded + state.fraction) / files.length });
+      } });
+      item.flow.start(input, [file], options);
+      return item;
+    });
+    this.changed(this.summary);
+  }
+  abandon() {
+    if (this.busy) throw new PublicError("SUBMISSION_BUSY");
+    this.#items = []; this.#error = null; this.changed(this.summary);
+  }
+  attempt() {
+    if (this.#running) return this.#running;
+    if (!this.pending) return this.#items.length ? Promise.resolve(this.summary) : Promise.reject(new PublicError("SUBMISSION_MISSING"));
+    this.#running = this.#attempt().finally(() => { this.#running = null; });
+    return this.#running;
+  }
+  async #attempt() {
+    // No prepare/PUT/complete/case happens before a fresh, fail-closed gate.
+    await this.gate(); this.#error = null;
+    for (const item of this.#items.filter(item => !item.result)) {
+      try {
+        await this.gate();
+        item.error = null; item.result = await item.flow.attempt(); item.status = "success";
+      } catch (error) {
+        item.error = error; item.status = "failed"; this.#error = error;
+        // Global auth, campaign, gate or challenge failures pause the queue.
+        if (/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_)/.test(error.code ?? "")) {
+          this.changed(this.summary); break;
+        }
+      }
+      this.changed(this.summary);
+    }
+    return this.summary;
   }
 }

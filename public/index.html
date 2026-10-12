@@ -294,7 +294,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                       <span class="drop-icon" aria-hidden="true">🖼️</span
                       ><strong>點擊選擇圖片，或拖曳到這裡</strong
                       ><span class="tiny" id="image-help"
-                        >JPG / PNG / WEBP，最多 5 張，每張上限 5 MiB</span
+                        >JPG / PNG / WEBP，每批最多 20 張，每張上限 5 MiB；每張各自建立案件、獨立審核與計分。</span
                       ><input
                         type="file"
                         id="proof-images"
@@ -340,7 +340,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </div>
               <p class="error" id="submission-error" role="alert"></p>
               <p id="retry-note" class="notice warn" hidden>
-                投稿資料已保留。重試會沿用同一次投稿；請保持此分頁開啟。
+                已成功案件會保留；重試只處理未成功項目，沿用原案件請求。請保持此分頁開啟。
               </p>
               <div class="form-actions submission-actions">
                 <button class="btn btn-primary" type="submit" id="submit-button" disabled>
@@ -350,6 +350,14 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 </button>
               </div>
             </form>
+            <section class="card" id="batch-results" hidden aria-label="批次投稿結果">
+              <h2>批次投稿結果</h2>
+              <p id="batch-summary" role="status" aria-live="polite"></p>
+              <div id="batch-items" class="list"></div>
+              <p class="tiny">每張圖片各自審核。成功送出仍需等待審核，點數依活動規則計算；請保存每個案件的查詢資訊。</p>
+              <button class="btn btn-white" type="button" id="batch-copy">複製已成功案件的查詢資訊</button>
+              <p id="batch-copy-status" role="status" aria-live="polite"></p>
+            </section>
             <section
               class="card success-card"
               id="submission-success"

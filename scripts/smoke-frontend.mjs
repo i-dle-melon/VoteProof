@@ -70,16 +70,18 @@ try {
   await page.locator("#proof-images").setInputFiles([{ name: "proof-a.png", mimeType: "image/png", buffer: png }, { name: "proof-b.png", mimeType: "image/png", buffer: png }]);
   await page.locator("#submit-button").click(); await page.locator("#retry-note").waitFor();
   await page.locator("#submit-button").click(); await page.locator("#submission-success").waitFor();
-  assert.equal(requests.length, 2); assert.equal(requests[0].body === requests[1].body, true); assert.equal(requests[0].key === requests[1].key, true);
+  assert.equal(requests.length, 3); assert.equal(requests[0].body === requests[2].body, true); assert.equal(requests[0].key === requests[2].key, true);
+  assert.notEqual(requests[0].key, requests[1].key);
   assert.equal(putCount, 2);
-  const count = await local.db.prepare("SELECT COUNT(*) AS n FROM cases WHERE member_id IS NULL").first(); assert.equal(count.n, 1);
+  const count = await local.db.prepare("SELECT COUNT(*) AS n FROM cases WHERE member_id IS NULL").first(); assert.equal(count.n, 2);
   assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM case_files").first()).n, 2);
-  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM case_idempotency").first()).n, 1);
-  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM completed_uploads WHERE consumed_case_id IS NOT NULL").first()).n, 1);
-  await page.locator("#lookup-created").click(); await page.locator("#lookup-button").click(); await page.locator("#lookup-result").waitFor();
+  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM case_idempotency").first()).n, 2);
+  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM completed_uploads WHERE consumed_case_id IS NOT NULL").first()).n, 2);
+  assert.equal((await local.db.prepare("SELECT COUNT(*) AS n FROM cases c WHERE (SELECT COUNT(*) FROM case_files f WHERE f.case_id=c.id)!=1").first()).n, 0);
+  await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click(); await page.locator("#lookup-result").waitFor();
   assert.equal((await page.locator("#lookup-result").innerText()).includes("待審核"), true);
   assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0);
   assert.equal(new URL(page.url()).search, "");
   assert.equal(local.unexpectedUpstreams.length, 0);
-  console.log("Frontend smoke PASS: real Campaign/unlimited, OFF blocks uploads/cases, ON enables 2 signed PUTs, real HEAD/complete, lost 201 replay, ONE Guest case, safe query, no auth secrets");
+  console.log("Frontend smoke PASS: real Campaign/unlimited, OFF blocks uploads/cases, ON enables 2 signed PUTs, real HEAD/complete, lost 201 replay, TWO independent Guest cases, safe query, no auth secrets");
 } finally { if (browser) await browser.close(); if (server) await server.close(); await local.runtime.dispose(); }

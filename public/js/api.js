@@ -56,6 +56,8 @@ const messages = {
   VOTE_DATE_OUTSIDE_CAMPAIGN: "投票日期不在活動期間內，請檢查日期。",
   INVALID_CASE_REQUEST: "投稿資料未通過檢查，請確認暱稱、玩家 ID、日期與備註。",
   TOO_MANY_FILES: "每次最多選擇 5 張圖片。",
+  BATCH_TOO_MANY_FILES: "每批最多選擇 20 張圖片；每張會建立獨立案件。",
+  BATCH_INCOMPLETE: "部分圖片尚未送出；已成功的案件會保留，重試只處理未成功項目。",
   FILE_TOO_LARGE: "每張圖片必須大於 0 bytes，且不超過 5 MiB。",
   UNSUPPORTED_FILE_TYPE: "只接受 PNG、JPEG 或 WebP 圖片。",
 };

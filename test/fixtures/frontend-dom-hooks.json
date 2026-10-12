@@ -2085,5 +2085,35 @@
   "admin-copy-144": {
     "tag": "span",
     "attributes": {}
+  },
+  "batch-results": {
+    "tag": "section",
+    "attributes": {
+      "hidden": ""
+    }
+  },
+  "batch-summary": {
+    "tag": "p",
+    "attributes": {
+      "role": "status",
+      "aria-live": "polite"
+    }
+  },
+  "batch-items": {
+    "tag": "div",
+    "attributes": {}
+  },
+  "batch-copy": {
+    "tag": "button",
+    "attributes": {
+      "type": "button"
+    }
+  },
+  "batch-copy-status": {
+    "tag": "p",
+    "attributes": {
+      "role": "status",
+      "aria-live": "polite"
+    }
   }
 }

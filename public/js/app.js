@@ -1,5 +1,5 @@
 import { api, putImage, errorMessage, PublicError } from "./api.js";
-import { Submission, validateImages, queryInformation } from "./submission.js";
+import { BatchSubmission, validateBatchImages, queryInformation } from "./submission.js";
 import { Challenge } from "./turnstile.js";
 import { adminUI } from "./admin.js";
 import { memberUI } from "./member.js";
@@ -27,21 +27,24 @@ const dateLabel = (value) => {
 let campaigns = [], campaignLoaded = false, campaignLoading = false, images = [], success = null;
 let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateRequest = null, gateChecking = false, submissionStarting = false;
 let campaignAvailability = "正在載入活動…";
+let submissionIdentityCheck = async () => {};
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
-const submission = new Submission({ api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
+const submission = new BatchSubmission({ gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
+changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
   await gateRequest;
   assertSubmissionOpen();
   await challenge.mount();
   assertSubmissionOpen();
-  return challenge.take();
+  const token = await challenge.waitForToken();
+  assertSubmissionOpen(); return token;
 }, progress: (state) => {
   const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
     complete: "驗證已上傳的圖片…", case: "建立案件，請勿關閉分頁…" };
   $("upload-progress").hidden = false;
   $("progress").value = Math.round(state.fraction * 100);
-  $("progress-label").textContent = labels[state.phase];
+  $("progress-label").textContent = `圖片 ${state.file}／${state.count} · ${labels[state.phase]}`;
 } });
 let admin;
 const member = memberUI({ campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
@@ -202,7 +205,8 @@ function renderImages() {
       URL.revokeObjectURL(item.url); images = images.filter((image) => image !== item); renderImages();
       $("image-error").textContent = "";
     });
-    card.append(preview, node("p", item.file.name), node("p", `${(item.file.size / 1024 / 1024).toFixed(2)} MiB`), remove);
+    const status = node("p", "等待送出", "tiny"); status.dataset.imageStatus = String(index);
+    card.append(preview, node("p", item.file.name), node("p", `${(item.file.size / 1024 / 1024).toFixed(2)} MiB`), status, remove);
     $("image-list").append(card);
   }
 }
@@ -210,7 +214,7 @@ function addImages(added) {
   if (!submissionReady() || submission.pending) return;
   if (!added.length) return;
   try {
-    validateImages([...images.map((i) => i.file), ...added]);
+    validateBatchImages([...images.map((i) => i.file), ...added]);
     images.push(...added.map((file) => ({ file, url: URL.createObjectURL(file) }))); renderImages();
     $("image-error").textContent = "";
   } catch (e) { $("image-error").textContent = errorMessage(e); }
@@ -233,6 +237,40 @@ $("challenge-retry").addEventListener("click", async () => { if (!submissionRead
 $("campaign").addEventListener("change", campaignHint);
 $("campaign-refresh").addEventListener("click", () => { void loadCampaigns(); });
 
+function renderBatch(summary) {
+  const labels = { queued: "等待送出", verify: "等待人機驗證", prepare: "準備上傳", put: "上傳中",
+    complete: "驗證圖片中", case: "建立案件中", success: "已送出 · 待審核", failed: "未成功" };
+  $("batch-results").hidden = summary.total < 2;
+  $("batch-summary").textContent = summary.total ? `共 ${summary.total} 張 · 已送出 ${summary.succeeded} · 未成功 ${summary.failed} · 等待 ${summary.queued}` : "";
+  $("batch-items").replaceChildren();
+  for (const [index, item] of summary.items.entries()) {
+    const status = item.error ? errorMessage({ code: item.error }) : labels[item.status];
+    const previewStatus = document.querySelector(`[data-image-status="${index}"]`);
+    if (previewStatus) previewStatus.textContent = status;
+    const row = node("article", undefined, "batch-item");
+    row.append(node("strong", `${index + 1}. ${item.name}`), node("p", status));
+    if (item.result) {
+      const details = node("dl", undefined, "credentials");
+      details.append(node("dt", "案件編號"), node("dd", item.result.case_id), node("dt", "查詢碼"), node("dd", item.result.query_key));
+      const lookup = node("button", "查詢這個案件", "btn btn-soft"); lookup.type = "button";
+      lookup.addEventListener("click", () => {
+        $("lookup-id").value = item.result.case_id; $("lookup-key").value = item.result.query_key; location.hash = "lookup";
+      });
+      row.append(details, lookup);
+    }
+    $("batch-items").append(row);
+  }
+  $("batch-copy").disabled = summary.succeeded === 0;
+}
+$("batch-copy").addEventListener("click", async () => {
+  const results = submission.summary.items.filter(item => item.result);
+  if (!results.length) return;
+  try {
+    await navigator.clipboard.writeText(results.map(item => queryInformation(item.result)).join("\n\n"));
+    $("batch-copy-status").textContent = "已複製，請貼至你自己的安全筆記保存。";
+  } catch { $("batch-copy-status").textContent = "瀏覽器未允許複製，請手動保存各案件的查詢資訊。"; }
+});
+
 $("submission-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!submissionReady() || submission.busy || submissionStarting) return;
@@ -246,17 +284,28 @@ $("submission-form").addEventListener("submit", async (event) => {
   if (!submission.pending) {
     if (!$("submission-form").reportValidity()) { $("submission-error").textContent = "請完成必填欄位並確認投票日期。"; return; }
     if (!images.length) { $("submission-error").textContent = "請至少選擇 1 張投票證明圖片。"; $("proof-images").focus(); return; }
-    try { submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
-      { caseApi: member.session.member ? ((sender) => async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); })(member.session.caseSender()) : undefined }); }
+    try {
+      const sender = member.session.member ? member.session.caseSender() : null;
+      submissionIdentityCheck = sender ? sender.verify : async () => {};
+      submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
+        { caseApi: sender ? async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); } : undefined });
+    }
     catch (e) { $("submission-error").textContent = e.code?.startsWith("AUTH_") ? authMessage(e) : errorMessage(e); return; }
   }
   $("retry-note").hidden = true;
   const attempt = submission.attempt(); syncForm();
   try {
-    success = await attempt;
+    const batch = await attempt;
+    if (batch.succeeded) void member.loadRecentCases();
+    if (!batch.complete) throw submission.error ?? new PublicError("BATCH_INCOMPLETE");
+    success = batch.items[0].result;
     void member.loadRecentCases();
     $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = success.query_key;
     $("submission-form").hidden = true; $("submission-success").hidden = false;
+    $("success-title").textContent = batch.total > 1 ? `${batch.total} 個案件已送出` : "投稿成功";
+    // The existing single receipt controls remain for one image only.
+    $("submission-success").querySelector(".credentials").hidden = batch.total > 1;
+    for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = batch.total > 1;
     clearImages(); $("success-title").focus();
   } catch (e) {
     $("submission-error").textContent = e.code?.startsWith("AUTH_") || ["MEMBER_SUSPENDED", "CSRF_REJECTED"].includes(e.code) ? authMessage(e) : errorMessage(e); $("retry-note").hidden = false;
@@ -265,6 +314,9 @@ $("submission-form").addEventListener("submit", async (event) => {
 });
 function resetSubmission() {
   submission.abandon(); success = null; clearImages(); $("submission-form").reset();
+  submissionIdentityCheck = async () => {}; $("batch-copy-status").textContent = "";
+  $("success-title").textContent = "投稿成功"; $("submission-success").querySelector(".credentials").hidden = false;
+  for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = false;
   $("submission-form").hidden = false; $("submission-success").hidden = true; $("retry-note").hidden = true;
   $("upload-progress").hidden = true; $("submission-error").textContent = "";
   $("success-case-id").textContent = $("success-query-key").textContent = $("copy-status").textContent = "";
@@ -274,7 +326,7 @@ function resetSubmission() {
 }
 $("abandon-button").addEventListener("click", () => {
   if (submission.busy) return;
-  if (window.confirm("確定放棄本次投稿？若先前送出已成功，放棄後可能無法取回查詢碼。")) resetSubmission();
+  if (window.confirm("確定放棄未完成項目？已成功案件不會刪除；請先保存查詢資訊，包含可能已送出但未收到回應的案件。")) resetSubmission();
 });
 $("new-submission").addEventListener("click", () => {
   if (window.confirm("請先保存案件編號與查詢碼。確定開始另一筆投稿？")) resetSubmission();

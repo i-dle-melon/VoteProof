@@ -11,7 +11,7 @@ async function fixture(page, options = {}) {
   const boards = [{ leaderboard_id: "LOCAL-BOARD", name: "公開榜", generated_at: new Date().toISOString(),
     rankings: [{ rank: 7, nickname: options.nickname ?? "測試粉絲", points: 10, proof_count: 2, player_id: "not-for-display", email: "not-for-display" }] },
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
-  const state = { calls: [], puts: [], query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, failBoards: 0 };
+  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, failBoards: 0 };
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let widget;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}));}};` }));
   await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async (route) => {
@@ -48,8 +48,11 @@ async function fixture(page, options = {}) {
     if (path === "/api/uploads/complete") return reply({ session_id: body.session_id, files: [] });
     if (path === "/api/cases") {
       if (state.delayCase) await new Promise((r) => setTimeout(r, 350));
+      const key = request.headers()["idempotency-key"];
+      if (!state.receipts.has(key)) state.receipts.set(key, { case_id: `VP-${today().replaceAll("-", "")}-${"ABCDEFGHJKLMNPQRSTUVWXYZ"[state.receipts.size].repeat(16)}`,
+        query_key: state.receipts.size ? randomBytes(32).toString("base64url") : query, status: "pending" });
       if (state.failCase-- > 0) return route.abort();
-      return reply({ case_id: caseId, query_key: query, status: "pending" }, 201);
+      return reply(state.receipts.get(key), 201);
     }
     if (path.startsWith("/api/cases/")) {
       if (state.failLookup-- > 0) return route.abort();
@@ -253,7 +256,7 @@ test("unsupported MIME and too many images are clear validation errors", async (
   await fixture(page); await form(page, 0);
   await page.locator("#proof-images").setInputFiles({ name: "proof.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg/>") });
   await expect(page.locator("#image-error")).toContainText("PNG");
-  await page.locator("#proof-images").setInputFiles(Array.from({ length: 6 }, () => ({ name: "p.png", mimeType: "image/png", buffer: png })));
+  await page.locator("#proof-images").setInputFiles(Array.from({ length: 21 }, () => ({ name: "p.png", mimeType: "image/png", buffer: png })));
   await expect(page.locator("#image-error")).toContainText("最多"); await expect(page.locator(".image-item")).toHaveCount(0);
 });
 test("full upload success shows query warning, copy controls and safe lookup", async ({ page }) => {
@@ -262,14 +265,17 @@ test("full upload success shows query warning, copy controls and safe lookup", a
   await expect(page.locator("#submission-success")).toBeVisible();
   expect((await page.locator("#success-query-key").textContent()) === state.query).toBe(true);
   await expect(page.locator("#submission-success")).toContainText("請自行保存");
-  await expect(page.locator("#copy-case")).toBeVisible(); await expect(page.locator("#copy-key")).toBeVisible(); await expect(page.locator("#copy-all")).toBeVisible();
+  await expect(page.locator("#batch-copy")).toBeVisible();
+  await expect(page.locator("#batch-items .credentials")).toHaveCount(2);
+  await expect(page.locator("#copy-case")).toBeHidden();
   expect(state.puts.length).toBe(2);
   expect(state.puts.every((p) => p.method === "PUT" && p.type === "image/png")).toBe(true);
   // WebKit's interception protocol can omit Blob/File request bodies. Check
   // exposed bodies, while real transport bytes/HEAD are covered by smoke.
   expect(state.puts.every((p) => p.bytes === undefined || p.bytes > 0)).toBe(true);
-  expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path)).toEqual(["/api/uploads/prepare", "/api/uploads/complete", "/api/cases"]);
-  await page.locator("#lookup-created").click(); await page.locator("#lookup-button").click();
+  expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path)).toEqual(["/api/uploads/prepare", "/api/uploads/complete", "/api/cases", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases"]);
+  expect(state.receipts.size).toBe(2);
+  await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click();
   await expect(page.locator("#lookup-result")).toContainText("待審核");
   expect((await page.locator("#lookup-result").innerText()).includes("not-for-display")).toBe(false);
   expect(page.url().includes(state.query)).toBe(false); expect(await page.evaluate(() => Object.keys(localStorage).length + sessionStorage.length)).toBe(0);

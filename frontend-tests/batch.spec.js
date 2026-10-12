@@ -1,0 +1,104 @@
+import { test, expect } from "@playwright/test";
+import { randomBytes, randomUUID } from "node:crypto";
+import { memberFixture, png } from "./member-fixture.mjs";
+
+async function fixture(page, options = {}) {
+  const member = await memberFixture(page, { authenticated: true, ...options });
+  const sessions = new Map(), receipts = new Map(), puts = [], posts = [], prepares = [];
+  let failedPut = false, lostCase = false;
+  const reply = (route, data) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
+  await page.route("**/api/uploads/prepare", route => {
+    const body = route.request().postDataJSON(); prepares.push(body);
+    const session_id = randomUUID(), index = sessions.size; sessions.set(session_id, index);
+    return reply(route, { session_id, expires_in: 300, uploads: body.files.map(file => ({
+      key: `proofs/staging/local/${session_id}/${randomUUID()}.png`, method: "PUT", headers: { "Content-Type": file.type },
+      upload_url: `https://${randomBytes(16).toString("hex")}.r2.cloudflarestorage.com/batch/${index}` })) });
+  });
+  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
+    const index = Number(new URL(route.request().url()).pathname.split("/").at(-1)); puts.push(index);
+    if (options.partial && index === 1 && !failedPut) { failedPut = true; await route.abort(); return; }
+    await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
+  });
+  await page.route("**/api/cases", async route => {
+    const request = route.request(), body = request.postDataJSON(), key = request.headers()["idempotency-key"];
+    posts.push({ body, serialized: request.postData(), key, headers: request.headers() });
+    const index = sessions.get(body.upload_session.session_id);
+    if (!receipts.has(key)) receipts.set(key, { case_id: "VP-20261012-" + "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[index].repeat(16),
+      query_key: randomBytes(32).toString("base64url"), status: "pending" });
+    if (options.partial && index === 2 && !lostCase) { lostCase = true; await route.abort(); return; }
+    if (options.switchIdentity && index === 0) member.member = { ...member.member, member_id: "M-" + randomUUID() };
+    await reply(route, receipts.get(key));
+  });
+  return { member, prepares, receipts, puts, posts };
+}
+async function form(page, count = 20) {
+  await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
+  await page.locator("#player-id").fill("local-player");
+  await page.locator("#proof-images").setInputFiles(Array.from({ length: count }, (_, index) => ({ name: `proof-${index}.png`, mimeType: "image/png", buffer: png })));
+  await expect(page.locator("#image-list .image-item")).toHaveCount(count);
+  await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
+}
+
+test("20-image member batch creates 20 independent cases, status/receipts and mobile layouts", async ({ page }, testInfo) => {
+  const state = await fixture(page); const errors = []; page.on("pageerror", error => errors.push(error.message));
+  await form(page); await expect(page.locator("#submission-mode")).toHaveValue("member");
+  await expect(page.locator("#submission-mode")).toBeHidden(); await page.locator("#submit-button").click();
+  await expect(page.locator("#batch-summary")).toHaveText("共 20 張 · 已送出 20 · 未成功 0 · 等待 0");
+  await expect(page.locator("#submission-success")).toBeVisible();
+  await expect(page.locator("#batch-items .credentials")).toHaveCount(20);
+  expect(state.prepares.length).toBe(20); expect(state.prepares.every(body => body.files.length === 1)).toBe(true);
+  expect(state.posts.length).toBe(20); expect(new Set(state.posts.map(post => post.key)).size).toBe(20);
+  expect(state.receipts.size).toBe(20); expect(new Set([...state.receipts.values()].map(row => row.case_id)).size).toBe(20);
+  expect(state.posts.every(post => !Object.hasOwn(post.body, "member_id") && post.body.upload_session.keys.length === 1 && post.headers["x-csrf-token"] === state.member.csrf)).toBe(true);
+  expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => call.path === "/api/cases").every(call => call.credentials === "same-origin"))).toBe(true);
+  await page.locator("#batch-copy").click();
+  expect((await page.evaluate(() => globalThis.__copiedFixture)).match(/案件編號：/g).length).toBe(20);
+  for (const width of [320, 390, 430]) for (const theme of ["dark", "light"]) {
+    await page.setViewportSize({ width, height: 844 });
+    if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").evaluate(button => button.click());
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (width === 390 && theme === "dark") await page.screenshot({ path: `.wrangler/frontend-previews/batch-${testInfo.project.name}.png`, fullPage: true });
+  }
+  expect(errors).toEqual([]);
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(1); // theme preference only
+});
+
+test("partial batch keeps successes and retries only failed PUT/lost case items", async ({ page }) => {
+  const state = await fixture(page, { partial: true }); await form(page, 3); await page.locator("#submit-button").click();
+  await expect(page.locator("#retry-note")).toBeVisible();
+  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 1 · 未成功 2 · 等待 0");
+  await expect(page.locator("#batch-items .credentials")).toHaveCount(1);
+  await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
+  await expect(page.locator("#batch-items .credentials")).toHaveCount(3);
+  expect(state.prepares.length).toBe(3); expect(state.puts).toEqual([0, 1, 2, 1]);
+  expect(state.posts.length).toBe(4); expect(state.receipts.size).toBe(3);
+  expect(state.posts[1].serialized).toBe(state.posts[3].serialized); expect(state.posts[1].key).toBe(state.posts[3].key);
+  expect(state.posts.filter(post => post.key === state.posts[0].key).length).toBe(1);
+});
+
+test("fresh OFF blocks all 20 selected images without any upload or new case", async ({ page }) => {
+  const state = await fixture(page); await form(page);
+  await page.route("**/api/submissions/status", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { submissions_enabled: false, submissions_message: "暫停" } }) }));
+  await page.locator("#submit-button").click(); await expect(page.locator("#submit-button")).toBeDisabled();
+  await expect(page.locator("#image-list .image-item")).toHaveCount(20);
+  expect(state.prepares).toEqual([]); expect(state.puts).toEqual([]); expect(state.posts).toEqual([]);
+});
+
+test("account change between batch items stops before another member proof is prepared", async ({ page }) => {
+  const state = await fixture(page, { switchIdentity: true }); await form(page, 3); await page.locator("#submit-button").click();
+  await expect(page.locator("#retry-note")).toBeVisible();
+  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 1 · 未成功 1 · 等待 1");
+  expect(state.prepares.length).toBe(1); expect(state.posts.length).toBe(1);
+});
+
+test("batch waits for a fresh interactive challenge between images without reusing the prior token", async ({ page }) => {
+  const state = await fixture(page);
+  await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", route => route.fulfill({ contentType: "text/javascript", body:
+    "let options;globalThis.turnstile={render(_,o){options=o;queueMicrotask(()=>o.callback('first-local-token'));return 'local';},reset(){}};globalThis.__batchVerification=()=>options.callback('second-local-token');" }));
+  await form(page, 2); await page.locator("#submit-button").click();
+  await expect(page.locator("#challenge-status")).toContainText("請完成人機驗證");
+  expect(state.prepares.length).toBe(1); expect(state.posts.length).toBe(1);
+  await page.evaluate(() => globalThis.__batchVerification());
+  await expect(page.locator("#submission-success")).toBeVisible();
+  expect(state.prepares.map(body => body.turnstile_token)).toEqual(["first-local-token", "second-local-token"]);
+});

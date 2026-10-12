@@ -24,8 +24,9 @@ const dateLabel = (value) => {
   const date = new Date(value);
   return Number.isFinite(date.valueOf()) ? date.toLocaleString("zh-TW", { hour12: false }) : "—";
 };
-let campaigns = [], campaignLoaded = false, campaignLoading = false, images = [], success = null;
+let campaigns = [], campaignLoaded = false, campaignLoading = false, campaignRequest = null, images = [], success = null;
 let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateRequest = null, gateChecking = false, submissionStarting = false;
+let selectionWasReady = false, selectionQueue = Promise.resolve(), selectionPending = 0, selectionGeneration = 0;
 let campaignAvailability = "正在載入活動…";
 let submissionIdentityCheck = async () => {};
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
@@ -73,6 +74,9 @@ function syncOwnership() {
 
 const campaignOpen = c => c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
 const submissionReady = () => submissionsEnabled && campaigns.some(campaignOpen);
+// Local file selection can finish during a foreground gate recheck. It grants
+// no upload permission; queued selections wait for the authoritative response.
+const selectionReady = () => submissionReady() || (gateChecking && selectionWasReady);
 function assertSubmissionOpen() {
   if (!submissionsEnabled) throw new PublicError("SUBMISSIONS_DISABLED");
   if (!campaignOpen(campaigns.find(c => c.campaign_id === $("campaign").value))) throw new PublicError("CAMPAIGN_NOT_OPEN");
@@ -89,9 +93,9 @@ const scoringLabel = c => c.daily_limit === 0 ? "本活動不計分" :
 function syncForm() {
   const ready = submissionReady();
   syncOwnership();
-  $("submission-fields").disabled = !ready || submission.pending;
-  $("submit-button").disabled = !ready || submissionStarting || submission.busy || (!submission.pending && !campaignLoaded);
-  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !ready ? "投稿暫停" : submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : submitLabel;
+  $("submission-fields").disabled = !selectionReady() || submission.pending || submissionStarting;
+  $("submit-button").disabled = !ready || selectionPending > 0 || submissionStarting || submission.busy || (!submission.pending && !campaignLoaded);
+  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !ready ? "投稿暫停" : selectionPending ? "正在載入圖片…" : submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : submitLabel;
   $("submission-form").setAttribute("aria-busy", String(submission.busy || submissionStarting));
   $("abandon-button").hidden = !submission.pending;
   $("abandon-button").disabled = submission.busy;
@@ -106,7 +110,7 @@ function syncForm() {
   $("submit-state").textContent = ready ? "提交投票證明" : "目前暫停投稿";
   $("submit-alternatives").hidden = ready;
   $("submission-verification").hidden = !ready;
-  $("proof-dropzone").setAttribute("aria-disabled", String(!ready || submission.pending));
+  $("proof-dropzone").setAttribute("aria-disabled", String(!selectionReady() || submission.pending || submissionStarting));
   if (!ready && !gateChecking) { challenge.clear(); $("challenge-status").textContent = "投稿開放後即可完成人機驗證。"; }
   $("submission-gate-message").hidden = submissionsEnabled && !submissionsMessage;
   $("submission-gate-message").textContent = submissionsMessage;
@@ -116,6 +120,7 @@ function syncForm() {
 function loadSubmissionStatus() {
   if (gateRequest) return gateRequest;
   // Every fresh check starts closed; a stale ON is never an authorization.
+  selectionWasReady = submissionReady();
   gateChecking = true; submissionsEnabled = false; syncForm();
   gateRequest = (async () => { try {
     const data = await api("/api/submissions/status");
@@ -142,8 +147,10 @@ function campaignHint() {
   }
 }
 async function loadCampaigns({ refreshGate = true } = {}) {
-  if (campaignLoading || submission.pending) return;
+  if (campaignLoading) return campaignRequest;
+  if (submission.pending) return;
   campaignLoading = true; syncForm();
+  campaignRequest = (async () => {
   if (refreshGate) await loadSubmissionStatus();
   $("campaign-message").textContent = "正在載入活動…";
   try {
@@ -183,6 +190,8 @@ async function loadCampaigns({ refreshGate = true } = {}) {
     $("home-campaign-state").textContent = campaigns.length ? "活動進行中" : campaignLoaded ? "尚無開放活動" : "暫時無法確認";
     syncForm();
   }
+  })().finally(() => { campaignRequest = null; });
+  return campaignRequest;
 }
 
 document.addEventListener("click", event => {
@@ -192,7 +201,7 @@ document.addEventListener("click", event => {
   location.hash = "submit";
 });
 
-function clearImages() { for (const item of images) URL.revokeObjectURL(item.url); images = []; $("image-list").replaceChildren(); $("proof-images").value = ""; }
+function clearImages() { selectionGeneration++; for (const item of images) URL.revokeObjectURL(item.url); images = []; $("image-list").replaceChildren(); $("proof-images").value = ""; }
 function renderImages() {
   $("image-list").replaceChildren();
   for (const [index, item] of images.entries()) {
@@ -211,20 +220,34 @@ function renderImages() {
   }
 }
 function addImages(added) {
-  if (!submissionReady() || submission.pending) return;
-  if (!added.length) return;
-  try {
-    validateBatchImages([...images.map((i) => i.file), ...added]);
-    images.push(...added.map((file) => ({ file, url: URL.createObjectURL(file) }))); renderImages();
-    $("image-error").textContent = "";
-  } catch (e) { $("image-error").textContent = errorMessage(e); }
+  if (!added.length || submission.pending || submissionStarting) return;
+  // Snapshot FileList before resetting the input, and serialize rapid picker /
+  // drop events so every batch limit check sees the latest selected count.
+  const files = [...added], generation = selectionGeneration;
+  selectionPending++; syncForm();
+  if (gateChecking) $("image-error").textContent = "正在確認投稿狀態，確認後會載入已選圖片。";
+  selectionQueue = selectionQueue.then(async () => {
+    while (gateRequest || campaignRequest) { await gateRequest; await campaignRequest; }
+    if (generation !== selectionGeneration || submission.pending || submissionStarting) return;
+    if (!submissionReady()) { $("image-error").textContent = submissionsEnabled ? "目前沒有開放中的活動，無法新增圖片。" : submissionsMessage; return; }
+    try {
+      validateBatchImages([...images.map((i) => i.file), ...files]);
+      images.push(...files.map((file) => ({ file, url: URL.createObjectURL(file) }))); renderImages();
+      $("image-error").textContent = "";
+    } catch (e) {
+      $("image-error").textContent = (e.code === "BATCH_TOO_MANY_FILES" ? `已選 ${images.length} 張，本次新增 ${files.length} 張。` : "") + errorMessage(e);
+    }
+  }).catch(e => {
+    if (generation === selectionGeneration) $("image-error").textContent = errorMessage(e);
+  }).finally(() => { selectionPending--; syncForm(); });
+  return selectionQueue;
 }
 $("proof-images").addEventListener("change", () => {
   const added = [...$("proof-images").files]; $("proof-images").value = ""; addImages(added);
 });
 for (const type of ["dragover", "drop"]) $("proof-dropzone").addEventListener(type, event => {
   event.preventDefault();
-  $("proof-dropzone").classList.toggle("drag", type === "dragover" && submissionReady() && !submission.pending);
+  $("proof-dropzone").classList.toggle("drag", type === "dragover" && selectionReady() && !submission.pending && !submissionStarting);
   if (type === "drop") addImages([...event.dataTransfer.files]);
 });
 $("proof-dropzone").addEventListener("dragleave", () => $("proof-dropzone").classList.remove("drag"));
@@ -273,7 +296,7 @@ $("batch-copy").addEventListener("click", async () => {
 
 $("submission-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!submissionReady() || submission.busy || submissionStarting) return;
+  if (!submissionReady() || selectionPending > 0 || submission.busy || submissionStarting) return;
   submissionStarting = true; syncForm();
   await member.ready;
   await loadSubmissionStatus();

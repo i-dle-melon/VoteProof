@@ -82,12 +82,25 @@ test("operator can change HTML admin copy and nest view panels without editing l
 for (const width of [320, 390, 430, 1440]) test(`preview layouts fit ${width}px in dark/light including all tier artwork`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 844 });
   await page.goto(preview); await expect(page.locator("#view-home")).toBeVisible();
+  await expect(page.locator('.app-shell > .sidebar > nav')).toHaveCount(1);
+  await expect(page.locator('.app-shell > .sidebar > .sidebar-footer')).toHaveCount(1);
+  await expect(page.locator('.app-shell > .main > .topbar')).toHaveCount(1);
+  await expect(page.locator('.app-shell > .main > #main')).toHaveCount(1);
   for (const theme of ["dark", "light"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").click();
     for (const view of ["home", "submit", "lookup", "leaderboards", "login", "about"]) {
       await page.goto(preview + "#" + view);
       await expect(page.locator('#view-' + view)).toBeVisible();
+      // A width-only check misses a broken container that pushes the entire
+      // app below an empty viewport. Header and page title must be near the top.
+      expect(await page.locator('.topbar').evaluate(header => header.getBoundingClientRect().top)).toBeLessThan(130);
+      expect(await page.locator('#view-' + view + ' [data-view-title]').evaluate(title => title.getBoundingClientRect().top)).toBeLessThan(844 / 2);
+      if (width > 980) {
+        expect(await page.locator('.sidebar .brand').evaluate(brand => brand.getBoundingClientRect().top)).toBeGreaterThanOrEqual(await page.locator('#ui-preview-banner').evaluate(banner => banner.getBoundingClientRect().bottom));
+      }
+      if (view !== 'about') await expect(page.locator('#preview-tier-artwork')).toBeHidden();
       if (view === "about") {
+        await expect(page.locator('#view-about #preview-tier-artwork')).toBeVisible();
         await expect(page.locator("#preview-tier-artwork img")).toHaveCount(8);
         expect(await page.locator("#preview-tier-artwork img").evaluateAll(images => images.every(image => image.src.includes("/VoteProof/assets/tiers/")))).toBe(true);
         expect(await page.locator("#preview-tier-artwork img").evaluateAll(async images => {
@@ -97,10 +110,14 @@ for (const width of [320, 390, 430, 1440]) test(`preview layouts fit ${width}px 
           await Promise.all(images.map(image => image.decode()));
           return images.every(image => image.complete && image.naturalWidth > 0);
         })).toBe(true);
+        expect(await page.locator('#preview-tier-artwork img').evaluateAll(images => images.every(image => image.getBoundingClientRect().width <= 220))).toBe(true);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
-    await page.screenshot({ path: `.wrangler/frontend-previews/editable-preview-${testInfo.project.name}-${width}-${theme}.png`, fullPage: true });
+    for (const view of ['home', 'submit', 'login', 'about']) {
+      await page.goto(preview + '#' + view);
+      await page.screenshot({ path: `.wrangler/frontend-previews/pages-layout-${view}-${testInfo.project.name}-${width}-${theme}.png`, fullPage: true });
+    }
   }
   await page.locator('[data-preview-scene="guest"]').click();
   await expect(page.locator("#login-content")).toBeVisible();

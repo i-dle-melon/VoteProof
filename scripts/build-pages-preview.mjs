@@ -6,21 +6,33 @@ import { TIER_ARTWORK } from "../public/js/tier-artwork.js";
 
 // Remove whole balanced elements, including nested sections. Fail the build if
 // an operator accidentally renames a boundary; never publish the private view.
-export function removeElement(html, id) {
+function elementRange(html, openingMatch) {
   const tags = /<!--[\s\S]*?-->|<\/?([a-z][\w-]*)\b[^>]*>/gi;
   let start = -1, tag, depth = 0;
   for (const match of html.matchAll(tags)) {
     if (!match[1]) continue;
     const closing = match[0].startsWith("</");
-    if (start < 0 && !closing && new RegExp(`\\bid="${id}"`).test(match[0])) {
+    if (start < 0 && !closing && openingMatch(match[0])) {
       start = match.index; tag = match[1].toLowerCase(); depth = 1; continue;
     }
     if (start >= 0 && match[1].toLowerCase() === tag) {
       depth += closing ? -1 : 1;
-      if (!depth) return html.slice(0, start) + html.slice(match.index + match[0].length);
+      if (!depth) return { start, close: match.index, end: match.index + match[0].length };
     }
   }
-  throw new Error("Required preview exclusion boundary missing: " + id);
+  return null;
+}
+export function removeElement(html, id) {
+  const range = elementRange(html, opening => new RegExp(`\\bid="${id}"`).test(opening));
+  if (!range) throw new Error("Required preview exclusion boundary missing: " + id);
+  return html.slice(0, range.start) + html.slice(range.end);
+}
+export function removeMatchingElements(html, openingPattern) {
+  let range;
+  while ((range = elementRange(html, opening => openingPattern.test(opening)))) {
+    html = html.slice(0, range.start) + html.slice(range.end);
+  }
+  return html;
 }
 function replaceRequired(source, before, after) {
   if (!source.includes(before)) throw new Error("Required preview runtime boundary missing");
@@ -52,16 +64,20 @@ export async function buildPagesPreview(output) {
   html = html.replace(/id="ui-preview-banner"\s+hidden/, 'id="ui-preview-banner"');
   for (const id of ["view-admin", "admin-ui-copy", "admin-nav-group", "view-security", "view-member", "view-register", "view-recover", "view-google", "login-totp-form"]) html = removeElement(html, id);
   html = html.replace(/<meta\b[^>]*name="turnstile-site-key"[^>]*>/, "");
-  html = html.replace(/<button\b[^>]*data-preview-scene="(?:admin|member)"[^>]*>[\s\S]*?<\/button>/g, "");
-  html = html.replace(/<a\b[^>]*href="#security"[^>]*>[\s\S]*?<\/a>/g, "");
+  html = removeMatchingElements(html, /^<button\b[^>]*data-preview-scene="(?:admin|member)"/);
+  html = removeMatchingElements(html, /^<a\b[^>]*href="#security"/);
   html = html.replace(/href="#(?:member|register|recover|google)"/g, 'href="#login"').replace(/data-view="member"/g, 'data-view="login"');
-  const gallery = `<div class="card" id="preview-tier-artwork"><h2>等級圖案預覽</h2><p>僅供外觀檢視，不代表已開放等級。</p>${Object.values(TIER_ARTWORK).map(a => `<figure><img class="approved-tier-artwork" src=".${a.src}" alt="${a.name}等級" width="${a.width}" height="${a.height}" loading="lazy"><figcaption>${a.name}</figcaption></figure>`).join("")}</div>`;
-  html = replaceRequired(html, '<footer class="footer-note">', gallery + '<footer class="footer-note">');
+  const gallery = `<section id="preview-tier-artwork"><h2>等級圖案預覽</h2><p>僅供外觀檢視，不代表已開放等級。</p><div class="grid grid-2">${Object.values(TIER_ARTWORK).map(a => `<article class="card tier-card"><div class="tier-artwork"><img class="approved-tier-artwork" src=".${a.src}" alt="${a.name}等級" width="${a.width}" height="${a.height}" loading="lazy"></div><h3>${a.name}</h3></article>`).join("")}</div></section>`;
+  const about = elementRange(html, opening => /\bid="view-about"/.test(opening));
+  if (!about) throw new Error("Required public artwork container missing");
+  html = html.slice(0, about.close) + gallery + html.slice(about.close);
   let app = await readFile(resolve(allowed, "js/app.js"), "utf8");
   for (const module of ["admin", "member", "member-api"]) app = replaceRequired(app, `from "./${module}.js"`, 'from "./pages-public-ui.js"');
   app = replaceRequired(app, '["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"]', '["home", "submit", "lookup", "leaderboards", "about", "login"]');
   await writeFile(resolve(allowed, "js/app.js"), app);
   await cp(resolve("scripts/lib/pages-public-ui.js"), resolve(allowed, "js/pages-public-ui.js"));
+  // Preview-only framing: the banner must not cover the fixed desktop brand.
+  await writeFile(resolve(allowed, "css/app.css"), (await readFile(resolve("public/css/app.css"), "utf8")) + '\n' + (await readFile(resolve("scripts/lib/pages-preview.css"), "utf8")));
   if (/id="(?:view-(?:admin|security|member|register|recover|google)|admin-ui-copy|login-totp-form)"|href="#(?:admin|security)"|data-preview-scene="(?:admin|member)"/.test(html)) throw new Error("Protected view in public preview");
   await writeFile(resolve(allowed, "index.html"), html);
   await writeFile(resolve(allowed, ".nojekyll"), "");

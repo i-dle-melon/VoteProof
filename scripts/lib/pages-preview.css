@@ -1,0 +1,29 @@
+/* 只附加到 Pages 產物；正式網站的側欄、頁首與主題不變。 */
+#ui-preview-banner {
+  position: relative;
+}
+@media (min-width: 981px) {
+  .sidebar {
+    position: sticky;
+    inset: auto;
+    top: 0;
+    align-self: flex-start;
+    flex: 0 0 var(--sidebar-width);
+    height: 100vh;
+  }
+  .main {
+    margin-left: 0;
+  }
+}
+#preview-tier-artwork .grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+#preview-tier-artwork .tier-card {
+  padding: 16px;
+}
+#preview-tier-artwork .tier-artwork {
+  margin-inline: auto;
+}
+#preview-tier-artwork h3 {
+  margin-bottom: 0;
+}

@@ -22,6 +22,7 @@ jobs:
       - run: npm run check:public-assets
       - run: node scripts/check-frontend-sensitive.mjs --tracked
       - run: npm run build:pages-preview
+      - run: node --test test/pages-public-build.test.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .wrangler/pages-preview

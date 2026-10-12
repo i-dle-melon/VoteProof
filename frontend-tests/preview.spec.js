@@ -8,6 +8,7 @@ test("Pages artifact is clearly preview before any JavaScript executes", async (
   const page = await context.newPage(); await page.goto(preview);
   await expect(page.locator("#ui-preview-banner")).toBeVisible();
   await expect(page.locator("#ui-preview-banner")).toContainText("UI PREVIEW · 非正式網站");
+  await expect(page.locator('#view-admin, #view-security, #admin-ui-copy, #login-totp-form')).toHaveCount(0);
   await context.close();
 });
 test("guest preview has no network API, OAuth, challenge, submissions or private data", async ({ page }) => {
@@ -25,12 +26,12 @@ test("guest preview has no network API, OAuth, challenge, submissions or private
 });
 test("preview blocks mutations at every transport even if controls are manipulated", async ({ page }) => {
   const requests = []; page.on("request", request => requests.push(request.url()));
-  await page.goto(preview + "?ui=admin#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(6);
+  await page.goto(preview + "?ui=admin#admin"); await expect(page.locator("#view-home")).toBeVisible();
   const codes = await page.evaluate(async () => {
     const { api, putImage } = await import("./js/api.js");
-    const { MemberSession } = await import("./js/member-api.js");
+    const { MemberSession } = await import("./js/pages-public-ui.js");
     const { Challenge } = await import("./js/turnstile.js");
-    const session = new MemberSession(); await session.refresh();
+    const session = new MemberSession();
     const operations = [
       () => api("/api/uploads/prepare", { method: "POST", body: {} }),
       () => api("/api/cases", { method: "POST", body: {} }),
@@ -45,17 +46,19 @@ test("preview blocks mutations at every transport even if controls are manipulat
   expect(codes).toEqual(Array(7).fill("UI_PREVIEW_ONLY"));
   expect(requests.some(url => new URL(url).hostname !== "127.0.0.1" || new URL(url).pathname.includes("/api/"))).toBe(false);
 });
-test("preview scenes show zero-point normal member and isolated admin layouts only", async ({ page }) => {
-  await page.goto(preview + "?ui=member#member");
-  await expect(page.locator("#member-profile-name")).toHaveText("預覽會員");
-  await expect(page.locator("#member-points")).toHaveText("0"); await expect(page.locator("#member-tier")).toHaveText("普通");
-  await expect(page.locator("#member-cases")).toBeEmpty(); await expect(page.locator("#admin-nav-group")).toBeHidden();
-  await expect(page.locator("#member-tier-artwork img")).toHaveAttribute("src", /\/VoteProof\/assets\/tiers\/normal.webp$/);
-  await page.locator('[data-preview-scene="admin"]').click(); await expect(page.locator("#admin-tabs button")).toHaveCount(6);
-  await page.locator("#admin-tabs").getByRole("button", { name: "投稿設定", exact: true }).click();
-  await expect(page.locator('[name="submissions_enabled"]')).toHaveValue("false");
-  await page.locator("#admin-tabs").getByRole("button", { name: "操作紀錄", exact: true }).click();
-  await expect(page.locator("#admin-panel")).toContainText("目前沒有操作紀錄");
+test("public artifact physically excludes protected screens and their modules", async ({ page, request }) => {
+  for (const view of ["admin", "security", "member", "register", "recover", "google"]) {
+    await page.goto(preview + "?ui=admin#" + view);
+    await expect(page.locator("#view-home")).toBeVisible();
+    await expect(page.locator('#view-admin, #view-security, #view-member, #admin-ui-copy, [data-preview-scene="admin"], [data-preview-scene="member"]')).toHaveCount(0);
+  }
+  for (const file of ["admin.js", "admin-api.js", "member.js", "member-api.js", "qr.js", "vendor/qrcode.js"]) expect((await request.get(preview + "js/" + file)).status()).toBe(404);
+  const html = await (await request.get(preview)).text();
+  expect(html).not.toMatch(/security-step-form|security-recovery-codes|admin-copy-\d|login-totp-form|turnstile-site-key/);
+  expect(await page.evaluate(async () => {
+    const { fixtureResponse } = await import('./js/preview-fixtures.js');
+    return Promise.all(['/api/admin/me', '/api/admin/submissions', '/api/auth/login-security'].map(async path => (await fixtureResponse(path)).status));
+  })).toEqual([403,403,403]);
 });
 test("Production source ignores ui query and never loads preview fixtures", async ({ page }) => {
   const state = await memberFixture(page); const loaded = []; page.on("request", request => loaded.push(request.url()));
@@ -78,17 +81,19 @@ test("operator can change HTML admin copy and nest view panels without editing l
 });
 for (const width of [320, 390, 430, 1440]) test(`preview layouts fit ${width}px in dark/light including all tier artwork`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 844 });
-  await page.goto(preview + "?ui=admin#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(6);
+  await page.goto(preview); await expect(page.locator("#view-home")).toBeVisible();
   for (const theme of ["dark", "light"]) {
     if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").click();
-    for (const view of ["home", "member", "admin"]) {
-      await page.goto(preview + "?ui=admin#" + view);
-      if (view === "member") await expect(page.locator("#member-points")).toHaveText("0");
-      if (view === "admin") {
-        await page.locator("#admin-tabs").getByRole("button", { name: "會員等級", exact: true }).click();
-        await expect(page.locator("#admin-panel .tier-card")).toHaveCount(8);
-        expect(await page.locator("#admin-panel img").evaluateAll(images => images.every(image => image.src.includes("/VoteProof/assets/tiers/")))).toBe(true);
-        expect(await page.locator("#admin-panel img").evaluateAll(async images => {
+    for (const view of ["home", "submit", "lookup", "leaderboards", "login", "about"]) {
+      await page.goto(preview + "#" + view);
+      await expect(page.locator('#view-' + view)).toBeVisible();
+      if (view === "about") {
+        await expect(page.locator("#preview-tier-artwork img")).toHaveCount(8);
+        expect(await page.locator("#preview-tier-artwork img").evaluateAll(images => images.every(image => image.src.includes("/VoteProof/assets/tiers/")))).toBe(true);
+        expect(await page.locator("#preview-tier-artwork img").evaluateAll(async images => {
+          // Explicitly load offscreen artwork; lazy images otherwise never
+          // start decoding until the operator scrolls to them.
+          images.forEach(image => { image.loading = "eager"; });
           await Promise.all(images.map(image => image.decode()));
           return images.every(image => image.complete && image.naturalWidth > 0);
         })).toBe(true);

@@ -26,7 +26,9 @@
 
 等待 Actions → **VoteProof UI Preview** 成功，在該次 Pages deployment 開啟預覽網址。必須看見 **「UI PREVIEW · 非正式網站」**。
 
-上方可切「訪客版面」「會員版面」「管理版面」。預覽會員 0 點、普通等級；排行榜與案件是空的，活動標示非正式資料。登入、註冊、投稿、管理保存均不執行，也不會連線正式 API。
+Pages 是公開的視覺預覽，只保留首頁、投稿暫停版型、案件查詢、排行榜、登入外觀與等級圖案。活動標示非正式資料；排行榜與案件不使用正式資料。登入、投稿不執行，也不會連線正式 API。
+
+建置時會從同一份 `public/` 移除會員管理、安全驗證、TOTP／復原、審核與管理介面、管理文案 template，以及相關程式檔。`?ui=admin#admin` 也無法顯示管理頁；這不是用前端登入假裝授權。完整管理與安全畫面只在正式網站經既有授權驗證後使用，私人 Staging 另行處理。
 
 本機也可執行 `npm ci` → `npm run dev:preview`，開啟 `http://127.0.0.1:4174/VoteProof/`；Ctrl+C 關閉。產出位於 gitignored `.wrangler/pages-preview/`，請勿修改產出；回到 `public/` 修改再重啟即可。
 
@@ -38,13 +40,13 @@
 4. 經 `production` environment gate 後，只部署該份 Worker 一次。輸出會列明 commit SHA。
 5. 部署不會執行 migrations、不改 D1/R2、不切投稿開關。發布後仍要確認正式 health、登入與投稿狀態；Production submissions 保持原本設定。
 
-## 首次啟用（本次尚未操作）
+## 發布設定
 
 - 將這次 commit 推上 main 後，Repository Settings → Pages → Source 選 **GitHub Actions**。目前沒有其他追蹤中的 Pages workflow；若 GitHub 端另有舊 branch publishing，改為 Actions，避免發布舊 HTML。
 - 在 GitHub `production` environment 設定 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，只放 GitHub Secrets；使用限定 VoteProof 帳戶的 Worker 部署權限，不授予 D1/R2 資料寫入權。依帳戶需要的綁定 metadata 讀取權限設定，首次執行若權限不足應停止，不要擴成管理員 token。
 - 建議限制 `production` environment 只允許 main，並設定部署審核（依 GitHub 帳戶方案可用能力）。
 - Cloudflare 原有 Git 自動部署必須保持停用；Pages push 與 Production 手動部署互相獨立。
-- 尚未推送或實際部署 Pages，所以沒有已驗證的線上 Preview URL。以 Actions 實際輸出的 `page_url` 為準。
+- Pages 預覽網址為 `https://i-dle-melon.github.io/VoteProof/`；每次確認 Actions 的實際 deployment 對應你要發布的 commit。
 
 ## 千萬不要為了改 UI 修改
 

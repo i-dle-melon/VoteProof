@@ -62,6 +62,20 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -z "$(git status --porcelain)"
-          npx wrangler deploy --name voteproof --keep-vars --message "Git commit $RELEASE_SHA"
+          # Preserve the approved Production ON / Preview OFF routing state.
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          config.main = path.resolve(config.main);
+          config.assets.directory = path.resolve(config.assets.directory);
+          config.$schema = path.resolve(config.$schema);
+          config.d1_databases.forEach(db => { db.migrations_dir = path.resolve(db.migrations_dir); });
+          config.workers_dev = true;
+          config.preview_urls = false;
+          fs.mkdirSync('.wrangler', { recursive: true });
+          fs.writeFileSync('.wrangler/approved-deploy.json', JSON.stringify(config));
+          NODE
+          npx wrangler deploy --name voteproof --config .wrangler/approved-deploy.json --keep-vars --message "Git commit $RELEASE_SHA"
           printf 'Deployed commit: %s\n' "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
           printf 'No migrations, data writes, or submission toggle performed.\n' >> "$GITHUB_STEP_SUMMARY"

@@ -12,8 +12,9 @@ const server = createServer(async (request, response) => {
     if (request.method !== "GET" || path.startsWith("/api/")) { response.writeHead(403).end(); return; }
     const file = resolve(root, "." + (path.endsWith("/") ? path + "index.html" : path));
     if (relative(root, file).startsWith("..") || !types[extname(file)]) { response.writeHead(404).end(); return; }
+    const data = await readFile(file);
     response.writeHead(200, { "Content-Type": types[extname(file)], "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
-    response.end(await readFile(file));
+    response.end(data);
   } catch { if (!response.headersSent) response.writeHead(404); response.end(); }
 });
 server.listen(4174, "127.0.0.1", () => process.stdout.write("UI PREVIEW · 非正式網站: http://127.0.0.1:4174/VoteProof/\n"));

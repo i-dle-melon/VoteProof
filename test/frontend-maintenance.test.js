@@ -35,5 +35,7 @@ test("workflows isolate automatic Pages from exact-commit manual Production depl
   assert.match(production, /needs: validate/); assert.match(production, /approved_sha/);
   for (const gate of ["npm test", "test:frontend-unit", "test:frontend", "check-frontend-sensitive", "npm run check"]) assert.ok(production.includes(gate));
   assert.equal((production.match(/npx wrangler deploy/g) ?? []).length, 1);
+  assert.match(production, /config\.workers_dev = true/);
+  assert.match(production, /config\.preview_urls = false/);
   assert.doesNotMatch(production, /d1 (execute|migrations)|r2 (object|bucket)|secret (put|delete)|submissions\/update/);
 });

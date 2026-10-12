@@ -68,9 +68,16 @@ try {
   assert.equal(await page.locator("#member-points").textContent(), "0"); assert.equal(await page.locator("#tier-message").textContent(), "目前開放普通等級，其他等級尚未開放。");
   await page.locator("#profile-nickname").fill("本機會員驗收"); await page.locator("#profile-player").fill("local-player"); await submit("profile-form");
   await page.locator("#profile-status").filter({ hasText: "已保存" }).waitFor();
-  await page.goto(origin + "/#submit"); await page.locator("#submission-mode").selectOption("member");
+  await page.goto(origin + "/#submit"); await page.waitForFunction(() =>
+    document.getElementById("submission-mode").value === "member" && !document.getElementById("submission-fields").disabled);
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ioAAAAASUVORK5CYII=", "base64");
+  // The required receipt player ID is form data, separate from session ownership.
+  await page.locator("#player-id").fill("local-player");
   await page.locator("#proof-images").setInputFiles({ name: "local.png", mimeType: "image/png", buffer: png });
+  const invalidFields = await page.locator("#submission-fields").evaluate(fieldset =>
+    [...fieldset.querySelectorAll("input,select,textarea")].filter(input => !input.checkValidity()).map(input => input.id));
+  assert.deepEqual(invalidFields, [], "Authenticated submission form must be valid without selecting an identity");
+  assert.equal(await page.locator("#image-list .image-item").count(), 1, "Submission image selection is retained");
   await page.locator("#submit-button").click(); await page.locator("#retry-note").waitFor(); await page.locator("#submit-button").click(); await page.locator("#submission-success").waitFor();
   assert.equal(puts, 1); assert.equal(caseAttempts.length, 2);
   assert.equal(caseAttempts[0].body === caseAttempts[1].body, true); assert.equal(caseAttempts[0].key === caseAttempts[1].key, true);

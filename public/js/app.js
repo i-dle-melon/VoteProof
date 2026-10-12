@@ -52,19 +52,21 @@ const member = memberUI({ campaignName: id => campaigns.find(c => c.campaign_id 
 admin = adminUI(member.session);
 
 function syncOwnership() {
-  $("submission-mode").disabled = !submissionReady() || submission.pending;
+  // Retries keep the captured owner; fresh submissions use the current member.
+  if (!submission.pending) {
+    const identity = member.session.member;
+    const mode = identity ? "member" : "guest";
+    if ($("submission-mode").value !== mode && identity) {
+      $("nickname").value = identity.nickname ?? "";
+      $("player-id").value = identity.player_id ?? "";
+    }
+    $("submission-mode").value = mode;
+  }
+  $("submission-mode").disabled = true;
   $("submission-owner-hint").textContent = $("submission-mode").value === "member"
-    ? "本次投稿綁定登入會員；審核通過後可依活動規則取得點數。登入身份改變時需重新登入原會員再重試。"
+    ? "本次以會員身份投稿；審核通過後可依活動規則取得點數。登入身份改變時需重新登入原會員再重試。"
     : "訪客投稿不會綁定會員，也不計入會員點數。";
 }
-$("submission-mode").addEventListener("change", () => {
-  if (submission.pending) return;
-  if ($("submission-mode").value === "member" && member.session.member) {
-    $("nickname").value = member.session.member.nickname ?? "";
-    $("player-id").value = member.session.member.player_id ?? "";
-  }
-  syncOwnership();
-});
 
 const campaignOpen = c => c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
 const submissionReady = () => submissionsEnabled && campaigns.some(campaignOpen);
@@ -235,6 +237,7 @@ $("submission-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!submissionReady() || submission.busy || submissionStarting) return;
   submissionStarting = true; syncForm();
+  await member.ready;
   await loadSubmissionStatus();
   if (!submission.pending) await loadCampaigns({ refreshGate: false });
   submissionStarting = false; syncForm();
@@ -244,7 +247,7 @@ $("submission-form").addEventListener("submit", async (event) => {
     if (!$("submission-form").reportValidity()) { $("submission-error").textContent = "請完成必填欄位並確認投票日期。"; return; }
     if (!images.length) { $("submission-error").textContent = "請至少選擇 1 張投票證明圖片。"; $("proof-images").focus(); return; }
     try { submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
-      { caseApi: $("submission-mode").value === "member" ? ((sender) => async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); })(member.session.caseSender()) : undefined }); }
+      { caseApi: member.session.member ? ((sender) => async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); })(member.session.caseSender()) : undefined }); }
     catch (e) { $("submission-error").textContent = e.code?.startsWith("AUTH_") ? authMessage(e) : errorMessage(e); return; }
   }
   $("retry-note").hidden = true;

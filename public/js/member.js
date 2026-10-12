@@ -580,7 +580,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
   }
   // One boot probe, independent of all public API loading. No polling/redirect
   // loop and no provider connection; failed auth leaves Guest untouched.
-  void session.refresh().catch(() => {}).finally(() => { loginSessionChecked = true; syncLogin(); });
+  const ready = session.refresh().catch(() => {}).finally(() => { loginSessionChecked = true; syncLogin(); });
   window.addEventListener("pagehide", () => { pendingEmailAdd = null; resetAuth(); clearInterval(ticker); });
   window.addEventListener("pageshow", event => {
     if (!event.persisted) return;
@@ -590,5 +590,5 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     if (view === "security") void loadSecurity();
     if (view === "member") void loadMember(); else void session.refresh().catch(() => {});
   });
-  return { session, enter, loadRecentCases };
+  return { session, enter, loadRecentCases, ready };
 }

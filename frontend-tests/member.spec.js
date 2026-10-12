@@ -27,7 +27,8 @@ async function recoveryStart(page, state) {
 }
 async function submission(page, member = false) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
-  if (member) { await expect(page.locator("#member-mode")).toBeEnabled(); await page.locator("#submission-mode").selectOption("member"); }
+  await expect(page.locator("#submission-mode")).toBeHidden();
+  await expect(page.locator("#submission-mode")).toHaveValue(member ? "member" : "guest");
   await page.locator("#nickname").fill("本機投稿"); await page.locator("#player-id").fill("local-player");
   await page.locator("#vote-date").fill(new Date().toISOString().slice(0, 10));
   await page.locator("#proof-images").setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: png });
@@ -254,11 +255,48 @@ test("late enrollment response after navigation cannot reinsert secret/QR", asyn
   await expect(page.locator("#view-home")).toBeVisible(); await expect(page.locator("#enrollment-key")).toBeEmpty();
   expect(await page.locator("#enrollment-qr").evaluate(canvas => canvas.width)).toBe(0); await expect(page.locator("#register-password")).toHaveValue("");
 });
-test("explicit Guest mode omits auth cookies even when logged in", async ({ page }) => {
-  const state = await memberFixture(page, { authenticated: true }); await submission(page);
+test("signed-in submissions automatically use member CSRF without an identity chooser", async ({ page }) => {
+  const state = await memberFixture(page, { authenticated: true }); await submission(page, true);
+  await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
+  expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => call.path === "/api/cases").every(call => call.credentials === "same-origin"))).toBe(true);
+  expect(state.calls.find(call => call.path === "/api/cases").headers["x-csrf-token"]).toBe(state.csrf);
+  page.on("dialog", dialog => dialog.accept()); await page.locator("#new-submission").click();
+  await expect(page.locator("#submission-mode")).toHaveValue("member");
+  await expect(page.locator("#nickname")).toHaveValue(state.member.nickname);
+});
+
+test("logged-out submissions automatically use guest transport without cookies", async ({ page }) => {
+  const state = await memberFixture(page); await submission(page);
   await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
   expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => call.path === "/api/cases").every(call => call.credentials === "omit"))).toBe(true);
   expect(state.calls.find(call => call.path === "/api/cases").headers["x-csrf-token"]).toBeUndefined();
+});
+
+test("tampering with hidden identity controls cannot force guest or another member", async ({ page }) => {
+  const state = await memberFixture(page, { authenticated: true }); await submission(page, true);
+  await page.evaluate(() => {
+    const select = document.getElementById("submission-mode"); select.hidden = false; select.disabled = false;
+    select.value = "guest"; select.dispatchEvent(new Event("change", { bubbles: true }));
+    const injected = document.createElement("input"); injected.name = "member_id"; injected.value = "M-another-user";
+    document.getElementById("submission-form").append(injected);
+  });
+  await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
+  const call = state.calls.find(call => call.path === "/api/cases");
+  expect(call.headers["x-csrf-token"]).toBe(state.csrf); expect("member_id" in call.body).toBe(false);
+  expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => call.path === "/api/cases").every(call => call.credentials === "same-origin"))).toBe(true);
+});
+
+test("logging in during a pending guest retry keeps its original guest ownership", async ({ page }) => {
+  const state = await memberFixture(page); state.failCase = 1; await submission(page);
+  await page.locator("#submit-button").click(); await expect(page.locator("#retry-note")).toBeVisible();
+  state.authenticated = true; await page.evaluate(() => { location.hash = "member"; });
+  await expect(page.locator("#member-content")).toBeVisible();
+  await page.locator(".bottom-nav a[href='#submit'],.sidebar nav a[href='#submit']").filter({ visible: true }).click();
+  await expect(page.locator("#submission-mode")).toHaveValue("guest");
+  await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
+  const calls = state.calls.filter(call => call.path === "/api/cases");
+  expect(calls).toHaveLength(2); expect(calls[0].serialized).toBe(calls[1].serialized);
+  expect(calls.every(call => call.headers["x-csrf-token"] === undefined)).toBe(true);
 });
 test("cross-tab account change during member retry cannot submit as another member", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); state.failCase = 1; await submission(page, true);

@@ -61,9 +61,10 @@ export class MemberSession {
   async #send(path, { method = "GET", body, headers = {}, signal, image = false } = {}) {
     const revision = this.#revision;
     let response;
+    const timeout = method === 'POST' && /^\/api\/admin\/backups\/[a-f0-9-]{36}\/process$/.test(path) ? 270000 : 30000;
     try {
       response = await (PREVIEW ? previewFetch : this.fetcher)(path, { method, credentials: "same-origin", cache: "no-store", referrerPolicy: "no-referrer",
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
         headers: { ...headers, ...(method === "GET" ? {} : { "X-VoteProof-Request": "1", ...(this.#csrf ? { "X-CSRF-Token": this.#csrf } : {}) }),
           ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
         ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
@@ -118,7 +119,7 @@ export function adminPath(path) {
   const [pathname, query, extra] = path.split("?");
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if (pathname.includes("/files/") && query !== undefined) return false;
-  if (/^\/api\/admin\/(?:backups(?:\/backfill|\/[a-f0-9-]{36}\/retry)?|cases\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}\/backups)$/.test(pathname)) return true;
+  if (/^\/api\/admin\/(?:backups(?:\/backfill|\/[a-f0-9-]{36}\/(?:retry|process))?|cases\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}\/backups)$/.test(pathname)) return true;
   return /^\/api\/admin\/(?:me|audit-logs|cases(?:\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}(?:\/review|\/files\/[a-f0-9-]{36})?)?|campaigns(?:\/[A-Za-z0-9_-]{1,100}(?:\/update)?)?|leaderboards(?:\/[A-Za-z0-9_-]{1,100}(?:\/(?:update|rebuild|results))?)?|member-tiers(?:\/[a-z]+\/update)?|submissions(?:\/update)?)$/.test(pathname);
 }
 

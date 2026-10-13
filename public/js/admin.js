@@ -137,19 +137,19 @@ export function adminUI(session) {
     try {
       const data = await request('backups');
       box.append(node('p', Object.entries(backupLabels).map(([key, label]) => label + '：' + data.counts[key]).join(' · ')));
-      if (!data.enabled) box.append(node('p', copy('backup-off'), 'tiny'));
+      if (!data.ready) box.append(node('p', copy(data.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
       if (data.blocked_error_code) box.append(node('p', backupErrors[data.blocked_error_code] ?? backupErrors.INTERNAL, 'notice warn'));
       box.append(node('p', copy('backup-missing') + '：' + data.missing));
       // A bounded dry run first; enqueue requires a separate explicit confirmation.
       if (data.missing) box.append(button(copy('backup-check'), () => void run(async () => {
         const preview = await mutate('backups/backfill', { dry_run: true, limit: 25 });
         box.append(node('p', copy('backup-check-summary').replaceAll('{scanned}',preview.scanned).replaceAll('{ready}',preview.ready.length).replaceAll('{missing}',preview.missing.length).replaceAll('{changed}',preview.changed.length)));
-        if (preview.ready.length) box.append(button(copy('backup-enqueue'), () => void run(async () => {
+        if (data.ready === true && preview.ready.length) box.append(button(copy('backup-enqueue'), () => void run(async () => {
           if (!window.confirm(copy('backup-enqueue-confirm'))) return;
           await mutate('backups/backfill', { dry_run: false, file_ids: preview.ready }); await load();
         })));
       })));
-      for (const audit of data.audit ?? []) box.append(node('p', copy(audit.action === 'retry' ? 'backup-retry' : 'backup-enqueue') + ` · ${audit.affected_count} · ` + stamp(audit.created_at * 1000), 'tiny'));
+      for (const audit of data.audit ?? []) box.append(node('p', copy(audit.target_id?.startsWith('process:') ? 'backup-process' : audit.action === 'retry' ? 'backup-retry' : 'backup-enqueue') + ` · ${audit.affected_count} · ` + stamp(audit.created_at * 1000), 'tiny'));
     } catch (error) {
       if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
       box.append(node('p', copy('backup-unavailable'), 'tiny'));
@@ -163,6 +163,7 @@ export function adminUI(session) {
       const backupBox = node('section', '', 'member-case'); backupBox.append(node('h3', copy('backup-title'))); $('admin-panel').append(backupBox);
       try {
         const backups = await request('cases/' + encodeURIComponent(id) + '/backups');
+        if (!backups.ready) backupBox.append(node('p', copy(backups.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
         if (!backups.backups.length) backupBox.append(node('p', copy('backup-missing')));
         for (const item of backups.backups) {
           backupBox.append(node('p', backupLabels[item.status] ?? copy('backup-unknown')));
@@ -173,9 +174,17 @@ export function adminUI(session) {
           }
           if (item.status === 'failed') {
             backupBox.append(node('p', backupErrors[item.last_error_code] ?? backupErrors.INTERNAL));
-            if (management(access.actor)) backupBox.append(button(copy('backup-retry'), () => void run(async () => {
+            if (backups.ready === true && management(access.actor)) backupBox.append(button(copy('backup-retry'), () => void run(async () => {
               if (!window.confirm(copy('backup-retry-confirm'))) return;
               await mutate('backups/' + item.id + '/retry', { expected_version: item.version }); await load();
+            })));
+          }
+          if (backups.ready === true && management(access.actor) && (item.status === 'pending' || (item.status === 'failed' && item.next_attempt_at != null))) {
+            backupBox.append(button(copy('backup-process'), () => void run(async () => {
+              if (!window.confirm(copy('backup-process-confirm'))) return;
+              const result = await mutate('backups/' + item.id + '/process', {});
+              if (result.state === 'failed' || result.state === 'unavailable') throw { code: 'BACKUP_PROCESS_FAILED' };
+              await load();
             })));
           }
         }

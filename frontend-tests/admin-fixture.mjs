@@ -10,7 +10,7 @@ export async function adminFixture(page, options = {}) {
   state.tiers = ["普通", "青銅", "白銀", "黃金", "白金", "翡翠", "鑽石", "星耀"].map((name, i) => ({ tier_id: ["normal", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "stellar"][i], name, min_points: i ? null : 0, status: i ? "disabled" : "active", version: 0 }));
   state.submissions = { submissions_enabled: false, submissions_message: "尚未開放投稿", version: 0 };
   state.audit = []; state.conflict = false; state.failAdmin = false;
-  state.backups = []; state.backupMissing = 0; state.backupBlocked = null;
+  state.backupReadiness = {enabled:true,configured:true,ready:true,state:'ready'}; state.backups = []; state.backupMissing = 0; state.backupBlocked = null;
   if (options.autoConfirm !== false) page.on("dialog", dialog => dialog.accept());
   await page.route("**/api/admin/**", async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, body = request.postData() ? request.postDataJSON() : null;
@@ -28,8 +28,9 @@ export async function adminFixture(page, options = {}) {
       if (state.conflict) return error("CASE_STATUS_CONFLICT", 409);
       state.audit.push({ id: randomUUID(), action: path.includes("campaigns") ? "campaign_update" : "approve", target_id: "LOCAL", admin_member_id: state.member.member_id, created_at: new Date().toISOString() });
     }
-    if (path === '/api/admin/backups') return reply({ enabled: true, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
-    if (path.endsWith('/backups')) return reply({ backups: state.backups });
+    if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
+    if (path.endsWith('/backups')) return reply({ ...state.backupReadiness, backups: state.backups });
+    if (/\/backups\/[^/]+\/process$/.test(path)) { const b=state.backups.find(b=>path.includes(b.id)); b.status='confirmed';return reply({state:'complete',confirmed:1}); }
     if (/\/backups\/[^/]+\/retry$/.test(path)) { const b = state.backups.find(b=>path.includes(b.id)); b.status='pending'; return reply({ status:'pending' }); }
     if (path === '/api/admin/backups/backfill') return reply({ scanned: state.backupMissing, ready: state.backupMissing ? ['local-proof'] : [], missing: [], changed: [], enqueued: body.dry_run ? 0 : state.backupMissing });
     if (path === "/api/admin/cases") return reply({ cases: options.emptyCases ? [] : state.cases, next_cursor: null });

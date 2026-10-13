@@ -24,6 +24,9 @@ export function reviewActions(status, role) {
   return status === "approved" ? ["complete", "revoke"] : status === "completed" ? ["revoke"] : [];
 }
 export const adminMessage = error => {
+  if (error?.code === 'DRIVE_BACKUP_DISABLED') return 'Google Drive 備份尚未啟用。';
+  if (error?.code === 'DRIVE_BACKUP_NOT_CONFIGURED') return 'Google Drive 備份尚未設定完成。';
+  if (error?.code === 'BACKUP_PROCESS_FAILED') return '備份未完成，請重新載入確認狀態；未自動重送。';
   if (["ADMIN_STEP_UP_REQUIRED", "AUTH_STEP_UP_REQUIRED", "AUTH_REQUIRED", "MEMBER_SUSPENDED"].includes(error?.code)) return "請重新驗證身份，再繼續管理操作。";
   if (error?.code === "ADMIN_FORBIDDEN") return "你目前沒有此操作的管理權限。";
   if (error?.status === 409) return "資料已更新或狀態不允許此操作。請重新載入確認；未自動重送操作。";

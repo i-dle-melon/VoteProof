@@ -110,12 +110,36 @@ Campaign timezone comes from the existing campaign configuration. Stored folder
 identity uses campaign ID and local date; renaming a campaign reuses the original
 folder. No member identifiers or original filenames enter this naming convention.
 
-Processor is sequential, **max 5 jobs / execution**, max 240-second budget, renewable
-300-second global/job leases; a 35-Google-request ceiling and 15-request headroom
-before claiming each additional proof may lower the actual job count on a run.
-Every remote request rechecks ownership. No due jobs
-means no token refresh, Drive calls or lock creation. Workers Cron plan CPU/subrequest
-limits must be checked before activation; there is no paid queue dependency.
+Processor is **max 1 job / invocation**, with a 240-second budget, a renewable
+300-second row lease, and a hard ceiling of 16 Google requests (including refresh).
+An atomic UPDATE/RETURNING selects and claims the job. Every remote request renews
+and rechecks that row's ownership; manual processing also rechecks the admin session.
+The legacy processor lock remains a provider-block marker / compatibility guard;
+current processing does not acquire/renew a global lease. Folder maps are fetched
+once and reserved with conflict-safe RETURNING before remote creation. Concurrent
+jobs converge on the same saved folder IDs. No due jobs takes one D1 query and no
+Google/R2 access. There is no paid queue dependency.
+
+All mutation paths require centralized readiness: exact string `true`, all three
+nonblank/control-free OAuth settings and a valid root ID. Disabled returns HTTP409
+`DRIVE_BACKUP_DISABLED`; incomplete configuration returns HTTP503
+`DRIVE_BACKUP_NOT_CONFIGURED`, before job or Drive writes. Status reads and the
+bounded D1/R2 HEAD dry-run remain available. Admin UI uses only server readiness;
+missing/false readiness hides enqueue, retry and manual processing controls.
+
+Deterministic complete-invocation tests count every D1 helper and every atomic batch
+statement, including session/role authorization and audit. Measured scheduled idle /
+warm / cold counts are 1 / 15 / 23; manual warm / cold are 20 / 28. Manual includes
+five additional auth/audit statements versus scheduled, without a queue scan.
+Retryable failure / recovery are 19 / 18; permanent OAuth failure is 6. Even a
+cold manual job with 16 remote calls and late permanent failure is bounded by 30
+application-level D1 statements, leaving headroom below 35. These are local D1 /
+mocked-Google findings, not evidence of actual Production Worker CPU.
+
+**Actual Production Worker CPU remains a canary enablement gate.** The proof is
+streamed, with no image transform, OCR or whole-proof hashing. Only short folder
+keys are hashed. Record real Worker CPU/observability evidence for one explicitly
+approved proof before Cron/backfill enablement; local wall time is not a CPU gate.
 
 Each proof has a unique `(file_id, provider)` record. Drive file/folder IDs are
 pre-generated and committed before remote creation. Google documents safe retries
@@ -158,6 +182,21 @@ Authenticated elevated Admin APIs (ordinary members/reviewers cannot mutate):
   UUIDs only); this rechecks only the operator-reviewed proofs. API-based full
   pagination may instead use the same page parameters; use returned
   `next_cursor` as `after` for later pages. Each page is max 25, no unbounded scan.
+- `POST /api/admin/backups/{id}/process`: an empty JSON object `{}` only. Admin /
+  super_admin, valid session/MFA, Origin/CSRF and readiness are required. It claims
+  exactly that ID, derives R2/proof context from D1, and processes at most one job.
+  Client source keys, proof IDs and bulk options are rejected. Already confirmed
+  returns `already_confirmed` without Google access or job changes. Unknown IDs
+  return404; a busy/blocked/ineligible job returns409. Retryable failed jobs may be
+  explicitly processed before their backoff due time; terminal failures require
+  the guarded retry/reset action first. A nonconfirmed attempt/result is never
+  automatically repeated by the browser. Wait for the result or explicitly reload
+  status after cancellation/network ambiguity.
+  Claim and immutable audit insertion are atomic. To preserve reviewed0010,
+  `backup_admin_audit.action='retry'` with `target_id='process:<backupId>'` denotes
+  execution, distinct from retry/reset targets. A claim has affected_count1;
+  confirmed replay or an unsuccessful claim has0. Admin readback labels that
+  prefix as manual processing. No0011 or historical migration rewrite is needed.
 - `POST /api/admin/backups/{id}/retry`: `{ "expected_version": ... }` only for failed
   work; no blind repeat after conflict.
 
@@ -171,8 +210,8 @@ independent, with no test submissions or fake points added.
 ## Schedule approval and recovery
 
 There is a scheduled handler but **no Cron Trigger in tracked config**. Future
-operator-approved schedule may be every 5–15 minutes after connection, quota and
-plan acceptance. If Cron is stopped, records remain pending; R2 remains intact.
+operator-approved schedule may be every 15 minutes, max 96 jobs/day, after one-proof
+canary, actual Worker CPU, D1 budget and plan acceptance. If Cron is stopped, records remain pending; R2 remains intact.
 
 If Drive is full/unavailable: keep R2, inspect the safe Admin category, restore space
 or access, then retry the failed job. If the refresh token is revoked: authorize the
@@ -190,8 +229,8 @@ storage and Cloudflare free-plan ceilings still apply. Do not claim API usage is
 free forever. Google's October 2026 documentation describes a revised quota-unit
 model for new projects (1,000,000/project/minute, 325,000/user/project/minute and
 400,000,000/day billing threshold); older projects may retain previous quotas.
-Confirm the project's Console quotas and current pricing before enabling. At five
-sequential jobs per 5–15 minutes this implementation deliberately bounds requests;
+Confirm the project's Console quotas and current pricing before enabling. At one
+job per 15 minutes this implementation deliberately bounds requests;
 429/403 rate limits back off and storage exhaustion blocks. No billing/quota increase
 is automatically requested. [Current limits/pricing](https://developers.google.com/workspace/drive/api/guides/limits).
 

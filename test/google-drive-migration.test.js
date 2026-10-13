@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { unstable_splitSqlQuery } from 'wrangler';
 import { localAdminRuntime } from '../scripts/lib/local-admin-runtime.mjs';
+import { driveConfigFixture } from '../scripts/lib/drive-backup-fixture.mjs';
 const newTables = ['proof_backups','drive_backup_folders','backup_processor_lock','backup_admin_audit'];
 test('0010 clean schema has no jobs, folders, locks or audits; gate stays OFF', async () => {
   const h = await localAdminRuntime();
@@ -20,7 +21,7 @@ test('0001–0009 to 0010 preserves representative cases, approved ledger, proof
     for (const table of newTables) await db.prepare('DROP TABLE ' + table).run();
     const admin = await h.identity({ role: 'admin' }), member = await h.identity();
     await db.prepare("UPDATE campaigns SET points_per_proof=10,daily_limit=NULL WHERE campaign_id='LOCAL-TEST'").run();
-    await h.local.setAuthConfig({ GOOGLE_DRIVE_BACKUP_ENABLED: 'true' });
+    await h.local.setAuthConfig(driveConfigFixture());
     db = h.local.db;
     // Real local createCase still succeeds without 0010, even when scheduling is on.
     const approved = await h.makeCase({ member }); const pending = await h.makeCase({ member });

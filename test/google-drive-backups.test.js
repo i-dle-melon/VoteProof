@@ -11,9 +11,10 @@ before(async () => { h = await localAdminRuntime(); });
 after(async () => { await h.local.runtime.dispose(); });
 const config = () => ({ GOOGLE_DRIVE_BACKUP_ENABLED: 'true', GOOGLE_DRIVE_CLIENT_ID: randomBytes(12).toString('hex'),
   GOOGLE_DRIVE_CLIENT_SECRET: randomBytes(24).toString('hex'), GOOGLE_DRIVE_REFRESH_TOKEN: randomBytes(32).toString('hex'), GOOGLE_DRIVE_ROOT_FOLDER_ID: 'local_root' });
-const environment = () => ({ ...config(), DB: h.local.db, PROOFS_BUCKET: h.local.bucket });
+const environment = () => ({ ...config(), get DB() { return h.local.db; }, get PROOFS_BUCKET() { return h.local.bucket; } });
 const jobFor = c => h.local.db.prepare('SELECT b.* FROM proof_backups b JOIN case_files f ON f.id=b.file_id WHERE f.case_id=?').bind(c.id).first();
 async function fresh() {
+  if (h.local.authConfig.GOOGLE_DRIVE_BACKUP_ENABLED) await h.local.setAuthConfig({ GOOGLE_DRIVE_BACKUP_ENABLED: undefined });
   await h.local.db.batch(['DELETE FROM proof_backups','DELETE FROM drive_backup_folders','DELETE FROM backup_processor_lock'].map(sql => h.local.db.prepare(sql)));
   const c = await h.makeCase(); const env = environment(); await ensureCaseBackups(env, c.id); return { c, env };
 }
@@ -62,7 +63,7 @@ function googleMock({ fail, loseAck = false, badSize = false, badLocation = fals
 }
 test('successful submission schedules exactly once; replay and queue insertion do not change cases', async () => {
   const { c, env } = await fresh();
-  await h.local.setAuthConfig({ GOOGLE_DRIVE_BACKUP_ENABLED: 'true' });
+  await h.local.setAuthConfig(config());
   try {
     const submitted = await h.makeCase();
     assert.ok(await jobFor(submitted));
@@ -158,10 +159,10 @@ test('folder identity survives campaign rename and local date routes correctly w
   assert.equal(route.day, '2026-10-13'); assert.equal(route.name, c.case_id + '.jpg');
   assert.equal(JSON.stringify(route).includes('private@example.invalid') || JSON.stringify(route).includes('never-name'), false);
 });
-test('bounded processor never exceeds five jobs', async () => {
+test('bounded processor never exceeds one job', async () => {
   const { env } = await fresh(), mock = googleMock();
   for (let i = 0; i < 5; i++) { const c = await h.makeCase(); await ensureCaseBackups(env, c.id); }
-  const report = await processBackups(env, { fetcher: mock.fetcher, maxJobs: 100 }); assert.ok(report.processed > 0 && report.processed <= 5); assert.equal(mock.uploads, report.processed);
+  const report = await processBackups(env, { fetcher: mock.fetcher, maxJobs: 100 }); assert.ok(report.processed > 0 && report.processed === 1); assert.equal(mock.uploads, report.processed);
   assert.equal((await env.DB.prepare("SELECT count(*) AS n FROM proof_backups WHERE status='pending'").first()).n, 6-report.processed);
 });
 test('bounded backfill dry run is read-only; rerun skips all existing/confirmed jobs and reports missing objects', async () => {
@@ -176,6 +177,7 @@ test('bounded backfill dry run is read-only; rerun skips all existing/confirmed 
 });
 test('admin retry/backfill require server role, MFA, CSRF and atomic immutable audit', async () => {
   const { c, env } = await fresh(), admin = await h.identity({ role: 'admin' }), reviewer = await h.identity({ role: 'reviewer' }), member = await h.identity();
+  await h.local.setAuthConfig(config());
   const lowMfa = await h.identity({ role: 'admin', elevated: false });
   const job = await jobFor(c); await env.DB.prepare("UPDATE proof_backups SET status='failed',next_attempt_at=NULL,last_error_code='OAUTH_REVOKED' WHERE id=?").bind(job.id).run();
   const route = '/api/admin/backups/' + job.id + '/retry', body = { expected_version: 0 };
@@ -203,6 +205,7 @@ test('exact reviewed backfill selection queues only those proofs; audit failure 
   const { c, env } = await fresh(), admin = await h.identity({role:'admin'}), selected = await jobFor(c);
   await env.DB.prepare('DELETE FROM proof_backups').run();
   const other = await h.makeCase();
+  await h.local.setAuthConfig(config());
   const request = {dry_run:false,file_ids:[selected.file_id]};
   const response = await h.local.fetch('/api/admin/backups/backfill','POST',request,admin.headers);
   assert.equal(response.status,200); assert.equal((await response.json()).data.enqueued,1);

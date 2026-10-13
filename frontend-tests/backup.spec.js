@@ -41,3 +41,23 @@ test('backup admin layout stays bounded in dark/light at 320,390,430',async({pag
     }
   }
 });
+
+for(const enabled of [false,true])test(`backup ${enabled?'unconfigured':'disabled'} state is server driven; dry run exposes no mutation controls`,async({page})=>{
+  const state=await adminFixture(page);state.backupReadiness={enabled,configured:false,ready:false};state.backupMissing=1;
+  state.backups=[{id:randomUUID(),status:'failed',last_error_code:'NETWORK',version:1,next_attempt_at:1},{id:randomUUID(),status:'pending',version:0}];
+  await ready(page);await expect(page.locator('#admin-panel')).toContainText(enabled?'尚未設定完成':'尚未啟用');
+  await page.getByRole('button',{name:'檢查未備份證明'}).click();await expect(page.locator('#admin-panel')).toContainText('可排入 1 張');
+  await expect(page.getByRole('button',{name:'排入本次備份',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'查看與審核',exact:true}).click();
+  await expect(page.getByRole('button',{name:'重試備份',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'手動執行備份',exact:true})).toHaveCount(0);
+  expect(state.calls.filter(c=>c.method==='POST').map(c=>c.body)).toEqual([{dry_run:true,limit:25}]);
+});
+test('manual execution uses exactly one selected job, MFA and CSRF with no source override',async({page})=>{
+  const state=await adminFixture(page),id=randomUUID();state.backups=[{id,status:'pending',version:0}];await ready(page);
+  await page.getByRole('button',{name:'查看與審核',exact:true}).click();await page.getByRole('button',{name:'手動執行備份',exact:true}).click();
+  await expect.poll(()=>state.calls.some(c=>c.path.endsWith('/process'))).toBe(true);
+  const post=state.calls.find(c=>c.path.endsWith('/process'));expect(post.path).toBe('/api/admin/backups/'+id+'/process');
+  expect(post.body).toEqual({});expect(post.headers['x-csrf-token']).toBe(state.csrf);
+  await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
+});

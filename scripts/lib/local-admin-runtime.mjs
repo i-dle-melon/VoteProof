@@ -3,8 +3,8 @@
 import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { localCaseRuntime, guestBody } from "./local-case-runtime.mjs";
 
-export async function localAdminRuntime() {
-  const local = await localCaseRuntime();
+export async function localAdminRuntime(options) {
+  const local = await localCaseRuntime(options);
   async function identity({ role, status = "active", membershipStatus = "active", expired = false, revoked = false, elevated = true } = {}) {
     const memberId = "M-" + randomUUID(), token = randomBytes(32).toString("base64url");
     const hash = createHash("sha256").update("VoteProof/member-session/v1:" + token).digest("hex");

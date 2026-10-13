@@ -6,8 +6,23 @@ export class BackupError extends Error {
   constructor(code, retryable = false) { super(code); this.code = code; this.retryable = retryable; }
 }
 export const backupEnabled = env => env.GOOGLE_DRIVE_BACKUP_ENABLED === 'true';
+const validCredentials = env => [env.GOOGLE_DRIVE_CLIENT_ID, env.GOOGLE_DRIVE_CLIENT_SECRET, env.GOOGLE_DRIVE_REFRESH_TOKEN]
+  .every(value => typeof value === 'string' && value.trim().length > 0 && !/[\u0000-\u0020\u007f]/.test(value));
+export function backupReadiness(env) {
+  const enabled = backupEnabled(env);
+  const configured = validCredentials(env) &&
+    typeof env.GOOGLE_DRIVE_ROOT_FOLDER_ID === 'string' && env.GOOGLE_DRIVE_ROOT_FOLDER_ID === env.GOOGLE_DRIVE_ROOT_FOLDER_ID.trim() && DRIVE_ID.test(env.GOOGLE_DRIVE_ROOT_FOLDER_ID);
+  return { enabled, configured, ready: enabled && configured, state: !enabled ? 'disabled' : configured ? 'ready' : 'not_configured' };
+}
+export function requireBackupReady(env) {
+  const readiness = backupReadiness(env);
+  if (!readiness.ready) throw new BackupError(readiness.enabled ? 'DRIVE_BACKUP_NOT_CONFIGURED' : 'DRIVE_BACKUP_DISABLED');
+  return readiness;
+}
 export function driveConfig(env) {
-  if (![env.GOOGLE_DRIVE_CLIENT_ID, env.GOOGLE_DRIVE_CLIENT_SECRET, env.GOOGLE_DRIVE_REFRESH_TOKEN].every(x => typeof x === 'string' && x.length > 0)) throw new BackupError('CONFIG_MISSING');
+  // The offline OAuth/root-creation helper has no root yet. Operational paths
+  // require all four settings through requireBackupReady before any mutation.
+  if (!validCredentials(env)) throw new BackupError('CONFIG_MISSING');
   return env;
 }
 const metadataFields = 'id,name,mimeType,size,parents,trashed,appProperties';

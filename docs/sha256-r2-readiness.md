@@ -1,5 +1,7 @@
 # SHA-256 V1：R2 驗證候選（尚未部署）
 
+後續同請求固定成本優化已完成，建案 D1 statement 由13降至9，但部署後首案仍可重現 >10 ms，仍為 NO-GO；最新證據與 fallback 設計見 [proof-fixed-cpu-readiness.md](proof-fixed-cpu-readiness.md)。下文保留前次 R2 checksum 架構驗收紀錄。
+
 結論：**NO-GO**。本機已移除投稿／建案路徑的 Worker 整檔雜湊與緩衝，但完整建案請求仍反覆超過 Workers Free HTTP 的 10 ms CPU 限制。不得部署此候選、套用 0012 或執行 Production hash backfill。Production 保持 `91e0a707d0f1155907ebf3a15d3d6564d72a98ad`；本次起始候選為 `84b1bf28d1d731fb86eb5d28f472207c3e0e611b`。
 
 ## 候選契約與信任邊界

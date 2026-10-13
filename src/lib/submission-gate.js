@@ -22,3 +22,8 @@ export const publicSubmissionSettings = row => ({ submissions_enabled: row.submi
 export async function requireSubmissionsEnabled(db) {
   if (!(await submissionSettings(db)).submissions_enabled) throw new SubmissionError("SUBMISSIONS_DISABLED", "Submissions are currently disabled");
 }
+export function requireSubmissionRow(row) {
+  if (!row) throw new SubmissionError('SUBMISSIONS_DISABLED','Submissions are currently disabled');
+  if (![0,1].includes(row.submissions_enabled)||!safeSubmissionMessage(row.submissions_message)) throw new SubmissionError();
+  if(row.submissions_enabled!==1)throw new SubmissionError('SUBMISSIONS_DISABLED','Submissions are currently disabled');
+}

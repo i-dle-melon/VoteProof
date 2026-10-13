@@ -15,15 +15,17 @@ export function caseDatabase(env) {
 export const manifestHash = files => sha256(JSON.stringify([...files].sort((a, b) => a.key.localeCompare(b.key))
   .map(({ key, size, type, etag, sha256 }) => ({ key, size, type, etag, ...(sha256?{sha256}:{}) }))));
 
-export const uploadState = (db, sessionId) => db.prepare(
+export const uploadStateStatement = (db, sessionId) => db.prepare(
   "SELECT session_id, manifest_hash, consumed_case_id, expires_at FROM completed_uploads WHERE session_id = ?"
-).bind(sessionId).first();
+).bind(sessionId);
+export const uploadState = (db, sessionId) => uploadStateStatement(db,sessionId).first();
+export const completedFilesStatement = (db, sessionId) => db.prepare(
+  `SELECT f.object_key AS key, f.content_type AS type, f.size, f.etag, h.sha256 FROM completed_upload_files f
+   LEFT JOIN proof_upload_checksums h ON h.object_key=f.object_key WHERE f.session_id = ? ORDER BY f.object_key`
+).bind(sessionId);
 
 export async function completedFiles(db, sessionId) {
-  return (await db.prepare(
-    `SELECT f.object_key AS key, f.content_type AS type, f.size, f.etag, h.sha256 FROM completed_upload_files f
-     LEFT JOIN proof_upload_checksums h ON h.object_key=f.object_key WHERE f.session_id = ? ORDER BY f.object_key`
-  ).bind(sessionId).all()).results;
+  return (await completedFilesStatement(db,sessionId).all()).results;
 }
 
 export async function rememberCompletedUpload(env, sessionId, files) {
@@ -47,10 +49,11 @@ export async function rememberCompletedUpload(env, sessionId, files) {
         AND EXISTS(SELECT 1 FROM completed_uploads WHERE session_id=? AND manifest_hash=? AND consumed_case_id IS NULL)
         ON CONFLICT(object_key) DO NOTHING`).bind(file.sha256,file.etag,file.size,file.key,sessionId,file.etag,file.size,sessionId,hash)),
     ]);
-    const state = await uploadState(db, sessionId);
+    const [stateResult,filesResult] = await db.batch([uploadStateStatement(db,sessionId),completedFilesStatement(db,sessionId)]);
+    const state = stateResult.results[0];
     if (state?.consumed_case_id) throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
     if (state?.expires_at <= new Date().toISOString()) throw expired();
-    if (state?.manifest_hash !== hash || await manifestHash(await completedFiles(db, sessionId)) !== hash) {
+    if (state?.manifest_hash !== hash || await manifestHash(filesResult.results) !== hash) {
       throw new CaseError(409, "UPLOAD_SESSION_CONFLICT", "Completed upload cannot be changed");
     }
   } catch (error) {
@@ -62,10 +65,15 @@ export async function rememberCompletedUpload(env, sessionId, files) {
 
 export async function requireCompletedUpload(db, sessionId, keys) {
   const state = await uploadState(db, sessionId);
+  // Existing standalone callers retain their validation/error order.
+  const files = state && !state.consumed_case_id && state.expires_at>new Date().toISOString() ? await completedFiles(db,sessionId) : [];
+  return requireCompletedUploadSnapshot(state,files,keys);
+}
+
+export async function requireCompletedUploadSnapshot(state,files,keys) {
   if (!state) throw new CaseError(400, "UPLOAD_NOT_COMPLETED", "Upload must be completed first");
   if (state.consumed_case_id) throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
   if (state.expires_at <= new Date().toISOString()) throw expired();
-  const files = await completedFiles(db, sessionId);
   if (JSON.stringify(files.map(file => file.key).sort()) !== JSON.stringify([...keys].sort())) {
     throw new CaseError(400, "INVALID_UPLOAD_REFERENCE", "Files do not match the completed upload");
   }

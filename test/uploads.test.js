@@ -27,6 +27,8 @@ function uploadDb() {
       async all() { return { results:files }; },
       async run() { return { success:true }; },
       apply() {
+        if(sql.startsWith('SELECT session_id,'))return {success:true,results:state?[state]:[]};
+        if(sql.includes('LEFT JOIN proof_upload_checksums'))return {success:true,results:files};
         if (sql.startsWith('INSERT INTO completed_uploads ')) state={session_id:args[0],manifest_hash:args[1],expires_at:args[3],consumed_case_id:null};
         if (sql.includes('INSERT INTO completed_upload_files')) files.push({key:args[1],type:args[2],size:args[3],etag:args[4]});
         if(sql.includes('INSERT INTO proof_upload_checksums')){const f=files.find(f=>f.key===args[3]);if(f)f.sha256=args[0];}

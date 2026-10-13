@@ -58,6 +58,9 @@ export function campaignUpdatePolicy(row, input) {
 }
 export async function requireCaseCampaign(db, input, now = new Date().toISOString()) {
   const row = await db.prepare("SELECT * FROM campaigns WHERE campaign_id = ?").bind(input.campaignId).first();
+  return requireCaseCampaignRow(row,input,now);
+}
+export function requireCaseCampaignRow(row,input,now=new Date().toISOString()) {
   if (!row) throw new CaseError(400, "CAMPAIGN_NOT_FOUND", "Campaign does not exist");
   if (row.status !== "active" || row.start_at > now || row.end_at <= now) throw new CaseError(400, "CAMPAIGN_NOT_OPEN", "Campaign is not accepting submissions");
   if (input.voteDate < row.vote_start_date || input.voteDate > row.vote_end_date) throw new CaseError(400, "VOTE_DATE_OUTSIDE_CAMPAIGN", "Vote date is outside the campaign window");

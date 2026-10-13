@@ -9,11 +9,13 @@ export const backupInsert = (db, fileId, now, guard = '1=1', bindings = []) => d
   SELECT ?,f.id,'google_drive',f.object_key,f.size,f.content_type,f.etag,?,? FROM case_files f JOIN cases c ON c.id=f.case_id
   WHERE f.id=? AND f.etag IS NOT NULL AND ${guard} ON CONFLICT(file_id,provider) DO NOTHING`)
   .bind(crypto.randomUUID(), now, now, fileId, ...bindings);
-export async function ensureCaseBackups(env, caseInternalId) {
+export async function ensureCaseBackups(env, caseInternalId, committedFiles) {
   if (!backupReadiness(env).ready) return;
   try {
-    const files = (await env.DB.prepare('SELECT id FROM case_files WHERE case_id=?').bind(caseInternalId).all()).results;
-    if (files.length) await env.DB.batch(files.map(f => backupInsert(env.DB, f.id, seconds())));
+    const files = committedFiles ?? (await env.DB.prepare('SELECT id FROM case_files WHERE case_id=?').bind(caseInternalId).all()).results;
+    // Known server-generated IDs avoid a reread; SQL still binds each proof to
+    // the committed case. No caller-provided file metadata is authoritative.
+    if (files.length) await env.DB.batch(files.map(f => backupInsert(env.DB, f.id, seconds(),'c.id=?',[caseInternalId])));
   } catch {
     // Durable reconciliation detects every absent record; submission stays valid.
     try { console.warn('VoteProof backup scheduling unavailable', { code: 'BACKUP_SCHEDULING_FAILED' }); } catch { /* no upstream exception */ }

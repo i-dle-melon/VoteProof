@@ -1,14 +1,14 @@
 import { jsonSuccess, jsonError } from "./response.js";
 import { CaseError, readCaseJson, validateCase } from "./case-validation.js";
-import { caseDatabase, requireCompletedUpload, uploadState } from "../lib/completed-uploads.js";
+import { caseDatabase, uploadState } from "../lib/completed-uploads.js";
+import {casePreflight} from '../lib/case-preflight.js';
 import { newCaseId, newQueryKey, sha256, equalQueryHash, CASE_ID_PATTERN, QUERY_KEY_PATTERN } from "../lib/case-keys.js";
 import { archiveCaseFiles, cleanPrivateCopies } from "../lib/case-files.js";
 import { insertCase, guestCase, guestFiles } from "../lib/case-store.js";
 import { requestIdempotency, newQuerySeed, reconstructQueryKey, replayCase } from "../lib/case-idempotency.js";
 import { AuthError } from "./auth-validation.js";
 import { memberSession, memberCsrf } from "../lib/auth-session.js";
-import { requireCaseCampaign } from "../lib/campaign-policy.js";
-import { requireSubmissionsEnabled, SubmissionError } from "../lib/submission-gate.js";
+import { SubmissionError } from "../lib/submission-gate.js";
 import { ensureCaseBackups } from "../lib/proof-backup-store.js";
 
 const errorResponse = error => error instanceof CaseError || error instanceof AuthError || error instanceof SubmissionError
@@ -31,9 +31,9 @@ export async function createCase(env, _url, request) {
     db = caseDatabase(env);
     const replay = await replayCase(db, identity);
     if (replay) return jsonSuccess(replay, "no-store", 201);
-    await requireSubmissionsEnabled(db);
-    input.campaignVersion = (await requireCaseCampaign(db, input)).version;
-    const completed = await requireCompletedUpload(db, input.sessionId, input.keys);
+    const preflight = await casePreflight(db,input);
+    input.campaignVersion = preflight.campaign.version;
+    const completed = preflight.completed;
     id = crypto.randomUUID();
     const now = new Date();
     const caseId = newCaseId(now);
@@ -44,7 +44,7 @@ export async function createCase(env, _url, request) {
     await insertCase(db, input, { id, caseId, now: new Date().toISOString(), queryHash,
       idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null }, files, completed.hash);
     committed = true;
-    await ensureCaseBackups(env, id);
+    await ensureCaseBackups(env, id, files);
     await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {

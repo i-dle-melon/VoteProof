@@ -59,3 +59,34 @@ JS auth/security、API endpoint、migrations、secrets、Wrangler bindings、`pu
 可選：本機 `npm run format:frontend` 整理 HTML/CSS 排版；它不改功能 JS。
 
 流程依 [GitHub Pages 官方文件](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) 與 [Cloudflare GitHub Actions 部署文件](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/)；認證值不應加入 Git 或前端。
+
+## 重設計前的契約基線（2026-10-13）
+
+先讀 [frontend-contract-freeze.md](frontend-contract-freeze.md)，再執行
+`node scripts/audit-frontend-contracts.mjs`；完整 DOM／data／form／JS／test selector、copy、token
+清單在 ignored `.wrangler/frontend-contracts/`。固定 IDs 與 fixture hooks MUST PRESERVE；
+動態 view-/admin-field-/security hook 改名必須同步 JS，不能只改 HTML。
+class 是否 CSS-only 要以 inventory 的 JS／test 使用位置複核。
+
+每次改版驗證 `npm run check:frontend-hooks`、frontend unit、全部三 browser；mobile 至少
+320、375、390、430、768，dark/light 都測。建立本機 fixture server 後可跑
+`node scripts/audit-frontend-mobile.mjs`，實測 overflow／labels／tap targets／contrast candidates。
+fixtures 是合成 API，不代表真實會員或 Production 授權驗收。focus-visible、heading order、
+dialog return-focus／Escape、form error association 必須另查 keyboard workflow。
+
+公開 Pages allowlist 只包含 public preview 檔；新的 admin-duplicate.js 也不進 Pages。
+不要把 Admin 頁開放到 Pages 或設定 Production API base URL：Pages 沒有同站 session／CSRF／
+Origin 授權，且是公開產物，不能包含 private proof、member、MFA 或 relay secret。
+Preview 的 connect-src none 與非正式標記保留。檢查 build output，不只相信隱藏 UI。
+
+目前 Production 91e0a70 的 Drive transport 是 Apps Script pull；Worker Cron=0。
+核准排程 rollout 的 enable flag 需 true，但不需要舊 Google OAuth credentials。
+後續 deploy 應先讀真實 Worker bindings／旗標／queue，保留該已批准配置；checked-in disabled
+default 不等於當前 Production 值。不要讓前端 release 重設備份開關或收件 OFF。
+本次 source release 沿用既有一次性手動 Wrangler 路徑，未呼叫 Production workflow_dispatch；
+下一次發布應在 review 時選定既有入口並驗證 exact SHA、migrations（另批准）、保留 bindings。
+
+Rollback 必須使用已確認的完整 Worker version/source，保留 D1 additive schema、R2／Drive data
+及 IDs。若需要暫停 Drive，先 removeTriggers()、按批准計畫關 relay flag；不可清空 queue。
+SHA 候選新增 0012 尚未部署，不可混入只改 frontend 的 Production release；選定基底／
+commit 範圍後先檢查 migration compatibility，禁止 force push、reset 或刪除資料。

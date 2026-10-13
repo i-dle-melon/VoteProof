@@ -2,6 +2,7 @@ import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adm
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
 import { backupText, backupLink } from "./admin-backup.js";
+import { renderDuplicateEvidence } from './admin-duplicate.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -194,6 +195,7 @@ export function adminUI(session) {
         if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
         backupBox.append(node('p', copy('backup-proof-unavailable')));
       }
+      $("admin-panel").append(renderDuplicateEvidence(data.duplicate_evidence));
       const preview = node("div", "", "admin-proof-grid"); $("admin-panel").append(preview);
       for (const [index, file] of data.files.entries()) {
         const card = node("article", "", "member-case"), loadProof = button(copy("admin-copy-052") + (index + 1), () => void run(async stillCurrent => {

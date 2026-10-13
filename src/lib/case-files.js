@@ -1,5 +1,6 @@
 import { CaseError } from "../api/case-validation.js";
 import { validUploadedObject, MIME_EXTENSIONS } from "../api/upload-validation.js";
+import { proofHashStream } from './proof-exact-hash.js';
 
 export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
   if (!["get", "put", "delete"].every(method => typeof bucket?.[method] === "function")) {
@@ -24,10 +25,13 @@ export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
       const id = crypto.randomUUID();
       const key = `proofs/cases/${caseId}/${id}.${MIME_EXTENSIONS[file.type]}`;
       cleanupKeys.push(key);
-      // R2-to-R2 stream only. Browser image bodies still never enter API requests.
-      const copy = await bucket.put(key, object.body, { httpMetadata: { contentType: file.type } });
+      // Hash the exact conditional-GET bytes as R2 consumes the stream; no full proof buffer.
+      const hash = proofHashStream(object.body,file.size);
+      // R2.put requires a stream with a known length in the Workers runtime.
+      const stream = typeof FixedLengthStream==='function' ? hash.stream.pipeThrough(new FixedLengthStream(file.size)) : await new Response(hash.stream).arrayBuffer();
+      const copy = await bucket.put(key, stream, { httpMetadata: { contentType: file.type } });
       if (!copy || copy.size !== file.size || !copy.etag) throw new Error("Archive failed");
-      archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag });
+      archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag, sha256:hash.digest() });
     }
     return archived;
   } catch (error) {

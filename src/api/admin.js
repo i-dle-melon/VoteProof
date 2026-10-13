@@ -7,6 +7,7 @@ import { caseNotFound, reviewInput } from "../lib/case-review.js";
 import { adminPage, readReviewJson, UUID_PATTERN } from "./admin-validation.js";
 import { adminCases, adminCase, adminFiles, applyReview, auditLogs } from "../lib/admin-store.js";
 import { allowedMime, UPLOAD_LIMITS } from "./upload-validation.js";
+import { adminExactEvidence } from '../lib/proof-exact-hash.js';
 
 const pathCaseId = url => {
   const id = url.pathname.split("/")[4];
@@ -30,7 +31,7 @@ export const listAdminCases = adminHandler(async (env, url, request) => {
 export const getAdminCase = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const db = authDatabase(env), { id, ...row } = await requireCase(db, url);
-  return jsonSuccess({ ...row, files: await adminFiles(db, id) });
+  return jsonSuccess({ ...row, files: await adminFiles(db, id), duplicate_evidence:await adminExactEvidence(db,id) });
 });
 export const reviewAdminCase = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env);

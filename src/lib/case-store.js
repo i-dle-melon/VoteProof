@@ -3,6 +3,7 @@ import { uploadState } from "./completed-uploads.js";
 import { AuthError, suspended } from "../api/auth-validation.js";
 import { requireCaseCampaign } from "./campaign-policy.js";
 import { requireSubmissionsEnabled } from "./submission-gate.js";
+import { exactHashInsert } from './proof-exact-hash.js';
 
 export async function insertCase(db, input, record, files, manifest) {
   let results;
@@ -31,6 +32,7 @@ export async function insertCase(db, input, record, files, manifest) {
         (id, case_id, object_key, content_type, size, etag, created_at, upload_object_key)
         SELECT ?, ?, ?, ?, ?, ?, ?, ? FROM cases WHERE id = ?`)
         .bind(file.id, record.id, file.key, file.type, file.size, file.etag, record.now, file.sourceKey, record.id)),
+      ...files.filter(file=>file.sha256).map(file=>exactHashInsert(db,file,record.now)),
       db.prepare(`UPDATE completed_uploads SET consumed_case_id = ?, consumed_at = ?
         WHERE session_id = ? AND manifest_hash = ? AND consumed_case_id IS NULL
         AND EXISTS (SELECT 1 FROM cases WHERE id = ?)`)

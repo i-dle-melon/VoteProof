@@ -6,6 +6,7 @@ import { localAdminRuntime } from '../scripts/lib/local-admin-runtime.mjs';
 import { driveConfigFixture } from '../scripts/lib/drive-backup-fixture.mjs';
 import { ensureCaseBackups } from '../src/lib/proof-backup-store.js';
 import { randomUUID } from 'node:crypto';
+import { localPrehashCase } from '../scripts/lib/local-prehash-case-fixture.mjs';
 const newTables = ['proof_backups','drive_backup_folders','backup_processor_lock','backup_admin_audit'];
 
 test('0010 to 0011 preserves all rows, proofs and gate; unique receipt index exists on clean and upgrade installs', async () => {
@@ -13,7 +14,7 @@ test('0010 to 0011 preserves all rows, proofs and gate; unique receipt index exi
   try {
     const db=h.local.db;
     await db.prepare('UPDATE submission_settings SET submissions_enabled=1 WHERE id=1').run();
-    const cases=[await h.makeCase(),await h.makeCase()];
+    const cases=[await localPrehashCase(h.local),await localPrehashCase(h.local)];
     for(const c of cases)await ensureCaseBackups({...driveConfigFixture(),DB:db},c.id);
     await db.prepare('UPDATE submission_settings SET submissions_enabled=0 WHERE id=1').run();
     const rows=(await db.prepare('SELECT * FROM proof_backups ORDER BY id').all()).results, token=randomUUID();

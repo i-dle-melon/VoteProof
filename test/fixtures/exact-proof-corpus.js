@@ -10,3 +10,11 @@ export function exactProofCorpus(){
    different_name_metadata:{name:'other.png',client_label:'different metadata',bytes:Buffer.from(base)},equal_size_different:{name:'blue.png',bytes:different},
    one_byte:{name:'one-byte.png',bytes:oneByte},reencoded_visual_equivalent:{name:'red-compressed.png',bytes:png([255,0,0,255],9)}};
 }
+// Valid PNG with a private ancillary padding chunk, for size-boundary profiling.
+// No real screenshots or member data are used.
+export function syntheticProofBytes(size,seed=1){
+ const base=png([seed%256,(seed*7)%256,(seed*13)%256,255],0);
+ if(size<base.length+12)throw Error('Synthetic size is too small');
+ const padding=chunk('vpAD',Buffer.alloc(size-base.length-12,seed%256));
+ return Buffer.concat([base.subarray(0,33),padding,base.subarray(33)]);
+}

@@ -19,6 +19,12 @@ test('Unverified legacy proof displays honest missing hash state',async({page})=
  await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();
  await expect(page.getByRole('region',{name:'檔案比對提示'})).toContainText('尚未完成檔案比對');
 });
+test('Verified no-match evidence is neutral and does not submit an automatic review',async({page})=>{
+ const state=await adminFixture(page);state.cases[0].duplicate_evidence={hash_state:'verified',exact_match_detected:false,matches:[],policy:'review_evidence_only'};
+ await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();
+ const box=page.getByRole('region',{name:'檔案比對提示'});await expect(box).toContainText('目前未找到相同檔案');
+ await expect(box).not.toContainText('此檔案可能已提交過');expect(state.calls.filter(c=>c.path.endsWith('/review'))).toHaveLength(0);expect(state.cases[0].status).toBe('pending');
+});
 test('Evidence uses text nodes and handles partial/truncated state',async({page})=>{
  const state=await adminFixture(page);state.cases[0].duplicate_evidence={hash_state:'partial',exact_match_detected:true,truncated:true,matches:[{relationship:'guest_exact_unknown',previous_case_id:'<img src=x onerror=alert(1)>',previous_status:'pending',previous_submitted_at:'2026-01-01'}]};
  await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();

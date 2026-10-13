@@ -74,6 +74,9 @@ try {
   // The required receipt player ID is form data, separate from session ownership.
   await page.locator("#player-id").fill("local-player");
   await page.locator("#proof-images").setInputFiles({ name: "local.png", mimeType: "image/png", buffer: png });
+  // Image decoding/validation is asynchronous; wait for the retained preview
+  // before checking it. A missing selection still fails instead of being retried.
+  await page.locator("#image-list .image-item").first().waitFor();
   const invalidFields = await page.locator("#submission-fields").evaluate(fieldset =>
     [...fieldset.querySelectorAll("input,select,textarea")].filter(input => !input.checkValidity()).map(input => input.id));
   assert.deepEqual(invalidFields, [], "Authenticated submission form must be valid without selecting an identity");

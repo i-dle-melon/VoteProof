@@ -1,6 +1,6 @@
 import { CaseError } from "../api/case-validation.js";
 import { validUploadedObject, MIME_EXTENSIONS } from "../api/upload-validation.js";
-import { proofHashStream } from './proof-exact-hash.js';
+import { verifiedProofObject } from './proof-exact-hash.js';
 
 export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
   if (!["get", "put", "delete"].every(method => typeof bucket?.[method] === "function")) {
@@ -25,13 +25,12 @@ export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
       const id = crypto.randomUUID();
       const key = `proofs/cases/${caseId}/${id}.${MIME_EXTENSIONS[file.type]}`;
       cleanupKeys.push(key);
-      // Hash the exact conditional-GET bytes as R2 consumes the stream; no full proof buffer.
-      const hash = proofHashStream(object.body,file.size);
-      // R2.put requires a stream with a known length in the Workers runtime.
-      const stream = typeof FixedLengthStream==='function' ? hash.stream.pipeThrough(new FixedLengthStream(file.size)) : await new Response(hash.stream).arrayBuffer();
-      const copy = await bucket.put(key, stream, { httpMetadata: { contentType: file.type } });
+      // Native R2 read and SHA over the same at-most-5-MiB bytes, reused for
+      // archival. No extra GET, browser hash or per-chunk JavaScript bridge.
+      const hash = await verifiedProofObject(object,file.size);
+      const copy = await bucket.put(key, hash.bytes, { httpMetadata: { contentType: file.type } });
       if (!copy || copy.size !== file.size || !copy.etag) throw new Error("Archive failed");
-      archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag, sha256:hash.digest() });
+      archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag, sha256:hash.digest });
     }
     return archived;
   } catch (error) {

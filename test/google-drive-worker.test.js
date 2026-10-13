@@ -24,7 +24,7 @@ test('scheduled Worker uploads known-length R2 stream to mocked resumable API an
     const m=files.get(u.pathname.split('/').at(-1));return m?Response.json(m):new Response(null,{status:404});
   }});
   try{
-    await local.setAuthConfig({GOOGLE_DRIVE_BACKUP_ENABLED:'true',GOOGLE_DRIVE_CLIENT_ID:randomBytes(12).toString('hex'),
+    await local.setAuthConfig({DRIVE_BACKUP_TRANSPORT:'worker_oauth_legacy',GOOGLE_DRIVE_BACKUP_ENABLED:'true',GOOGLE_DRIVE_CLIENT_ID:randomBytes(12).toString('hex'),
       GOOGLE_DRIVE_CLIENT_SECRET:randomBytes(24).toString('hex'),GOOGLE_DRIVE_REFRESH_TOKEN:randomBytes(32).toString('hex'),GOOGLE_DRIVE_ROOT_FOLDER_ID:'local_root'});
     const reference=await local.upload();assert.equal((await local.fetch('/api/cases','POST',guestBody(reference))).status,201);
     await local.db.prepare('UPDATE submission_settings SET submissions_enabled=0 WHERE id=1').run();

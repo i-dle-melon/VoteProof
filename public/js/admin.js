@@ -138,6 +138,8 @@ export function adminUI(session) {
       const data = await request('backups');
       box.append(node('p', Object.entries(backupLabels).map(([key, label]) => label + '：' + data.counts[key]).join(' · ')));
       if (!data.ready) box.append(node('p', copy(data.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
+      if (data.transport === 'apps_script_pull') box.append(node('p', copy('backup-relay'), 'tiny'));
+      if (data.transport === 'apps_script_pull' && data.ready) box.append(node('p', copy('backup-ready'), 'tiny'));
       if (data.blocked_error_code) box.append(node('p', backupErrors[data.blocked_error_code] ?? backupErrors.INTERNAL, 'notice warn'));
       box.append(node('p', copy('backup-missing') + '：' + data.missing));
       // A bounded dry run first; enqueue requires a separate explicit confirmation.
@@ -179,7 +181,7 @@ export function adminUI(session) {
               await mutate('backups/' + item.id + '/retry', { expected_version: item.version }); await load();
             })));
           }
-          if (backups.ready === true && management(access.actor) && (item.status === 'pending' || (item.status === 'failed' && item.next_attempt_at != null))) {
+          if (backups.transport === 'deprecated_worker_oauth' && backups.ready === true && management(access.actor) && (item.status === 'pending' || (item.status === 'failed' && item.next_attempt_at != null))) {
             backupBox.append(button(copy('backup-process'), () => void run(async () => {
               if (!window.confirm(copy('backup-process-confirm'))) return;
               const result = await mutate('backups/' + item.id + '/process', {});

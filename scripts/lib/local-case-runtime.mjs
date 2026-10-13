@@ -8,13 +8,14 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService, resourcePersistencePath } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
   const options = {
     name: "case-test", modules: true, script: bundle.outputFiles[0].text, compatibilityDate: "2026-10-07",
+    ...(resourcePersistencePath ? { resourcePersistencePath } : {}),
     d1Databases: ["DB"], r2Buckets: ["PROOFS_BUCKET"],
     bindings: {
       ...provider.config,
@@ -41,12 +42,16 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
   try {
     let db = await runtime.getD1Database("DB"), bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
     const migrations = new URL("../../migrations/", import.meta.url);
+    // Opt-in isolated connection runner only; normal tests stay disposable.
+    if (resourcePersistencePath) await db.prepare('CREATE TABLE IF NOT EXISTS local_fixture_migrations(name TEXT PRIMARY KEY)').run();
     for (const name of (await readdir(migrations)).filter(name => /^\d+_.+\.sql$/.test(name)).sort()) {
       if (migrationThrough && name > migrationThrough) break;
+      if (resourcePersistencePath && await db.prepare('SELECT name FROM local_fixture_migrations WHERE name=?').bind(name).first()) continue;
       const migration = await readFile(new URL(name, migrations), "utf8");
       // Static checked-in schema only; no user input or SQL interpolation.
       // Wrangler's splitter preserves trigger BEGIN/END bodies and SQL quotes.
       await db.batch(unstable_splitSqlQuery(migration).map(sql => db.prepare(sql)));
+      if (resourcePersistencePath) await db.prepare('INSERT INTO local_fixture_migrations(name) VALUES(?)').bind(name).run();
       if (migrationHook) await migrationHook(db, name);
     }
     // Explicit fixture opt-in only. The migration/Production default stays OFF.
@@ -63,10 +68,16 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       return campaign_id;
     }
     if (seedCampaign) await campaign();
-    const fetch = (path, method = "GET", body, headers = {}) => runtime.dispatchFetch("https://voteproof.example" + path, {
-      method, redirect: "manual", headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...headers },
-      ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
-    });
+    const fetch = (path, method = "GET", body, headers = {}) => {
+      // Incoming Node headers are lowercase. Normalize before adding defaults so
+      // a forwarded JSON request does not become "application/json, application/json".
+      const forwardedHeaders = new Headers(headers);
+      if (body !== undefined && !forwardedHeaders.has("Content-Type")) forwardedHeaders.set("Content-Type", "application/json");
+      return runtime.dispatchFetch("https://voteproof.example" + path, {
+        method, redirect: "manual", headers: forwardedHeaders,
+        ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
+      });
+    };
     async function upload({ count = 1, completed = true } = {}) {
       const response = await fetch("/api/uploads/prepare", "POST", {
         turnstile_token: randomBytes(24).toString("hex"),

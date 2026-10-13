@@ -29,7 +29,7 @@ async function api(e,id,body={},actor=admin,action='process'){
 test('readiness is exact, fail closed and credential-free',()=>{
   const config=driveConfigFixture();assert.equal(backupReadiness(config).ready,true);
   for(const flag of [undefined,false,true,'false','1','yes','TRUE',' true','true '])assert.equal(backupReadiness({...config,GOOGLE_DRIVE_BACKUP_ENABLED:flag}).ready,false);
-  for(const key of Object.keys(config).filter(k=>k!=='GOOGLE_DRIVE_BACKUP_ENABLED'))for(const value of [undefined,'',' ','bad\nvalue']){
+  for(const key of Object.keys(config).filter(k=>!['GOOGLE_DRIVE_BACKUP_ENABLED','DRIVE_BACKUP_TRANSPORT'].includes(k)))for(const value of [undefined,'',' ','bad\nvalue']){
     const r=backupReadiness({...config,[key]:value});assert.equal(r.ready,false);assert.equal(r.state,'not_configured');
     assert.deepEqual(Object.keys(r),['enabled','configured','ready','state']);
   }

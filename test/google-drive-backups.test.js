@@ -9,7 +9,7 @@ import worker from '../src/index.js';
 let h;
 before(async () => { h = await localAdminRuntime(); });
 after(async () => { await h.local.runtime.dispose(); });
-const config = () => ({ GOOGLE_DRIVE_BACKUP_ENABLED: 'true', GOOGLE_DRIVE_CLIENT_ID: randomBytes(12).toString('hex'),
+const config = () => ({ DRIVE_BACKUP_TRANSPORT:'worker_oauth_legacy', GOOGLE_DRIVE_BACKUP_ENABLED: 'true', GOOGLE_DRIVE_CLIENT_ID: randomBytes(12).toString('hex'),
   GOOGLE_DRIVE_CLIENT_SECRET: randomBytes(24).toString('hex'), GOOGLE_DRIVE_REFRESH_TOKEN: randomBytes(32).toString('hex'), GOOGLE_DRIVE_ROOT_FOLDER_ID: 'local_root' });
 const environment = () => ({ ...config(), get DB() { return h.local.db; }, get PROOFS_BUCKET() { return h.local.bucket; } });
 const jobFor = c => h.local.db.prepare('SELECT b.* FROM proof_backups b JOIN case_files f ON f.id=b.file_id WHERE f.case_id=?').bind(c.id).first();
@@ -110,6 +110,8 @@ test('no due jobs / disabled feature / absent migration do not access Google', a
   const absent = { ...env, DB: { prepare() { throw new Error('unavailable'); } } };
   assert.equal((await processBackups(absent, { fetcher: forbidden })).state, 'unavailable');
   const pending = []; await worker.scheduled({}, { GOOGLE_DRIVE_BACKUP_ENABLED: undefined }, { waitUntil(p) { pending.push(p); } });
+  assert.equal(pending.length, 0);
+  await worker.scheduled({}, { DRIVE_BACKUP_TRANSPORT:'worker_oauth_legacy' }, { waitUntil(p) { pending.push(p); } });
   assert.equal((await pending[0]).state, 'disabled');
 });
 test('lost upload acknowledgement reconciles the same reserved ID without another upload', async () => {

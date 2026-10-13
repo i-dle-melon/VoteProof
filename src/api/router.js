@@ -10,6 +10,7 @@ import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpE
 import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
 import { backupAdminRoute } from "./admin-backups.js";
+import { internalBackupRoute } from "./internal-drive-backups.js";
 import { campaignRoute } from "./admin-campaigns.js";
 import { pointRoute } from "./points.js";
 import { leaderboardRoute } from "./admin-leaderboards.js";
@@ -95,6 +96,7 @@ export async function routeApi(request, env, url) {
     (/^\/api\/auth\/trusted-devices\/[^/]+\/revoke$/.test(url.pathname)
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??
+    internalBackupRoute(url.pathname) ??
     backupAdminRoute(url.pathname) ??
     adminRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??

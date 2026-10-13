@@ -54,10 +54,22 @@ for(const enabled of [false,true])test(`backup ${enabled?'unconfigured':'disable
   expect(state.calls.filter(c=>c.method==='POST').map(c=>c.body)).toEqual([{dry_run:true,limit:25}]);
 });
 test('manual execution uses exactly one selected job, MFA and CSRF with no source override',async({page})=>{
-  const state=await adminFixture(page),id=randomUUID();state.backups=[{id,status:'pending',version:0}];await ready(page);
+  const state=await adminFixture(page,{backupTransport:'deprecated_worker_oauth'}),id=randomUUID();state.backups=[{id,status:'pending',version:0}];await ready(page);
   await page.getByRole('button',{name:'查看與審核',exact:true}).click();await page.getByRole('button',{name:'手動執行備份',exact:true}).click();
   await expect.poll(()=>state.calls.some(c=>c.path.endsWith('/process'))).toBe(true);
   const post=state.calls.find(c=>c.path.endsWith('/process'));expect(post.path).toBe('/api/admin/backups/'+id+'/process');
   expect(post.body).toEqual({});expect(post.headers['x-csrf-token']).toBe(state.csrf);
   await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
+});
+
+test('Apps Script ready state allows retry/enqueue but hides Worker manual execution',async({page})=>{
+  const state=await adminFixture(page),id=randomUUID();state.backupMissing=1;
+  state.backups=[{id,status:'failed',last_error_code:'NETWORK',next_attempt_at:1,version:1}];await ready(page);
+  await expect(page.locator('#admin-panel')).toContainText('備份服務設定就緒');
+  await expect(page.locator('#admin-panel')).toContainText('由 Apps Script');
+  await page.getByRole('button',{name:'查看與審核',exact:true}).click();
+  await expect(page.getByRole('button',{name:'手動執行備份',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'重試備份',exact:true}).click();
+  await expect.poll(()=>state.calls.some(c=>c.path.endsWith('/retry'))).toBe(true);
+  expect(state.calls.some(c=>c.path.endsWith('/process'))).toBe(false);
 });

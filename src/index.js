@@ -1,10 +1,13 @@
 import { routeApi } from "./api/router.js";
 import { processBackups } from "./lib/proof-backup-processor.js";
+import { legacyBackupTransport } from "./lib/drive-backup-relay.js";
 
 export default {
   async scheduled(_event, env, ctx) {
     // No trigger is configured by this change; activation is a separate rollout.
-    ctx.waitUntil(processBackups(env));
+    // Deprecated direct OAuth executor is opt-in for isolated rollback comparison only.
+    // Apps Script owns scheduling; a Worker Cron cannot run the pull transport.
+    if (legacyBackupTransport(env)) ctx.waitUntil(processBackups(env));
   },
   async fetch(request, env) {
     const url = new URL(request.url);

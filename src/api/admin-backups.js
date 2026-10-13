@@ -4,7 +4,7 @@ import { AdminError, adminIdentity, adminCsrf, ELEVATED_ROLES, ELEVATED_AUTH_GUA
 import { authAtomic } from '../lib/auth-store.js';
 import { readReviewJson, UUID_PATTERN } from './admin-validation.js';
 import { backupRows, backupSummary, missingBackupPage, seconds } from '../lib/proof-backup-store.js';
-import { backupReadiness } from '../lib/google-drive.js';
+import { backupReadiness, legacyBackupTransport } from '../lib/drive-backup-relay.js';
 import { processBackups } from '../lib/proof-backup-processor.js';
 import { CASE_ID_PATTERN } from '../lib/case-keys.js';
 const invalid = () => { throw new AdminError(400, 'INVALID_BACKUP_REQUEST', 'Invalid backup request'); };
@@ -32,7 +32,7 @@ const retry = adminHandler(async (env, url, request) => {
   if (!row) throw new AdminError(404, 'BACKUP_NOT_FOUND', 'Backup not found');
   if (row.status !== 'failed' || row.version !== input.expected_version) throw new AdminError(409, 'BACKUP_CONFLICT', 'Backup state changed');
   await authAtomic(env.DB, [actorGuard(actor), { sql: "EXISTS(SELECT 1 FROM proof_backups WHERE id=? AND status='failed' AND version=?)", args: [id, input.expected_version] }], [
-    env.DB.prepare(`UPDATE proof_backups SET status='pending',attempts=0,next_attempt_at=?,last_error_code=NULL,version=version+1 WHERE id=?`).bind(seconds(), id),
+    env.DB.prepare(`UPDATE proof_backups SET status='pending',attempts=0,next_attempt_at=?,lease_token=NULL,lease_until=NULL,last_error_code=NULL,version=version+1 WHERE id=?`).bind(seconds(), id),
     env.DB.prepare('UPDATE backup_processor_lock SET blocked_error_code=NULL WHERE id=1'),
     env.DB.prepare("INSERT INTO backup_admin_audit(id,created_at,admin_member_id,action,target_id,affected_count) VALUES(?,?,?,'retry',?,1)")
       .bind(crypto.randomUUID(), seconds(), actor.member.member_id, id),
@@ -70,6 +70,7 @@ const processOne = adminHandler(async (env, url, request) => {
   requireReady(env);
   const id = url.pathname.split('/')[4], input = await readReviewJson(request);
   if (!UUID_PATTERN.test(id) || input === null || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) invalid();
+  if (!legacyBackupTransport(env)) throw new AdminError(410,'DIRECT_BACKUP_PROCESSING_RETIRED','Backup execution is performed by the relay');
   return jsonSuccess(await processBackups(env, { backupId: id, actor }));
 });
 const routes = new Map([

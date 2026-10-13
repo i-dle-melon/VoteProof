@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { DRIVE_SCOPE, FOLDER_MIME } from '../../src/lib/google-drive.js';
-export const driveConfigFixture = () => ({ GOOGLE_DRIVE_BACKUP_ENABLED:'true', GOOGLE_DRIVE_ROOT_FOLDER_ID:'local_root',
+// Deprecated path is explicit in isolated comparison fixtures; never a Production default.
+export const driveConfigFixture = () => ({ DRIVE_BACKUP_TRANSPORT:'worker_oauth_legacy', GOOGLE_DRIVE_BACKUP_ENABLED:'true', GOOGLE_DRIVE_ROOT_FOLDER_ID:'local_root',
   GOOGLE_DRIVE_CLIENT_ID:randomBytes(12).toString('hex'), GOOGLE_DRIVE_CLIENT_SECRET:randomBytes(24).toString('hex'),
   GOOGLE_DRIVE_REFRESH_TOKEN:randomBytes(32).toString('hex') });
 export function countDatabase(source) {

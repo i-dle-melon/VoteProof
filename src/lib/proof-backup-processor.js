@@ -4,6 +4,7 @@ import { AdminError, ELEVATED_AUTH_GUARD, actorBindings } from './admin-identity
 import { authAtomic } from './auth-store.js';
 import { MIME_EXTENSIONS, UPLOAD_LIMITS } from '../api/upload-validation.js';
 import { CASE_ID_PATTERN } from './case-keys.js';
+import { legacyBackupTransport } from './drive-backup-relay.js';
 const blocking = new Set(['CONFIG_MISSING','OAUTH_REVOKED','OAUTH_CONFIG','ROOT_INACCESSIBLE','DRIVE_ACCESS_DENIED','DRIVE_FULL']);
 export function backupRoute(row) {
   if (!CASE_ID_PATTERN.test(row.case_id) || !MIME_EXTENSIONS[row.source_mime] || row.source_size <= 0 ||
@@ -40,6 +41,10 @@ const context = (db, id) => db.prepare(`SELECT b.*,c.case_id,c.campaign_id,c.cre
   JOIN cases c ON c.id=f.case_id JOIN campaigns p ON p.campaign_id=c.campaign_id WHERE b.id=?`).bind(id).first();
 export const MAX_GOOGLE_REQUESTS = 16;
 export async function processBackups(env, { fetcher = fetch, maxJobs = MAX_BACKUP_JOBS, backupId, actor } = {}) {
+  if (!legacyBackupTransport(env)) {
+    if (backupId) throw new AdminError(410, 'DIRECT_BACKUP_PROCESSING_RETIRED', 'Backup execution is performed by the relay');
+    return { processed: 0, state: 'retired' };
+  }
   const readiness = backupReadiness(env);
   if (!readiness.ready) {
     if (backupId) requireBackupReady(env);

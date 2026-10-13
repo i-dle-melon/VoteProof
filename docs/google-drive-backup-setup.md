@@ -1,4 +1,14 @@
-# Google Drive Backup V1 — operator setup
+# Current transport: private Apps Script pull relay
+
+The default implementation now uses the [private Apps Script relay setup](../apps-script/drive-backup/README.md).
+That guide covers script-owned private roots, minimal scopes, five-minute triggers,
+relay properties, isolated real acceptance and future canary/disable procedures.
+The Worker requires no Google OAuth credentials for this path. The instructions
+below describe the retained deprecated direct Worker OAuth comparison/rollback
+path, which additionally requires explicit `DRIVE_BACKUP_TRANSPORT=worker_oauth_legacy`.
+Do not use these historical instructions to activate Production.
+
+# Google Drive Backup V1 — historical operator setup
 
 Implementation is local only. This document does **not** authorize remote migrations,
 secret installation, Cron activation, Production uploads or backfill. R2 remains

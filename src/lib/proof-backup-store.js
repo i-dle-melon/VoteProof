@@ -1,4 +1,5 @@
-import { backupReadiness, requireBackupReady, BackupError } from './google-drive.js';
+import { backupReadiness, requireBackupReady } from './drive-backup-relay.js';
+import { BackupError } from './google-drive.js';
 export const seconds = () => Math.floor(Date.now() / 1000);
 export const MAX_BACKUP_JOBS = 1;
 export const MAX_BACKUP_ATTEMPTS = 8;

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { AwsClient } from "aws4fetch";
+
 import { localCaseRuntime } from "./lib/local-case-runtime.mjs";
 import { frontendServer } from "./lib/frontend-server.mjs";
 
@@ -12,29 +12,17 @@ const local = await localCaseRuntime({ seedCampaign: false, submissionsEnabled: 
 let server, browser;
 try {
   await local.campaign({ name: "本機公開活動", campaign_timezone: "Asia/Taipei", points_per_proof: 10, daily_limit: null });
-  await local.setAuthConfig({ AUTH_SECRET: undefined, AUTH_PASSWORD_PEPPER: undefined, AUTH_TOTP_ENCRYPTION_KEY: undefined, AUTH_ORIGIN: undefined });
+  await local.setAuthConfig({ AUTH_SECRET: undefined, AUTH_PASSWORD_PEPPER: undefined, AUTH_TOTP_ENCRYPTION_KEY: undefined });
   server = await frontendServer({ backend: local });
+  await local.setAuthConfig({AUTH_ORIGIN:server.base});
   browser = await chromium.launch({ channel: "chrome" });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
   const nonce = randomBytes(24).toString("base64url");
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let opts;globalThis.turnstile={render(container,o){opts=o;queueMicrotask(()=>o.callback(${JSON.stringify(nonce)}));return 'local';},reset(){queueMicrotask(()=>opts.callback(${JSON.stringify(nonce)}));}};` }));
-  const config = local.authConfig;
-  const signer = new AwsClient({ accessKeyId: config.R2_ACCESS_KEY_ID, secretAccessKey: config.R2_SECRET_ACCESS_KEY, service: "s3", region: "auto" });
-  let putCount = 0;
-  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async (route) => {
-    const request = route.request(), url = new URL(request.url());
-    const signature = url.searchParams.get("X-Amz-Signature"); url.searchParams.delete("X-Amz-Signature");
-    const type = request.headers()["content-type"];
-    const expected = await signer.sign(url, { method: request.method(), headers: { "Content-Type": type }, aws: { signQuery: true, allHeaders: true } });
-    assert.equal(new URL(expected.url).searchParams.get("X-Amz-Signature") === signature, true, "Local PUT signature mismatch");
-    assert.equal(request.method(), "PUT"); assert.equal(type, "image/png");
-    const key = decodeURIComponent(url.pathname.split("/").slice(2).join("/"));
-    assert.equal(key.startsWith("proofs/staging/"), true);
-    await local.bucket.put(key, request.postDataBuffer(), { httpMetadata: { contentType: type } }); putCount++;
-    await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": server.base }, body: "" });
-  });
+  let putCount=0;
+  await page.route('**/api/uploads/put/**',async route=>{const request=route.request();assert.equal(request.method(),'PUT');const response=await local.runtime.dispatchFetch(request.url(),{method:'PUT',headers:request.headers(),body:request.postDataBuffer()});assert.equal(response.status,200);putCount++;await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});});
   let lost = false; const requests = [];
   await page.route("**/api/cases", async (route) => {
     const request = route.request(); requests.push({ body: request.postData(), key: request.headers()["idempotency-key"] });

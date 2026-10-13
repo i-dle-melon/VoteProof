@@ -1,3 +1,4 @@
+globalThis.location={origin:'https://voteproof.example'};
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -7,7 +8,7 @@ import { MemberSession } from "../public/js/member-api.js";
 import { localAdminRuntime } from "../scripts/lib/local-admin-runtime.mjs";
 
 const metadata = { nickname: "本機批次", player_id: "local", campaign_id: "LOCAL-TEST", vote_type: "Solo", vote_date: "2026-10-12" };
-const files = count => Array.from({ length: count }, (_, i) => ({ name: `proof-${i}.png`, type: "image/png", size: 3 }));
+const files = count => Array.from({ length: count }, (_, i) => ({ name: `proof-${i}.png`, type: "image/png", size: 3, arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer }));
 function fixture(count = 3) {
   const calls = [], puts = [], receipts = new Map(), states = [];
   let enabled = true, failPut = true, lost = true;
@@ -15,8 +16,8 @@ function fixture(count = 3) {
     calls.push({ path, ...options });
     if (path.endsWith("status")) return { submissions_enabled: enabled };
     if (path.endsWith("prepare")) return { session_id: randomUUID(), expires_in: 300, uploads: options.body.files.map(() => ({
-      key: randomUUID(), method: "PUT", headers: { "Content-Type": "image/png" },
-      upload_url: `https://${randomBytes(16).toString("hex")}.r2.cloudflarestorage.com/fixture` })) };
+      key: randomUUID(), method: "PUT", headers: { 'Content-Type':'image/png','X-Upload-Grant':randomBytes(48).toString('base64url') },
+      upload_url: `https://voteproof.example/api/uploads/put/${randomUUID()}/${randomUUID()}` })) };
     if (path.endsWith("complete")) return {};
     const key = options.headers["Idempotency-Key"];
     if (!receipts.has(key)) receipts.set(key, { case_id: "VP-20261012-" + String.fromCharCode(65 + receipts.size).repeat(16), query_key: randomBytes(32).toString("base64url") });
@@ -119,7 +120,7 @@ test("15 real local member proofs create 15 independent cases; 12 approvals prod
       const v = await r.json(); if (!r.ok) throw new PublicError(v.error.code, r.status); return v.data;
     };
     const batch = new BatchSubmission({ api, token: async () => randomUUID(), put: async upload => {
-      await local.bucket.put(upload.key, new Uint8Array([1, 2, 3]), { httpMetadata: { contentType: "image/png" } });
+      await local.put(upload,new Uint8Array([1,2,3]));
     } });
     batch.start(metadata, files(15), { caseApi: api }); const results = await batch.attempt();
     assert.equal(results.complete, true); assert.equal(new Set(results.items.map(item => item.result.case_id)).size, 15);

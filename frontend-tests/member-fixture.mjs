@@ -21,16 +21,15 @@ export async function memberFixture(page, options = {}) {
   });
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", route => route.fulfill({ contentType: "text/javascript", body:
     `let next=0;const widgets=new Map();globalThis.turnstile={render(container,opts){const id=String(next++);widgets.set(id,opts);container.textContent='本機隔離驗證';queueMicrotask(()=>opts.callback('local-browser-fixture'));return id;},reset(id){queueMicrotask(()=>widgets.get(id).callback('local-browser-fixture'));}};` }));
-  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
-    state.puts++; await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
-  });
   const session = () => ({ member: state.member, csrf_token: state.csrf, ...(options.adminRole ? { elevated_until: state.elevationUntil ?? Date.now() / 1000 + 600 } : {}), expires_in: options.shortSession ? .2 : 600 });
   state.googleConnected = Boolean(options.googleOnly || options.dual); state.passwordConfigured = !options.googleOnly; state.authenticatorConfigured = !options.googleOnly; state.googlePurpose = options.googlePurpose ?? "login";
   // WebKit cannot fulfill mocked 302 responses; the isolated provider fixture
   // performs the same full-page return using a fixed local navigation.
   await page.route("https://google-auth.local.example/auth/v1/authorize?provider=google", route => route.fulfill({ contentType: "text/html", body: '<script>location.replace("http://127.0.0.1:4173/#google")</script>' }));
   await page.route("**/api/**", async route => {
-    const request = route.request(), url = new URL(request.url()), path = url.pathname, body = request.postData() ? request.postDataJSON() : undefined;
+    const request = route.request(), url = new URL(request.url()), path = url.pathname;
+    if(path.startsWith('/api/uploads/put/')) { state.puts++;return route.fulfill({status:200,body:''}); }
+    const body = request.postData() ? request.postDataJSON() : undefined;
     state.calls.push({ path, method: request.method(), body, serialized: request.postData(), headers: request.headers() });
     const reply = (data, status = 200) => route.fulfill({ status, headers: { "Cache-Control": "no-store" }, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
     const error = (code, status = 400) => route.fulfill({ status, headers: { "Retry-After": "90" }, contentType: "application/json", body: JSON.stringify({ ok: false, error: { code, message: "private provider message" } }) });
@@ -110,7 +109,7 @@ export async function memberFixture(page, options = {}) {
     if (path === "/api/uploads/prepare") {
       const session_id = randomUUID(); return reply({ session_id, expires_in: 300, uploads: body.files.map(file => ({
         key: `proofs/staging/2026/10/09/${session_id}/${randomUUID()}.png`, method: "PUT",
-        upload_url: `https://${randomBytes(16).toString("hex")}.r2.cloudflarestorage.com/local/${randomUUID()}`, headers: { "Content-Type": file.type } })) });
+        upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${randomUUID()}`, headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') } })) });
     }
     if (path === "/api/uploads/complete") return reply({ session_id: body.session_id, files: [] });
     if (path === "/api/cases") {

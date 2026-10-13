@@ -42,8 +42,10 @@ function checkedPrepare(data, files) {
   for (const [i, upload] of data.uploads.entries()) {
     let url;
     try { url = new URL(upload.upload_url); } catch { throw new PublicError("SERVICE_UNAVAILABLE"); }
-    if (url.protocol !== "https:" || !/^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/.test(url.hostname) || url.username || url.password ||
-        upload.method !== "PUT" || typeof upload.key !== "string" || upload.headers?.["Content-Type"] !== files[i].type)
+    if (url.origin !== globalThis.location?.origin || url.username || url.password || url.search || url.hash ||
+        !/^\/api\/uploads\/put\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/.test(url.pathname) ||
+        upload.method !== "PUT" || typeof upload.key !== "string" || upload.headers?.["Content-Type"] !== files[i].type ||
+        !/^[A-Za-z0-9_-]{40,2048}$/.test(upload.headers?.['X-Upload-Grant']??''))
       throw new PublicError("SERVICE_UNAVAILABLE");
   }
   return data;
@@ -64,7 +66,7 @@ export class Submission {
     if (this.pending) throw new PublicError("SUBMISSION_PENDING");
     validateImages(files);
     this.#context = { metadata: normalizedMetadata(metadata), files: [...files], idempotency: newIdempotencyKey(),
-      prepared: null, uploaded: new Set(), completed: false, payload: null, caseApi };
+      prepared: null, digests:null, uploaded: new Set(), completed: false, payload: null, caseApi };
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
@@ -88,9 +90,13 @@ export class Submission {
       const token = await this.token();
       if (!token) throw new PublicError("TURNSTILE_REQUIRED");
       this.progress({ phase: "prepare", fraction: 0 });
+      // Browser claims are cached across technical retries. R2 is responsible
+      // for verifying these against actual bytes; a browser claim is not proof.
+      c.digests ??= await Promise.all(c.files.map(async file => Array.from(new Uint8Array(
+        await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')));
       const started = this.now();
       c.prepared = checkedPrepare(await this.api("/api/uploads/prepare", { method: "POST", body: {
-        turnstile_token: token, files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size })) } }), c.files);
+        turnstile_token: token, files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);
       c.expiresAt = started + c.prepared.expires_in * 1000;
     }
     for (let i = 0; i < c.files.length && !c.completed; i++) {

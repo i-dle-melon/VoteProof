@@ -2,16 +2,13 @@
 
 **尚未 push／部署／套用 Production migration 或 Production hash backfill。**
 
-瀏覽器 prepare 取得 staging PUT URL；complete 用私有 R2 HEAD 核對 MIME、size、ETag。
-case 建立前以 ETag conditional GET 讀取來源，封存至不可被 staging PUT 覆寫的 case object。
-此候選只對該伺服器可信來源計算 SHA-256。verifiedProofObject 在 conditional GET 的
-R2ObjectBody 已通過 server size／ETag／MIME 核對後，使用 R2 原生 arrayBuffer() 讀取該版本，
-再次檢查實際 bytes 長度，再由原生 WebCrypto 計算 SHA-256；同一份 bytes 重用於封存。
-case transaction 前 await 完整 digest，從未相信 browser digest。
-Workers 有完整、由 R2 實際 size 限定的最多 5 MiB ArrayBuffer；不能宣稱零 buffer。
-20 張前端 batch 仍是 20 個獨立 request，沒有 20 張影像一起留在記憶體。
-Node／stream-only fixture 的 fallback 逐 chunk 驗長，使用 @noble/hashes，避免 Miniflare
-host RPC 的 body 已轉移後再呼叫遠端 arrayBuffer()。任何路徑都不重複 GET R2。
+目前改為 [R2 驗證 checksum 的串流候選](sha256-r2-readiness.md)，驗收仍 **NO-GO**。
+瀏覽器計算的 SHA 只是未驗證宣告；同源短效 grant 授權 PUT，Worker 串流到 R2，
+由 R2 對實際 bytes 驗證 SHA。complete 只採用私人 R2 HEAD 的 checksum／MIME／size／ETag。
+case 建立前以 ETag conditional GET 核對已保存 checksum，再串流歸檔並由 R2 再次驗證。
+投稿／建案 Worker 沒有整檔 JS ArrayBuffer 或 body digest，20 張 batch 仍是 20 個獨立案件。
+verifiedProofObject 與 stream hash fallback 僅保留給明確本機／操作員歷史 backfill 工具與測試，
+沒有 Production HTTP backfill endpoint；不得把舊版完整緩衝雜湊視為新投稿路徑。
 哈希與 case_files 在同一 D1 batch 保存；任何 rollback 不留下 hash，模糊 ACK 則沿用既有
 consumed session／idempotency reconciliation，不將技術 retry 變成新案件。
 [Workers stream API](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/)。

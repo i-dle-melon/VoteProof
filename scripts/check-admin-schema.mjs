@@ -59,8 +59,8 @@ const triggers = rows[3].map(row => row.name);
 assert.deepEqual(triggers, ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "campaigns_immutable_id", "campaigns_no_delete", "campaigns_no_replace", "campaigns_update_policy", "cases_duplicate_insert", "cases_duplicate_update", "cases_guest_points_insert", "cases_guest_points_update", "points_case_binding", "points_exact_reversal", "points_no_delete", "points_no_replace", "points_no_update",
   "leaderboards_no_replace", "leaderboards_no_delete", "leaderboards_policy", "leaderboards_publish", "leaderboard_runs_no_replace", "leaderboard_runs_no_delete", "leaderboard_runs_update", "leaderboard_results_no_update", "leaderboard_results_no_delete", "leaderboard_results_insert",
   "member_tiers_identity", "member_tiers_no_delete", "member_tiers_no_replace", "member_tiers_order_insert", "member_tiers_order_update", "identity_events_no_update", "identity_events_no_delete", "identity_events_no_replace", "identity_mapping_immutable", "identity_mapping_no_replace", "submission_audit_no_update", "submission_audit_no_delete", "submission_audit_no_replace", "submissions_cases_insert", "submissions_uploads_insert", "submissions_upload_files_insert",
-  "backup_audit_no_update", "backup_audit_no_delete", "backup_audit_no_replace", "proof_exact_hash_source", "proof_exact_hash_no_update"].sort());
-for (const name of ['proof_backups','drive_backup_folders','backup_processor_lock','backup_admin_audit','proof_exact_hashes']) assert.ok(tables.includes(name));
+  "backup_audit_no_update", "backup_audit_no_delete", "backup_audit_no_replace", "proof_exact_hash_source", "proof_exact_hash_no_update", "proof_upload_checksum_source", "proof_upload_checksum_no_update"].sort());
+for (const name of ['proof_backups','drive_backup_folders','backup_processor_lock','backup_admin_audit','proof_exact_hashes','proof_upload_checksums']) assert.ok(tables.includes(name));
 assert.ok(indexes.includes('idx_proof_backups_relay_lease_token'));
 assert.ok(indexes.includes('idx_proof_exact_hash_lookup'));
 const caseColumns = rows[4].map(row => row.name);

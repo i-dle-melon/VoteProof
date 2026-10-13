@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { TOTP, Secret } from "otpauth";
-import { AwsClient } from "aws4fetch";
+
 import { mkdir } from "node:fs/promises";
 import { localCaseRuntime } from "./lib/local-case-runtime.mjs";
 import { frontendServer } from "./lib/frontend-server.mjs";
@@ -27,8 +27,9 @@ try {
     }
     const response = await local.runtime.dispatchFetch(request.url(), {
       method: request.method(), headers: request.headers(),
-      ...(["GET", "HEAD"].includes(request.method()) ? {} : { body: request.postData() }),
+      ...(["GET", "HEAD"].includes(request.method()) ? {} : { body: request.postDataBuffer() }),
     });
+    if(url.pathname.startsWith('/api/uploads/put/')){assert.equal(response.status,200);puts++;}
     const cookies = response.headers.getSetCookie();
     const headers = Object.fromEntries(response.headers);
     if (cookies.length) headers["set-cookie"] = cookies.join("\n");
@@ -41,16 +42,6 @@ try {
   });
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", route => route.fulfill({ contentType: "text/javascript", body:
     "let i=0;const widgets=new Map();globalThis.turnstile={render(container,opts){const id=String(i++);widgets.set(id,opts);queueMicrotask(()=>opts.callback('isolated-smoke'));return id;},reset(id){queueMicrotask(()=>widgets.get(id).callback('isolated-smoke'));}};" }));
-  const config = local.authConfig, signer = new AwsClient({ accessKeyId: config.R2_ACCESS_KEY_ID, secretAccessKey: config.R2_SECRET_ACCESS_KEY, service: "s3", region: "auto" });
-  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
-    const request = route.request(), url = new URL(request.url()), signature = url.searchParams.get("X-Amz-Signature");
-    url.searchParams.delete("X-Amz-Signature");
-    const type = request.headers()["content-type"], signed = await signer.sign(url, { method: request.method(), headers: { "Content-Type": type }, aws: { signQuery: true, allHeaders: true } });
-    assert.equal(new URL(signed.url).searchParams.get("X-Amz-Signature") === signature, true);
-    const key = decodeURIComponent(url.pathname.split("/").slice(2).join("/"));
-    await local.bucket.put(key, request.postDataBuffer(), { httpMetadata: { contentType: type } }); puts++;
-    await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": origin }, body: "" });
-  });
   const submit = id => page.locator(`#${id} button[type='submit']`).click();
   const email = randomBytes(12).toString("hex") + "@local.example", password = randomBytes(24).toString("base64url");
   await page.goto(origin + "/#register");

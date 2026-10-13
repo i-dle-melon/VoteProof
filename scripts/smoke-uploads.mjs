@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
-import { randomBytes } from "node:crypto";
+import { randomBytes,createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { readFile, readdir } from "node:fs/promises";
 import { unstable_splitSqlQuery } from "wrangler";
@@ -13,6 +13,7 @@ const result = await build({
   bundle: true, write: false, format: "esm", platform: "browser", target: "es2022",
 });
 const bindings = {
+  AUTH_ORIGIN:'https://voteproof.example',UPLOAD_GRANT_SECRET:randomBytes(32).toString('hex'),
   R2_ACCOUNT_ID: randomBytes(16).toString("hex"),
   R2_BUCKET_NAME: "local-upload-test",
   R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"),
@@ -59,7 +60,7 @@ try {
   const prepare = "/api/uploads/prepare";
   const prepareBody = {
     turnstile_token: randomBytes(24).toString("hex"),
-    files: [{ name: "local-proof.png", type: "image/png", size: 3 }],
+    files: [{ name: "local-proof.png", type: "image/png", size:3,algorithm:'sha256',sha256:createHash('sha256').update(new Uint8Array([1,2,3])).digest('hex') }],
   };
   const prepareMethod = await runtime.dispatchFetch("https://voteproof.example" + prepare);
   assert.equal(prepareMethod.status, 405);
@@ -80,12 +81,8 @@ try {
   assert.ok(key.includes(`/${session}/`));
   assert.equal(key.includes(prepareBody.files[0].name), false);
   assert.equal(upload.method, "PUT");
-  assert.deepEqual(upload.headers, { "Content-Type": "image/png" });
-  const signedUrl = new URL(upload.upload_url);
-  assert.equal(signedUrl.hostname, `${bindings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`);
-  assert.equal(signedUrl.searchParams.get("X-Amz-Expires"), "300");
-  assert.equal(signedUrl.searchParams.get("X-Amz-SignedHeaders"), "content-type;host");
-  assert.match(signedUrl.searchParams.get("X-Amz-Signature"), /^[a-f0-9]{64}$/);
+  assert.equal(upload.headers['Content-Type'],'image/png');assert.match(upload.headers['X-Upload-Grant'],/^[A-Za-z0-9_-]{40,2048}$/);
+  const signedUrl=new URL(upload.upload_url);assert.equal(signedUrl.origin,bindings.AUTH_ORIGIN);assert.equal(signedUrl.search,'');
   assert.equal(JSON.stringify(prepared).includes(bindings.R2_SECRET_ACCESS_KEY), false);
   assert.equal(JSON.stringify(prepared).includes(bindings.TURNSTILE_SECRET_KEY), false);
   assert.equal(JSON.stringify(prepared).includes(prepareBody.turnstile_token), false);
@@ -96,7 +93,7 @@ try {
   assert.equal(method.headers.get("allow"), "POST");
   console.log(`${complete} GET -> 405`);
   await post(complete, body, 400, "UPLOAD_INCOMPLETE");
-  await proofs.put(key, new Uint8Array([1, 2, 3]), { httpMetadata: { contentType: "image/png" } });
+  const put=await runtime.dispatchFetch(upload.upload_url,{method:'PUT',headers:{Origin:bindings.AUTH_ORIGIN,...upload.headers,'Content-Length':'3'},body:new Uint8Array([1,2,3])});assert.equal(put.status,200);
   const success = await post(complete, body, 200);
   assert.equal(success.data.files[0].size, 3);
   assert.equal(success.data.files[0].type, "image/png");
@@ -110,7 +107,7 @@ try {
   assert.equal(await proofs.head(key), null);
   await post(complete, { ...body, session_id: crypto.randomUUID() }, 400, "INVALID_UPLOAD_REQUEST");
   assert.equal(siteverifyCalls, 2); // complete does not consume/reuse a Turnstile token.
-  console.log("Local workerd signing, Siteverify, R2 HEAD/deletion checks passed. No production resources were used.");
+  console.log("Local workerd verified-checksum grant, Siteverify, R2 HEAD/deletion checks passed. No production resources were used.");
 } finally {
   await runtime.dispose();
 }

@@ -1,7 +1,7 @@
 // Disposable local workerd/D1/R2. Upstream mocking exists only in this harness.
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { unstable_splitSqlQuery } from "wrangler";
@@ -22,6 +22,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "local-case-test",
       R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
       TURNSTILE_SECRET_KEY: randomBytes(32).toString("hex"),
+      UPLOAD_GRANT_SECRET: randomBytes(32).toString('hex'),
       CASE_QUERY_KEY_SECRET: randomBytes(32).toString("hex"),
       AUTH_SECRET: randomBytes(32).toString("hex"), AUTH_ORIGIN: "https://voteproof.example",
       AUTH_TOTP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
@@ -81,12 +82,12 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     async function upload({ count = 1, completed = true } = {}) {
       const response = await fetch("/api/uploads/prepare", "POST", {
         turnstile_token: randomBytes(24).toString("hex"),
-        files: Array.from({ length: count }, () => ({ name: "local.png", type: "image/png", size: 3 })),
+        files: Array.from({ length: count }, () => ({ name: "local.png", type: "image/png", size: 3, algorithm:'sha256',sha256:createHash('sha256').update(new Uint8Array([1,2,3])).digest('hex') })),
       });
       if (response.status !== 200) throw new Error("Local prepare failed");
       const prepared = (await response.json()).data;
       const reference = { session_id: prepared.session_id, keys: prepared.uploads.map(file => file.key) };
-      for (const key of reference.keys) await bucket.put(key, new Uint8Array([1, 2, 3]), { httpMetadata: { contentType: "image/png" } });
+      for (const upload of prepared.uploads) await put(upload,new Uint8Array([1,2,3]));
       if (completed) {
         const complete = await fetch("/api/uploads/complete", "POST", reference);
         if (complete.status !== 200) throw new Error("Local complete failed");
@@ -107,7 +108,12 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       await runtime.setOptions(convertV4MiniflareOptions(options));
       db = await runtime.getD1Database("DB"); bucket = await runtime.getR2Bucket("PROOFS_BUCKET");
     };
-    return { runtime, provider, emailHash: email => emailHash(options.bindings, email.trim().toLowerCase()), get db() { return db; }, get bucket() { return bucket; },
+    async function put(upload,bytes,headers={}) {
+      const response=await runtime.dispatchFetch(upload.upload_url,{method:'PUT',headers:{Origin:options.bindings.AUTH_ORIGIN,...upload.headers,'Content-Length':String(bytes.length),...headers},body:bytes});
+      if(response.status!==200)throw Error('Local verified PUT failed: '+(await response.json()).error.code);
+      return response;
+    }
+    return { runtime, provider, put, emailHash: email => emailHash(options.bindings, email.trim().toLowerCase()), get db() { return db; }, get bucket() { return bucket; },
       fetch, upload, campaign, setQuerySecret, setAuthConfig, unexpectedUpstreams, get authSecret() { return options.bindings.AUTH_SECRET; }, get authConfig() { return { ...options.bindings }; }, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
   } catch (error) { await runtime.dispose(); throw error; }
 }

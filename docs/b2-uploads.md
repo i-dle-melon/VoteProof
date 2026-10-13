@@ -1,5 +1,7 @@
 # B2 私人 R2 直接上傳
 
+本文記錄既有 Production 的 B2 S3 流程。本機 SHA 候選已改用同源 grant／Worker 串流／R2 驗證 checksum，契約與 **NO-GO** 驗收見 [sha256-r2-readiness.md](sha256-r2-readiness.md)；尚未部署，勿照候選修改 Production。
+
 B2 實作 upload API；Production 設定由使用者完成，程式不自動修改 Cloudflare Dashboard。
 本機驗收後可依使用者授權 commit／push，由既有 Cloudflare Git deployment 部署；live 驗收見 [b2-production-acceptance.md](b2-production-acceptance.md)。
 既有首頁、B1 三個 API、`wrangler.jsonc` 的 Assets／`PROOFS_BUCKET`／`keep_vars: true` 全部保留。

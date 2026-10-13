@@ -39,7 +39,7 @@ try {
   await tab("投稿設定"); await page.locator("#admin-field-submissions_enabled").selectOption("false"); await page.locator("#admin-field-submissions_message").fill("本機投稿暫停"); await click("保存投稿設定"); await expect(page.locator("#admin-field-submissions_enabled")).toHaveValue("false");
   await expect.poll(async () => (await local.db.prepare("SELECT submissions_enabled FROM submission_settings WHERE id=1").first()).submissions_enabled).toBe(0);
   const gate = await local.fetch("/api/submissions/status"); assert.equal((await gate.json()).data.submissions_enabled, false);
-  const blocked = await local.fetch("/api/uploads/prepare", "POST", { turnstile_token: crypto.randomUUID(), files: [{ name: "local.png", type: "image/png", size: 3 }] });
+  const blocked = await local.fetch("/api/uploads/prepare", "POST", { turnstile_token: crypto.randomUUID(), files: [{ name: "local.png", type: "image/png", size:3,algorithm:'sha256',sha256:'a'.repeat(64) }] });
   assert.equal(blocked.status, 503); assert.equal((await blocked.json()).error.code, "SUBMISSIONS_DISABLED");
   await tab("操作紀錄"); await expect(panel).toContainText("建立活動"); await expect(panel).toContainText("更新會員等級");
   assert.deepEqual((await local.db.prepare("PRAGMA foreign_key_check").all()).results, []); assert.equal((await local.db.prepare("PRAGMA quick_check").first()).quick_check, "ok");

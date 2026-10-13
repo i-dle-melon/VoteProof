@@ -1,5 +1,7 @@
 # B6A-Free：公開網站與 Guest 投稿
 
+本文件的 presigned PUT 描述是既有 B6A／Production 歷史流程。本機 SHA 候選已改用同源 checksum 上傳，實際契約及部署阻擋見 [sha256-r2-readiness.md](sha256-r2-readiness.md)。
+
 狀態：本機完成，未 push／deploy／remote migration。第一版固定成本 $0／月，不要求 Workers Paid 或付費第三方。B4.x auth／B5 backend 保留；B4.x 凍結且不上 Production；本階段無 Member／Admin UI，不進 B6B。
 
 ## 架構與畫面

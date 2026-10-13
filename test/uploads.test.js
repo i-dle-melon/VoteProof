@@ -5,14 +5,14 @@ import { completeUpload } from "../src/api/uploads.js";
 import worker from "../src/index.js";
 import { verifyTurnstile } from "../src/api/turnstile.js";
 import { validatePrepare, UPLOAD_LIMITS } from "../src/api/upload-validation.js";
-import { AwsV4Signer } from "aws4fetch";
+import { uploadGrantConfig,readUploadGrant } from "../src/lib/upload-grant.js";
 
 // Ephemeral synthetic values are generated at runtime; no real secrets or token fixtures.
 const session = "550e8400-e29b-41d4-a716-446655440000";
 const fileId = "2cb3b938-1a34-4515-9bf2-a616be0f4bf0";
 const key = `proofs/staging/2026/10/08/${session}/${fileId}.png`;
 const token = () => randomBytes(24).toString("hex");
-const prepareBody = () => ({ turnstile_token: token(), files: [{ name: "private-name@example.invalid.png", type: "image/png", size: 123 }] });
+const prepareBody = () => ({ turnstile_token: token(), files: [{ name: "private-name@example.invalid.png", type: "image/png", size: 123,algorithm:'sha256',sha256:'a'.repeat(64) }] });
 const post = (body, contentType = "application/json", path = "/api/uploads/complete") => new Request("https://voteproof.example" + path, {
   method: "POST", headers: { "content-type": contentType }, body: typeof body === "string" ? body : JSON.stringify(body),
 });
@@ -29,6 +29,7 @@ function uploadDb() {
       apply() {
         if (sql.startsWith('INSERT INTO completed_uploads ')) state={session_id:args[0],manifest_hash:args[1],expires_at:args[3],consumed_case_id:null};
         if (sql.includes('INSERT INTO completed_upload_files')) files.push({key:args[1],type:args[2],size:args[3],etag:args[4]});
+        if(sql.includes('INSERT INTO proof_upload_checksums')){const f=files.find(f=>f.key===args[3]);if(f)f.sha256=args[0];}
         return {success:true};
       }
     }; return statement; },
@@ -37,12 +38,13 @@ function uploadDb() {
 }
 const configuredEnv = () => ({
   DB: uploadDb(),
+  AUTH_ORIGIN:'https://voteproof.example',UPLOAD_GRANT_SECRET:randomBytes(32).toString('hex'),PROOFS_BUCKET:{put:async()=>{}},
   R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "synthetic-test-bucket",
   R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
   TURNSTILE_SECRET_KEY: token(),
 });
 const completeBody = () => ({ session_id: session, keys: [key] });
-const head = () => ({ size: 123, httpMetadata: { contentType: "image/png" }, etag: "opaque-etag" });
+const head = () => ({ size: 123, httpMetadata: { contentType: "image/png" }, etag: "opaque-etag",checksums:{sha256:Uint8Array.from({length:32},()=>170).buffer} });
 function bucket(value = head()) {
   const deleted = [], inspected = [];
   return { deleted, inspected, async head(k) { inspected.push(k); return value; }, async delete(k) { deleted.push(k); } };
@@ -83,7 +85,7 @@ for (const mime of ["image/svg+xml", "image/gif", "image/heic", "image/heif", "a
   });
 }
 test("prepare accepts five files exactly at the 25 MiB batch limit and drops filenames", () => {
-  const body = prepareBody(); body.files = Array.from({ length: 5 }, () => ({ name: "pii.png", size: UPLOAD_LIMITS.maxFileBytes, type: "image/png" }));
+  const body = prepareBody(); body.files = Array.from({ length: 5 }, () => ({ name: "pii.png", size: UPLOAD_LIMITS.maxFileBytes, type: "image/png",algorithm:'sha256',sha256:'a'.repeat(64) }));
   const result = validatePrepare(body);
   assert.equal(result.files.reduce((sum, f) => sum + f.size, 0), UPLOAD_LIMITS.maxBatchBytes);
   assert.equal(JSON.stringify(result.files).includes("pii"), false);
@@ -188,7 +190,7 @@ test("complete uses actual HEAD size/type and returns no public URL or client me
 test("complete accepts all three allowed MIME/extension pairs at the exact file size limit", async () => {
   for (const [type, extension] of [["image/png", "png"], ["image/jpeg", "jpg"], ["image/webp", "webp"]]) {
     const actualKey = key.replace(/png$/, extension);
-    const proofs = bucket({ size: UPLOAD_LIMITS.maxFileBytes, httpMetadata: { contentType: type }, etag: "etag" });
+    const proofs = bucket({ size: UPLOAD_LIMITS.maxFileBytes, httpMetadata: { contentType: type }, etag: "etag",checksums:{sha256:Uint8Array.from({length:32},()=>170).buffer} });
     const response = await completeUpload({ DB: uploadDb(), PROOFS_BUCKET: proofs }, null, post({ session_id: session, keys: [actualKey] }));
     assert.equal(response.status, 200);
     assert.equal((await response.json()).data.files[0].type, type);
@@ -256,7 +258,7 @@ for (const [label, change, code] of [
     await errorResponse(await worker.fetch(prepareRequest(body), configuredEnv()), 400, code);
   });
 }
-for (const name of ["R2_ACCOUNT_ID", "R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]) {
+for (const name of ["UPLOAD_GRANT_SECRET", "PROOFS_BUCKET"]) {
   test(`prepare missing ${name} returns sanitized 503 without consuming token`, async t => {
     t.mock.method(globalThis, "fetch", () => { assert.fail("Siteverify must not be called"); });
     const env = configuredEnv(); delete env[name];
@@ -265,12 +267,7 @@ for (const name of ["R2_ACCOUNT_ID", "R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_S
     assert.deepEqual(await response.json(), { ok: false, error: { code: "R2_UPLOAD_NOT_CONFIGURED", message: "Upload service is not configured" } });
   });
 }
-for (const field of ["R2_ACCOUNT_ID", "R2_BUCKET_NAME"]) {
-  test(`prepare invalid ${field} cannot inject host/path`, async () => {
-    const env = configuredEnv(); env[field] = "host.invalid/?sensitive";
-    await errorResponse(await worker.fetch(prepareRequest(prepareBody()), env), 503, "R2_UPLOAD_NOT_CONFIGURED");
-  });
-}
+test('prepare invalid grant secret fails closed',async()=>{const env=configuredEnv();env.UPLOAD_GRANT_SECRET='invalid';await errorResponse(await worker.fetch(prepareRequest(prepareBody()),env),503,'R2_UPLOAD_NOT_CONFIGURED');});
 test("prepare missing Turnstile config is 503, never bypassed", async t => {
   const env = configuredEnv(); delete env.TURNSTILE_SECRET_KEY;
   t.mock.method(globalThis, "fetch", () => { assert.fail("Siteverify must not be called without secret"); });
@@ -288,7 +285,7 @@ test("prepare Siteverify upstream error is JSON 502", async t => {
 test("prepare produces private 300 second PUT URLs, fresh UUIDs and no PII or secret leakage", async t => {
   const env = configuredEnv(), body = prepareBody();
   body.key = "client-chosen"; body.files[0].key = "client-chosen";
-  body.files.push({ name: "email-member-name.jpg", type: "image/jpeg", size: 456 }, { name: "player.webp", type: "image/webp", size: 789 });
+  body.files.push({ name: "email-member-name.jpg", type: "image/jpeg", size: 456,algorithm:'sha256',sha256:'a'.repeat(64) }, { name: "player.webp", type: "image/webp", size: 789,algorithm:'sha256',sha256:'a'.repeat(64) });
   let calls = 0;
   t.mock.method(globalThis, "fetch", (url, options) => {
     calls++;
@@ -312,45 +309,19 @@ test("prepare produces private 300 second PUT URLs, fresh UUIDs and no PII or se
     const upload = result.data.uploads[i], type = body.files[i].type;
     assert.deepEqual(Object.keys(upload).sort(), ["headers", "key", "method", "upload_url"]);
     assert.equal(upload.method, "PUT");
-    assert.deepEqual(upload.headers, { "Content-Type": type });
+    assert.equal(upload.headers['Content-Type'],type);assert.match(upload.headers['X-Upload-Grant'],/^[A-Za-z0-9_-]{40,2048}$/);
     assert.match(upload.key, new RegExp("^proofs/staging/\\d{4}/\\d{2}/\\d{2}/" + result.data.session_id + "/[0-9a-f-]{36}\\.(png|jpg|webp)$"));
     assert.equal(upload.key.includes(body.files[i].name), false);
     assert.equal(upload.key.includes("client-chosen"), false);
     const url = new URL(upload.upload_url);
     assert.equal(url.protocol, "https:");
-    assert.equal(url.host, env.R2_ACCOUNT_ID + ".r2.cloudflarestorage.com");
-    assert.equal(url.pathname, "/" + env.R2_BUCKET_NAME + "/" + upload.key);
-    assert.equal(url.searchParams.get("X-Amz-Expires"), "300");
-    assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "content-type;host");
-    assert.match(url.searchParams.get("X-Amz-Signature"), /^[0-9a-f]{64}$/);
-    // Approved unavoidable access-key identifier only in X-Amz-Credential.
-    assert.equal(url.searchParams.get("X-Amz-Credential").split("/")[0], env.R2_ACCESS_KEY_ID);
-    assert.equal(JSON.stringify(upload.headers).includes(env.R2_ACCESS_KEY_ID), false);
+    assert.equal(url.origin,env.AUTH_ORIGIN);assert.match(url.pathname,/^\/api\/uploads\/put\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/);assert.equal(url.search,'');
+    const grant=await readUploadGrant(env,new Request(url,{headers:upload.headers}),url.pathname);assert.equal(grant.sha256,body.files[i].sha256);assert.equal(grant.size,body.files[i].size);
+
   }
   const text = JSON.stringify(result);
   for (const secret of [env.R2_SECRET_ACCESS_KEY, env.TURNSTILE_SECRET_KEY, body.turnstile_token]) assert.equal(text.includes(secret), false);
   assert.equal(text.includes("Authorization"), false);
 });
 
-test("presigned signature binds exact MIME, method and key; changing them invalidates it", async t => {
-  const env = configuredEnv();
-  t.mock.method(globalThis, "fetch", () => Response.json({ success: true }));
-  const response = await worker.fetch(prepareRequest(prepareBody()), env);
-  const upload = (await response.json()).data.uploads[0];
-  const original = new URL(upload.upload_url), signature = original.searchParams.get("X-Amz-Signature");
-  original.searchParams.delete("X-Amz-Signature");
-  async function resign(type, method = "PUT", pathChanged = false) {
-    const url = new URL(original);
-    if (pathChanged) url.pathname += "-changed";
-    const signer = new AwsV4Signer({
-      url, method, headers: { "Content-Type": type }, accessKeyId: env.R2_ACCESS_KEY_ID,
-      secretAccessKey: env.R2_SECRET_ACCESS_KEY, service: "s3", region: "auto", signQuery: true,
-      allHeaders: true, datetime: original.searchParams.get("X-Amz-Date"),
-    });
-    return (await signer.sign()).url.searchParams.get("X-Amz-Signature");
-  }
-  assert.equal(await resign("image/png"), signature);
-  assert.notEqual(await resign("image/jpeg"), signature);
-  assert.notEqual(await resign("image/png", "GET"), signature);
-  assert.notEqual(await resign("image/png", "PUT", true), signature);
-});
+test('opaque upload grant binds path and cannot be tampered with',async t=>{const env=configuredEnv();t.mock.method(globalThis,'fetch',()=>Response.json({success:true}));const r=await worker.fetch(prepareRequest(prepareBody()),env),u=(await r.json()).data.uploads[0],path=new URL(u.upload_url).pathname;await assert.rejects(readUploadGrant(env,new Request(u.upload_url,{headers:u.headers}),path+'-changed'),e=>e.code==='UPLOAD_GRANT_INVALID');const bad={...u.headers,'X-Upload-Grant':u.headers['X-Upload-Grant'].slice(0,20)+'X'+u.headers['X-Upload-Grant'].slice(21)};await assert.rejects(readUploadGrant(env,new Request(u.upload_url,{headers:bad}),path),e=>e.code==='UPLOAD_GRANT_INVALID');});

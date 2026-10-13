@@ -13,7 +13,7 @@ export function caseDatabase(env) {
 }
 
 export const manifestHash = files => sha256(JSON.stringify([...files].sort((a, b) => a.key.localeCompare(b.key))
-  .map(({ key, size, type, etag }) => ({ key, size, type, etag }))));
+  .map(({ key, size, type, etag, sha256 }) => ({ key, size, type, etag, ...(sha256?{sha256}:{}) }))));
 
 export const uploadState = (db, sessionId) => db.prepare(
   "SELECT session_id, manifest_hash, consumed_case_id, expires_at FROM completed_uploads WHERE session_id = ?"
@@ -21,7 +21,8 @@ export const uploadState = (db, sessionId) => db.prepare(
 
 export async function completedFiles(db, sessionId) {
   return (await db.prepare(
-    "SELECT object_key AS key, content_type AS type, size, etag FROM completed_upload_files WHERE session_id = ? ORDER BY object_key"
+    `SELECT f.object_key AS key, f.content_type AS type, f.size, f.etag, h.sha256 FROM completed_upload_files f
+     LEFT JOIN proof_upload_checksums h ON h.object_key=f.object_key WHERE f.session_id = ? ORDER BY f.object_key`
   ).bind(sessionId).all()).results;
 }
 
@@ -41,6 +42,10 @@ export async function rememberCompletedUpload(env, sessionId, files) {
          WHERE session_id = ? AND manifest_hash = ? AND consumed_case_id IS NULL
          ON CONFLICT(object_key) DO NOTHING`
       ).bind(sessionId, file.key, file.type, file.size, file.etag, sessionId, hash)),
+      ...files.map(file => db.prepare(`INSERT INTO proof_upload_checksums(object_key,sha256,source_etag,source_size)
+        SELECT object_key,?,?,? FROM completed_upload_files WHERE object_key=? AND session_id=? AND etag=? AND size=?
+        AND EXISTS(SELECT 1 FROM completed_uploads WHERE session_id=? AND manifest_hash=? AND consumed_case_id IS NULL)
+        ON CONFLICT(object_key) DO NOTHING`).bind(file.sha256,file.etag,file.size,file.key,sessionId,file.etag,file.size,sessionId,hash)),
     ]);
     const state = await uploadState(db, sessionId);
     if (state?.consumed_case_id) throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");

@@ -9,11 +9,11 @@ import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 const corpus=exactProofCorpus(),digest=b=>createHash('sha256').update(b).digest('hex');let local;
 before(async()=>{local=await localCaseRuntime();});after(async()=>await local?.runtime.dispose());
 async function prepared(bytes,name='synthetic.png'){
- const r=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomUUID(),files:[{name,type:'image/png',size:bytes.length}]});assert.equal(r.status,200);
+ const r=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomUUID(),files:[{name,type:'image/png',size:bytes.length,algorithm:'sha256',sha256:createHash('sha256').update(bytes).digest('hex')}]});assert.equal(r.status,200);
  const p=(await r.json()).data,ref={session_id:p.session_id,keys:p.uploads.map(u=>u.key)};
  // An upload retry overwrites only its own staging key with identical bytes.
- await local.bucket.put(ref.keys[0],bytes,{httpMetadata:{contentType:'image/png'}});
- await local.bucket.put(ref.keys[0],bytes,{httpMetadata:{contentType:'image/png'}});
+ await local.put(p.uploads[0],bytes);
+ await local.put(p.uploads[0],bytes);
  for(let n=0;n<2;n++)assert.equal((await local.fetch('/api/uploads/complete','POST',ref)).status,200);
  return ref;
 }

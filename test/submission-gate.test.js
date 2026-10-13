@@ -18,7 +18,7 @@ test('submission migration defaults OFF; public response exposes only two safe f
   await error(await local.fetch('/api/cases','POST',guestBody({session_id:randomUUID(),keys:[`proofs/staging/2026/10/10/${randomUUID()}/${randomUUID()}.png`]})),'INVALID_UPLOAD_REFERENCE',400);
 }));
 test('OFF blocks prepare and complete with no upload rows or signed URLs',()=>isolated(async local=>{
-  const r=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomBytes(24).toString('hex'),files:[{name:'x.png',type:'image/png',size:3}]});await error(r,'SUBMISSIONS_DISABLED');
+  const r=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomBytes(24).toString('hex'),files:[{name:'x.png',type:'image/png',size:3,algorithm:'sha256',sha256:'a'.repeat(64)}]});await error(r,'SUBMISSIONS_DISABLED');
   const session=randomUUID(),key=`proofs/staging/2026/10/10/${session}/${randomUUID()}.png`;
   await local.bucket.put(key,new Uint8Array([1,2,3]),{httpMetadata:{contentType:'image/png'}});
   await error(await local.fetch('/api/uploads/complete','POST',{session_id:session,keys:[key]}),'SUBMISSIONS_DISABLED');

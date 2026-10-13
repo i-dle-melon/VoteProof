@@ -11,11 +11,11 @@ async function fixture(page, options = {}) {
     const body = route.request().postDataJSON(); prepares.push(body);
     const session_id = randomUUID(), index = sessions.size; sessions.set(session_id, index);
     return reply(route, { session_id, expires_in: 300, uploads: body.files.map(file => ({
-      key: `proofs/staging/local/${session_id}/${randomUUID()}.png`, method: "PUT", headers: { "Content-Type": file.type },
-      upload_url: `https://${randomBytes(16).toString("hex")}.r2.cloudflarestorage.com/batch/${index}` })) });
+      key: `proofs/staging/local/${session_id}/${randomUUID()}.png`, method: "PUT", headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') },
+      upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${randomUUID()}` })) });
   });
-  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
-    const index = Number(new URL(route.request().url()).pathname.split("/").at(-1)); puts.push(index);
+  await page.route('**/api/uploads/put/**', async route => {
+    const index = sessions.get(new URL(route.request().url()).pathname.split('/')[4]); puts.push(index);
     if (options.partial && index === 1 && !failedPut) { failedPut = true; await route.abort(); return; }
     await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
   });

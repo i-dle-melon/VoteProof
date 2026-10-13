@@ -1,6 +1,6 @@
 import { CaseError } from "../api/case-validation.js";
 import { validUploadedObject, MIME_EXTENSIONS } from "../api/upload-validation.js";
-import { verifiedProofObject } from './proof-exact-hash.js';
+import { r2VerifiedSha256, validSha256 } from './r2-verified-checksum.js';
 
 export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
   if (!["get", "put", "delete"].every(method => typeof bucket?.[method] === "function")) {
@@ -25,12 +25,13 @@ export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
       const id = crypto.randomUUID();
       const key = `proofs/cases/${caseId}/${id}.${MIME_EXTENSIONS[file.type]}`;
       cleanupKeys.push(key);
-      // Native R2 read and SHA over the same at-most-5-MiB bytes, reused for
-      // archival. No extra GET, browser hash or per-chunk JavaScript bridge.
-      const hash = await verifiedProofObject(object,file.size);
-      const copy = await bucket.put(key, hash.bytes, { httpMetadata: { contentType: file.type } });
-      if (!copy || copy.size !== file.size || !copy.etag) throw new Error("Archive failed");
-      archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag, sha256:hash.digest });
+      if (!validSha256(file.sha256) || r2VerifiedSha256(object)!==file.sha256) {
+        await object.body.cancel();
+        throw new CaseError(409,'UPLOAD_CHANGED','Verified upload checksum changed; prepare a new upload');
+      }
+      const copy = await bucket.put(key, object.body, { sha256:file.sha256,httpMetadata: { contentType: file.type } });
+      if (!copy || copy.size !== file.size || !copy.etag || r2VerifiedSha256(copy)!==file.sha256) throw new Error("Archive failed");
+      archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag, sha256:r2VerifiedSha256(copy) });
     }
     return archived;
   } catch (error) {

@@ -14,13 +14,9 @@ async function fixture(page, options = {}) {
   const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, failBoards: 0 };
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let widget;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}));}};` }));
-  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async (route) => {
-    state.puts.push({ method: route.request().method(), type: route.request().headers()["content-type"], bytes: route.request().postDataBuffer()?.length });
-    if (state.putFailures-- > 0) { await route.abort("failed"); return; }
-    await route.fulfill({ status: 200, headers: { "Access-Control-Allow-Origin": "*", "ETag": "local-test" }, body: "" });
-  });
   await page.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
+    if(path.startsWith('/api/uploads/put/')){state.puts.push({method:request.method(),type:request.headers()['content-type'],bytes:request.postDataBuffer()?.length});expect(request.headers()['x-upload-grant']).toMatch(/^[A-Za-z0-9_-]{40,2048}$/);if(state.putFailures-->0)return route.abort('failed');return route.fulfill({status:200,body:''});}
     const body = request.method() === "POST" ? request.postDataJSON() : undefined;
     state.calls.push({ path, method: request.method(), body: request.postData(), idempotency: request.headers()["idempotency-key"] });
     const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
@@ -42,8 +38,8 @@ async function fixture(page, options = {}) {
       const session_id = randomUUID();
       return reply({ session_id, expires_in: 300, uploads: body.files.map((file) => ({
         key: `proofs/staging/${today().replaceAll("-", "/")}/${session_id}/${randomUUID()}.png`, method: "PUT",
-        upload_url: `https://${randomBytes(16).toString("hex")}.r2.cloudflarestorage.com/fixture/${randomUUID()}`,
-        headers: { "Content-Type": file.type } })) });
+        upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${randomUUID()}`,
+        headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') } })) });
     }
     if (path === "/api/uploads/complete") return reply({ session_id: body.session_id, files: [] });
     if (path === "/api/cases") {
@@ -153,7 +149,7 @@ test("fresh pre-submit check rejects OFF without clearing chosen files or metada
 
 test("foreground OFF stops completion and case creation after an already-started PUT", async ({ page }) => {
   const options = {}; const state = await fixture(page, options);
-  await page.route(/^https:\/\/[a-f0-9]{32}\.r2\.cloudflarestorage\.com\//, async route => {
+  await page.route('**/api/uploads/put/**', async route => {
     options.submissionsOff = true;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(page.locator("#submit-state")).toHaveText("目前暫停投稿");

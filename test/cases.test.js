@@ -1,6 +1,6 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes,createHash } from "node:crypto";
 import { localCaseRuntime, guestBody } from "../scripts/lib/local-case-runtime.mjs";
 import { sha256, CASE_ID_PATTERN, QUERY_KEY_PATTERN } from "../src/lib/case-keys.js";
 import worker from "../src/index.js";
@@ -107,7 +107,7 @@ test("case rejects forged keys, traversal, other sessions and completed subsets"
 test("repeat complete is stable; changing the recorded completed manifest is rejected", async () => {
   const reference = await local.upload();
   assert.equal((await local.fetch("/api/uploads/complete", "POST", reference)).status, 200);
-  await local.bucket.put(reference.keys[0], new Uint8Array([9, 8, 7]), { httpMetadata: { contentType: "image/png" } });
+  await local.bucket.put(reference.keys[0], new Uint8Array([9, 8, 7]), { sha256:createHash('sha256').update(new Uint8Array([9,8,7])).digest('hex'),httpMetadata: { contentType: "image/png" } });
   await error(await local.fetch("/api/uploads/complete", "POST", reference), 409, "UPLOAD_SESSION_CONFLICT");
   await error(await local.fetch("/api/cases", "POST", guestBody(reference)), 409, "UPLOAD_CHANGED");
 });
@@ -141,7 +141,7 @@ test("same completed upload cannot create another case, including changed payloa
   const reference = await local.upload(); await create(reference);
   await error(await local.fetch("/api/cases", "POST", guestBody(reference)), 409, "UPLOAD_ALREADY_USED");
   await error(await local.fetch("/api/cases", "POST", { ...guestBody(reference), nickname: "另一位" }), 409, "UPLOAD_ALREADY_USED");
-  await local.bucket.put(reference.keys[0], new Uint8Array([1, 2, 3]), { httpMetadata: { contentType: "image/png" } });
+  await local.bucket.put(reference.keys[0], new Uint8Array([1, 2, 3]), { sha256:createHash('sha256').update(new Uint8Array([1,2,3])).digest('hex'),httpMetadata: { contentType: "image/png" } });
   await error(await local.fetch("/api/uploads/complete", "POST", reference), 409, "UPLOAD_ALREADY_USED");
   assert.equal((await local.db.prepare("SELECT count(*) AS n FROM cases WHERE upload_session_id = ?").bind(reference.session_id).first()).n, 1);
 });

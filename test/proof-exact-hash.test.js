@@ -20,8 +20,8 @@ for(const [a,b,expected] of [[['A','C'],['A','C'],'same_member_same_campaign'],[
 let h,local,admin;
 before(async()=>{h=await localAdminRuntime();local=h.local;admin=await h.identity({role:'admin'});});
 after(async()=>await local?.runtime.dispose());
-async function prepare(fixture=corpus.original){const r=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomUUID(),files:[{name:fixture.name,type:'image/png',size:fixture.bytes.length}]});assert.equal(r.status,200);const p=(await r.json()).data;
- const ref={session_id:p.session_id,keys:p.uploads.map(x=>x.key)};await local.bucket.put(ref.keys[0],fixture.bytes,{httpMetadata:{contentType:'image/png'}});
+async function prepare(fixture=corpus.original){const r=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomUUID(),files:[{name:fixture.name,type:'image/png',size:fixture.bytes.length,algorithm:'sha256',sha256:createHash('sha256').update(fixture.bytes).digest('hex')}]});assert.equal(r.status,200);const p=(await r.json()).data;
+ const ref={session_id:p.session_id,keys:p.uploads.map(x=>x.key)};await local.put(p.uploads[0],fixture.bytes);
  assert.equal((await local.fetch('/api/uploads/complete','POST',ref)).status,200);return ref;}
 async function submit({member,fixture=corpus.original,campaign='LOCAL-TEST',reference,key=randomUUID()}={}){if(campaign!=='LOCAL-TEST')await local.campaign({campaign_id:campaign});const ref=reference??await prepare(fixture);
  const r=await local.fetch('/api/cases','POST',{...guestBody(ref),campaign_id:campaign},{...member?.headers,'Idempotency-Key':key});assert.equal(r.status,201);const created=(await r.json()).data;

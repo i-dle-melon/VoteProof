@@ -2,7 +2,7 @@ import { getHealth } from "./health.js";
 import { getCampaigns } from "./campaigns.js";
 import { getLeaderboards } from "./leaderboards.js";
 import { jsonError } from "./response.js";
-import { prepareUpload, completeUpload } from "./uploads.js";
+import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
 import { createCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
 import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
@@ -93,6 +93,7 @@ const routes = new Map([
 export async function routeApi(request, env, url) {
   const route =
     routes.get(url.pathname) ??
+    (/^\/api\/uploads\/put\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/.test(url.pathname) ? {method:'PUT',handler:putUpload} : undefined) ??
     (/^\/api\/auth\/trusted-devices\/[^/]+\/revoke$/.test(url.pathname)
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??

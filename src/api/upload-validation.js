@@ -88,7 +88,10 @@ export function validatePrepare(body) {
       throw new UploadError(400, "FILE_TOO_LARGE", "A file exceeds the size limit");
     }
     total += file.size;
-    return { type: file.type, size: file.size };
+    if (file.algorithm !== 'sha256' || typeof file.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(file.sha256))
+      throw new UploadError(400, 'UPLOAD_CHECKSUM_REQUIRED', 'A lowercase SHA-256 checksum is required');
+    // An untrusted claim; only successful R2 PUT verification makes it usable.
+    return { type: file.type, size: file.size, sha256: file.sha256 };
   });
   if (total > UPLOAD_LIMITS.maxBatchBytes) {
     throw new UploadError(400, "FILE_TOO_LARGE", "The batch exceeds the size limit");

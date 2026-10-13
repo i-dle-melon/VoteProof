@@ -1,4 +1,5 @@
 // Isolated synthetic connection harness. No Cloudflare API, OAuth or live R2.
+import {createHash} from 'node:crypto';
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -29,9 +30,9 @@ try{
   if((await local.db.prepare('SELECT count(*) AS n FROM cases').first()).n===0){
     const bytes=syntheticPng();await writeFile(resolve(folder,'synthetic.png'),bytes);
     await local.db.prepare('UPDATE submission_settings SET submissions_enabled=1 WHERE id=1').run();
-    const prep=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomUUID(),files:[{name:'synthetic.png',type:'image/png',size:bytes.length}]});
+    const prep=await local.fetch('/api/uploads/prepare','POST',{turnstile_token:randomUUID(),files:[{name:'synthetic.png',type:'image/png',size:bytes.length,algorithm:'sha256',sha256:createHash('sha256').update(bytes).digest('hex')}]});
     if(prep.status!==200)throw Error('Local prepare failed');const p=(await prep.json()).data,reference={session_id:p.session_id,keys:p.uploads.map(v=>v.key)};
-    await local.bucket.put(reference.keys[0],bytes,{httpMetadata:{contentType:'image/png'}});
+    await local.put(p.uploads[0],bytes);
     if((await local.fetch('/api/uploads/complete','POST',reference)).status!==200)throw Error('Local upload complete failed');
     if((await local.fetch('/api/cases','POST',guestBody(reference),{'Idempotency-Key':randomUUID()})).status!==201)throw Error('Local synthetic case failed');
     await local.db.prepare('UPDATE submission_settings SET submissions_enabled=0 WHERE id=1').run();

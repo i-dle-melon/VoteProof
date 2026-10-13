@@ -1,3 +1,4 @@
+globalThis.location={origin:'https://voteproof.example'};
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -7,15 +8,15 @@ import { localCaseRuntime, guestBody } from "../scripts/lib/local-case-runtime.m
 
 const metadata = () => ({ nickname: "  訪客  ", player_id: "  player  ", campaign_id: "LOCAL-TEST", vote_type: "Solo",
   vote_date: new Date().toISOString().slice(0, 10), note: "  備註  " });
-const image = (extra = {}) => ({ name: "private-filename.png", type: "image/png", size: 100, ...extra });
+const image = (extra = {}) => ({ name: "private-filename.png", type: "image/png", size: 100, arrayBuffer:async()=>new Uint8Array(100).buffer, ...extra });
 function harness({ count = 2 } = {}) {
   const files = Array.from({ length: count }, () => image()), calls = [], puts = [], stages = [];
   const result = { case_id: "VP-20261009-" + "A".repeat(16), query_key: randomBytes(32).toString("base64url"), status: "pending" };
   let clock = Date.now(), tokens = 0;
   const prepared = () => { const session_id = randomUUID(); return { session_id, expires_in: 300,
     uploads: files.map(() => ({ key: `proofs/staging/2026/10/09/${session_id}/${randomUUID()}.png`, method: "PUT",
-      upload_url: `https://${randomBytes(16).toString("hex")}.r2.cloudflarestorage.com/local-fixture/${randomUUID()}`,
-      headers: { "Content-Type": "image/png" } })) }; };
+      upload_url: `https://voteproof.example/api/uploads/put/${randomUUID()}/${randomUUID()}`,
+      headers: { 'Content-Type':'image/png','X-Upload-Grant':randomBytes(48).toString('base64url') } })) }; };
   const dependencies = { api: async (path, options) => {
     calls.push({ path, ...options });
     if (path.endsWith("prepare")) return prepared();
@@ -75,6 +76,15 @@ test("PUT retry resumes the failed image with same unexpired grant", async () =>
   h.flow.start(metadata(), h.files); await assert.rejects(h.flow.attempt(), { code: "PUT_FAILED" }); await h.flow.attempt();
   assert.equal(calls, 3); assert.equal(h.tokens, 1); assert.equal(h.calls.filter((c) => c.path.endsWith("prepare")).length, 1);
 });
+test('browser computes each digest once across grant expiry and technical retries',async()=>{
+  const h=harness({count:1});let reads=0,failed=true;
+  h.files[0].arrayBuffer=async()=>{reads++;return new Uint8Array(h.files[0].size).buffer;};
+  const original=h.flow.put;h.flow.put=async(...args)=>{if(failed){failed=false;throw new PublicError('PUT_FAILED');}return original(...args);};
+  h.flow.start(metadata(),h.files);await assert.rejects(h.flow.attempt());h.advance(301000);await h.flow.attempt();
+  assert.equal(reads,1);assert.equal(h.calls.filter(c=>c.path.endsWith('prepare')).length,2);
+  assert.ok(h.calls.filter(c=>c.path.endsWith('prepare')).every(c=>c.body.files[0].algorithm==='sha256'&&/^[0-9a-f]{64}$/.test(c.body.files[0].sha256)));
+});
+test('prepare cannot redirect an upload grant to another origin',async()=>{const h=harness({count:1}),original=h.flow.api;h.flow.api=async(...args)=>{const v=await original(...args);if(args[0].endsWith('prepare'))v.uploads[0].upload_url='https://evil.example/api/uploads/put/'+randomUUID()+'/'+randomUUID();return v;};h.flow.start(metadata(),h.files);await assert.rejects(h.flow.attempt(),{code:'SERVICE_UNAVAILABLE'});assert.equal(h.puts.length,0);});
 test("expired pending PUT grants prepare again before the immutable case POST exists", async () => {
   const h = harness(), original = h.dependencies.put; let fail = true;
   h.flow.put = async (...args) => { if (fail) { fail = false; throw new PublicError("PUT_FAILED"); } return original(...args); };
@@ -123,7 +133,8 @@ test("copy-all format contains exactly the guest query information", () => {
 test("missing all optional auth settings fails closed while public and Guest case flow works", async () => {
   const h = await localCaseRuntime();
   try {
-    await h.setAuthConfig({ AUTH_SECRET: undefined, AUTH_PASSWORD_PEPPER: undefined, AUTH_TOTP_ENCRYPTION_KEY: undefined, AUTH_ORIGIN: undefined });
+    // Upload origin is required independently of optional member login keys.
+    await h.setAuthConfig({ AUTH_SECRET: undefined, AUTH_PASSWORD_PEPPER: undefined, AUTH_TOTP_ENCRYPTION_KEY: undefined });
     assert.equal((await h.fetch("/api/health")).status, 200); assert.equal((await h.fetch("/api/campaigns")).status, 200);
     assert.equal((await h.fetch("/api/leaderboards")).status, 200);
     const auth = await h.fetch("/api/auth/login", "POST", {}, { Origin: "https://voteproof.example", "X-VoteProof-Request": "1" });

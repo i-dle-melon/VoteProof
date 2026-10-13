@@ -22,8 +22,9 @@ export function putImage(upload, file, onProgress) {
     xhr.open("PUT", upload.upload_url);
     xhr.withCredentials = false;
     xhr.timeout = 120000;
-    // Signed MIME must be exact; do not add auth headers to the R2 request.
+    // Same-origin capability header, never placed in a query string or logged.
     xhr.setRequestHeader("Content-Type", upload.headers["Content-Type"]);
+    xhr.setRequestHeader('X-Upload-Grant', upload.headers['X-Upload-Grant']);
     xhr.upload.onprogress = (event) => onProgress(event.lengthComputable ? event.loaded / event.total : 0);
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) { onProgress(1); resolve(); }

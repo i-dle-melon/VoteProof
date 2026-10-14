@@ -99,8 +99,8 @@ export async function sealFinalUpload(env,request,reference) {
   if(!matches(intent,object))fail('UPLOAD_CHANGED');
   const file={key:intent.object_key,size:intent.size,type:intent.content_type,etag:object.etag,sha256:r2VerifiedSha256(object)};
   if(intent.state!=='consumed') {
-    await rememberCompletedUpload(env,intent.session_id,[file],intent);
-    if(!['sealed','consumed'].includes((await intentRow(env.DB,intent.session_id))?.state))fail('UPLOAD_SESSION_EXPIRED');
+    const state=await rememberCompletedUpload(env,intent.session_id,[file],intent);
+    if(!['sealed','consumed'].includes(state))fail('UPLOAD_SESSION_EXPIRED');
   }
   return {session_id:intent.session_id,files:[{key:file.key,size:file.size,type:file.type,etag:file.etag}],storage_version:2};
 }

@@ -56,13 +56,19 @@ export async function rememberCompletedUpload(env, sessionId, files, intent) {
         AND EXISTS(SELECT 1 FROM completed_uploads WHERE session_id=? AND manifest_hash=? AND consumed_case_id IS NULL)`)
         .bind(now.toISOString(),now.toISOString(),sessionId,sessionId,hash)]:[]),
     ]);
-    const [stateResult,filesResult] = await db.batch([uploadStateStatement(db,sessionId),completedFilesStatement(db,sessionId)]);
+    // V2 reads the current intent state in the same post-seal transaction as
+    // completed state/files. Never attest using the pre-HEAD intent snapshot.
+    const stateStatement = intent ? db.prepare(`SELECT u.session_id,u.manifest_hash,u.consumed_case_id,u.expires_at,
+      i.state AS intent_state FROM completed_uploads u LEFT JOIN proof_upload_intents i ON i.session_id=u.session_id
+      WHERE u.session_id=?`).bind(sessionId) : uploadStateStatement(db,sessionId);
+    const [stateResult,filesResult] = await db.batch([stateStatement,completedFilesStatement(db,sessionId)]);
     const state = stateResult.results[0];
     if (state?.consumed_case_id) throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
     if (state?.expires_at <= new Date().toISOString()) throw expired();
     if (state?.manifest_hash !== hash || await manifestHash(filesResult.results) !== hash) {
       throw new CaseError(409, "UPLOAD_SESSION_CONFLICT", "Completed upload cannot be changed");
     }
+    return intent ? state.intent_state : undefined;
   } catch (error) {
     if (error instanceof CaseError || error instanceof SubmissionError) throw error;
     await requireSubmissionsEnabled(db);

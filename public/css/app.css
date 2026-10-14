@@ -1742,7 +1742,8 @@ tbody tr:first-child td:first-child {
   font-size: 12px;
   font-weight: 700;
 }
-.tab.active {
+.tab.active,
+.review-modes .tab[aria-pressed="true"] {
   background: color-mix(in srgb, var(--primary) 12%, var(--surface));
   border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
   color: var(--primary);

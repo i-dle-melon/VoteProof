@@ -3,14 +3,14 @@ import { PREVIEW } from "./preview.js";
 import { previewState as state } from "./pages-preview-state.js";
 export const identity = {
   member_id: "PREVIEW-MEMBER-001",
-  nickname: "展示會員・假資料 P001",
-  player_id: "PREVIEW-PLAYER-001",
+  nickname: "葉子",
+  player_id: "fan_yeh", fan_id:"fan_yeh",
   status: "active",
 };
 export const campaign = {
   campaign_id: "PREVIEW-CAMPAIGN",
   name: "展示回歸應援・假資料",
-  category: "Solo",
+  category: "Solo",solo_target:"PREVIEW-SOLO-A",
   start_at: "2026-01-01T00:00:00Z",
   end_at: "2099-12-31T00:00:00Z",
   campaign_timezone: "Asia/Taipei",
@@ -49,7 +49,7 @@ const rankings = [
   "展示 Sora P005",
 ].map((nickname, i) => ({
   rank: i + 1,
-  nickname,
+  nickname,fan_id:i===3?"fan_yeh":"preview_fan_"+i,
   member_id: i === 3 ? identity.member_id : "PREVIEW-PUBLIC-" + i,
   points: [580, 530, 490, 420, 120][i],
   proof_count: [58, 53, 49, 42, 12][i],
@@ -77,16 +77,17 @@ export const boards = [
   top_n: 100,
   is_public: true,
   status: "active",
+  system_fixed:type==="all_time",rule:type==="all_time"?"系統固定榜：跨活動正式積分累積；Solo 依穩定對象 key 分開。":undefined,solo_target:vote_type==="Solo"?"PREVIEW-SOLO-A":null,
   version: 1,
 }));
 export const cases = ["pending", "approved", "rejected", "pending", "completed"].map(
   (status, i) => ({
     case_id: "VP-PREVIEW-00" + (i + 1),
     nickname: identity.nickname,
-    player_id: identity.player_id,
+    player_id: identity.player_id,source:"member",review_stage:"initial",review_risk_reason:null,
     campaign_id: campaign.campaign_id,
     campaign_name: campaign.name,
-    vote_type: i % 2 ? "團體" : "Solo",
+    vote_type: "Solo",
     vote_date: "2026-10-14",
     created_at: "2026-10-14T03:00:00Z",
     status,
@@ -108,17 +109,57 @@ export const cases = ["pending", "approved", "rejected", "pending", "completed"]
     },
   }),
 );
+export const adminCases=[...cases,{...cases[0],case_id:"VP-PREVIEW-006",nickname:"匿名投稿",player_id:"匿名投稿",source:"guest",files:[{file_id:"PREVIEW-IMAGE-6",content_type:"image/png",size:4096}]},{...cases[0],case_id:"VP-PREVIEW-007",nickname:"展示其他粉絲",player_id:"preview_other_fan",review_stage:"detailed",review_risk_reason:"manual_flag",status_reason:"展示人工疑慮（假資料）",files:[{file_id:"PREVIEW-IMAGE-7",content_type:"image/png",size:4096}]}];
+export const previewCampaigns=[campaign,{...campaign,campaign_id:"PREVIEW-GROUP",name:"展示團體活動・假資料",category:"團體",solo_target:null}];
+const partialFailures=new Set();
 const paged = (key, data) => ({ [key]: state.data === "empty" ? [] : data, next_cursor: null });
-export async function fixtureResponse(path, { method = "GET" } = {}) {
+export async function fixtureResponse(path, { method = "GET",body } = {}) {
   const reply = (data, status = 200) =>
     Response.json(
       { ok: status === 200, ...(status === 200 ? { data } : { error: { code: data } }) },
       { status, headers: { "Cache-Control": "no-store" } },
     );
-  if (!PREVIEW || method !== "GET" || typeof path !== "string" || !path.startsWith("/api/"))
+  if (!PREVIEW || typeof path !== "string" || !path.startsWith("/api/"))
     return reply("UI_PREVIEW_ONLY", 403);
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
+  if(method!=="GET") {
+    if(method==="POST" && p==="/api/admin/cases/batch-approve" && state.identity==="admin"){
+      const input=typeof body==="string"?JSON.parse(body):body;
+      if(!Array.isArray(input?.cases)||!input.cases.length||input.cases.length>4||new Set(input.cases.map(c=>c.case_id)).size!==input.cases.length)return reply("INVALID_REVIEW_BATCH",400);
+      const results=input.cases.map(item=>{
+        const row=adminCases.find(c=>c.case_id===item.case_id);
+        if(!row)return {ok:false,case_id:item.case_id,code:"CASE_NOT_FOUND",status:404};
+        if(row.status==="approved" && row.version===item.expected_version+1)return {ok:true,...row,outcome:"already_approved"};
+        if(state.data==="error" || state.review==="error" || (state.review==="partial" && item.case_id==="VP-PREVIEW-004" && !partialFailures.has(item.case_id))){partialFailures.add(item.case_id);return {ok:false,case_id:item.case_id,code:"ADMIN_SERVICE_UNAVAILABLE",status:503};}
+        if(row.review_stage!=="initial")return {ok:false,case_id:item.case_id,code:"DETAILED_REVIEW_REQUIRED",status:409};
+        if(row.status!=="pending" || row.version!==item.expected_version)return {ok:false,case_id:item.case_id,code:"CASE_STATUS_CONFLICT",status:409};
+        row.status="approved";row.version++;row.points_awarded=row.source==="guest"?0:10;return {ok:true,...row,outcome:"approved"};
+      });return reply({results,succeeded:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length});
+    }
+
+    if(method==="POST" && p==="/api/auth/profile-warning") return reply({duplicate:state.nickname==="duplicate"});
+    if(method==="PATCH" && p==="/api/me/profile" && state.identity!=="guest") {
+      const input=typeof body==="string"?JSON.parse(body):body;
+      if(input?.player_id && input.player_id!==identity.player_id)return reply("FAN_ID_IMMUTABLE",409);
+      if(typeof input?.nickname!=="string" || !input.nickname.trim())return reply("INVALID_AUTH_REQUEST",400);
+      identity.nickname=input.nickname.trim();return reply({member:{...identity},nickname_warning:{duplicate:state.nickname==="duplicate"}});
+    }
+    if(method==="POST" && /^\/api\/admin\/cases\/VP-PREVIEW-\d+\/review$/.test(p) && state.identity==="admin") {
+      if(state.review==="error" || state.data==="error")return reply("SERVICE_UNAVAILABLE",503);
+      const input=typeof body==="string"?JSON.parse(body):body,row=adminCases.find(c=>p.includes('/'+c.case_id+'/'));
+      if(!row || !["approve","reject","mark_duplicate","complete","revoke","flag_detailed"].includes(input?.action))return reply("UI_PREVIEW_ONLY",403);
+      if(input.expected_version!==row.version)return reply("CASE_VERSION_CONFLICT",409);
+      if(["reject","mark_duplicate","revoke"].includes(input.action) && !input.reason?.trim())return reply("INVALID_ADMIN_REQUEST",400);
+      if(input.action==="flag_detailed"){
+        if(!["manual_flag","exact_duplicate","auto_check_failed","other"].includes(input.review_risk_reason))return reply("INVALID_REVIEW_REQUEST",400);
+        row.review_stage="detailed";row.review_risk_reason=input.review_risk_reason;row.status_reason=input.reason??null;row.version++;return reply({...row});
+      }
+      row.status={approve:"approved",reject:"rejected",mark_duplicate:"duplicate",complete:"completed",revoke:"revoked"}[input.action];row.version++;row.status_reason=input.reason??null;row.rejection_reason=row.status==="rejected"?input.reason:null;row.points_awarded=row.status==="approved"?10:0;
+      return reply({...row});
+    }
+    return reply("UI_PREVIEW_ONLY",403);
+  }
   if (p === "/api/auth/me")
     return state.identity === "guest"
       ? reply("AUTH_REQUIRED", 401)
@@ -149,7 +190,7 @@ export async function fixtureResponse(path, { method = "GET" } = {}) {
   if (p.startsWith("/api/admin/") && state.identity !== "admin")
     return reply("ADMIN_FORBIDDEN", 403);
   if (state.data === "error") return reply("SERVICE_UNAVAILABLE", 503);
-  if (p === "/api/campaigns") return reply(paged("campaigns", [campaign]));
+  if (p === "/api/campaigns") return reply(paged("campaigns", previewCampaigns));
   if (p === "/api/leaderboards") {
     const selected =
       state.data === "empty"
@@ -157,6 +198,7 @@ export async function fixtureResponse(path, { method = "GET" } = {}) {
         : boards.filter(
             (b) => !url.searchParams.has("id") || b.leaderboard_id === url.searchParams.get("id"),
           );
+    const solo=selected.find(b=>b.vote_type==="Solo" && b.system_fixed);if(solo)selected.push({...solo,solo_target:"PREVIEW-SOLO-B",rankings:solo.rankings.map(r=>({...r,points:r.points+20}))});
     return reply({
       generated_at: "2026-10-14T04:00:00Z",
       leaderboards: selected,
@@ -203,9 +245,7 @@ export async function fixtureResponse(path, { method = "GET" } = {}) {
     return reply(
       paged(
         "cases",
-        cases.filter(
-          (c) => !url.searchParams.get("status") || c.status === url.searchParams.get("status"),
-        ),
+        adminCases.filter(c=>(!url.searchParams.get("status") || c.status===url.searchParams.get("status")) && (!url.searchParams.get("review_stage") || c.review_stage===url.searchParams.get("review_stage"))).map(c=>({...c,primary_file_id:c.files[0].file_id})),
       ),
     );
   if (p === "/api/admin/backups" || /^\/api\/admin\/cases\/VP-PREVIEW-\d+\/backups$/.test(p))
@@ -220,7 +260,7 @@ export async function fixtureResponse(path, { method = "GET" } = {}) {
       backups: [],
     });
   if (p.startsWith("/api/admin/cases/")) {
-    const row = cases.find((c) => p.endsWith("/" + c.case_id));
+    const row = adminCases.find((c) => p.endsWith("/" + c.case_id));
     return row && state.data !== "empty"
       ? reply({
           ...row,
@@ -238,8 +278,8 @@ export async function fixtureResponse(path, { method = "GET" } = {}) {
         })
       : reply("CASE_NOT_FOUND", 404);
   }
-  if (p === "/api/admin/campaigns") return reply(paged("campaigns", [campaign]));
-  if (p === "/api/admin/leaderboards") return reply(paged("leaderboards", boards));
+  if (p === "/api/admin/campaigns") return reply(paged("campaigns", previewCampaigns));
+  if (p === "/api/admin/leaderboards") return reply({...paged("leaderboards", boards.filter(b=>!b.system_fixed)),system_boards:boards.filter(b=>b.system_fixed)});
   if (/^\/api\/admin\/leaderboards\/PREVIEW-[a-z-]+\/results$/.test(p))
     return reply({
       leaderboards:
@@ -256,7 +296,7 @@ export async function fixtureResponse(path, { method = "GET" } = {}) {
     });
   if (p === "/api/admin/audit-logs")
     return reply(
-      paged("audit_logs", [
+      paged("logs", [
         {
           id: "PREVIEW-AUDIT",
           action: "leaderboard_update",

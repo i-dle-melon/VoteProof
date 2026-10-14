@@ -6,7 +6,7 @@ import {requireCompletedUploadSnapshot} from './completed-uploads.js';
 // One authoritative request-local snapshot, never a cross-request cache. Commit
 // guards still recheck gate/campaign/session/consumption after R2 archival.
 export const CASE_POLICY_SQL=`SELECT s.submissions_enabled,s.submissions_message,
-  p.campaign_id,p.status,p.start_at,p.end_at,p.vote_start_date,p.vote_end_date,p.version,
+  p.campaign_id,p.category,p.solo_target,p.status,p.start_at,p.end_at,p.vote_start_date,p.vote_end_date,p.version,
   u.session_id,u.manifest_hash,u.consumed_case_id,u.expires_at,
   f.object_key AS key,f.content_type AS type,f.size,f.etag,h.sha256
   FROM (SELECT 1) anchor LEFT JOIN submission_settings s ON s.id=1

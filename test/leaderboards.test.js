@@ -51,14 +51,14 @@ for (const [name,change] of [
   ['top zero',{top_n:0}],['top large',{top_n:101}],['top fractional',{top_n:1.5}],['top string',{top_n:'10'}],
   ['bad id',{leaderboard_id:'../bad'}],['long id',{leaderboard_id:'x'.repeat(101)}],['name empty',{name:''}],['name long',{name:'x'.repeat(101)}],
   ['type',{type:'magic'}],['boolean',{is_public:1}],['vote type',{vote_type:'other'}],['status',{status:'closed'}],['archived create',{status:'archived'}],
-  ['campaign missing',{type:'campaign'}],['all-time campaign',{campaign_id:'C-local'}],['all-time dates',{start_date:'2026-01-01'}],
-  ['custom dates missing',{type:'custom'}],['invalid day',{type:'custom',start_date:'2026-02-30',end_date:'2026-03-01'}],
+  ['campaign missing',{type:'campaign',campaign_id:null,start_date:null,end_date:null}],['all-time campaign',{type:'all_time',campaign_id:'C-local',start_date:null,end_date:null}],['all-time dates',{type:'all_time',start_date:'2026-01-01',end_date:null}],
+  ['custom dates missing',{type:'custom',start_date:null,end_date:null}],['invalid day',{type:'custom',start_date:'2026-02-30',end_date:'2026-03-01'}],
   ['reverse dates',{type:'custom',start_date:'2026-02-02',end_date:'2026-02-01'}],['client actor',{created_by:'forged'}],['client result',{points:100}],
 ]) test('Definition rejects '+name,async () => { await err(await local.fetch('/api/admin/leaderboards','POST',definition(change),h.admin.headers),400,'INVALID_LEADERBOARD_REQUEST'); });
 test('Campaign FK validation, archived campaign cannot acquire new scope',async () => {
-  await err(await local.fetch('/api/admin/leaderboards','POST',definition({type:'campaign',campaign_id:'MISSING'}),h.admin.headers),400,'INVALID_CAMPAIGN');
+  await err(await local.fetch('/api/admin/leaderboards','POST',definition({type:'campaign',campaign_id:'MISSING',start_date:null,end_date:null}),h.admin.headers),400,'INVALID_CAMPAIGN');
   const c = await h.campaign({status:'archived'});
-  await err(await local.fetch('/api/admin/leaderboards','POST',definition({type:'campaign',campaign_id:c}),h.admin.headers),409,'LEADERBOARD_CONFLICT');
+  await err(await local.fetch('/api/admin/leaderboards','POST',definition({type:'campaign',campaign_id:c,start_date:null,end_date:null}),h.admin.headers),409,'LEADERBOARD_CONFLICT');
 });
 test('Definition CAS protects concurrent updates; mutations invalidate current snapshot',async () => {
   const b = await h.create(); await publish(b); const row = await current(b);
@@ -100,7 +100,7 @@ test('Points DESC, proof_count DESC, reached_at ASC, member_id ASC; nickname nev
   const [a,b,d,e,f] = people;
   await fixtureProof(a,c,20,at(9)); await fixtureProof(b,c,10,at(2)); await fixtureProof(b,c,10,at(3));
   await fixtureProof(d,c,20,at(8)); await fixtureProof(e,c,20,at(8)); await fixtureProof(f,c,30,at(20));
-  const board = await h.create({type:'campaign',campaign_id:c}); await publish(board);
+  const board = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); await publish(board);
   const rankings = (await h.snapshot(board)).rankings;
   const tie = [d.memberId,e.memberId].sort(); assert.deepEqual(rankings.map(r=>r.member_id),[f.memberId,b.memberId,...tie,a.memberId]);
   assert.deepEqual(rankings.map(r=>r.rank),[1,2,3,4,5]); assert.equal(rankings[1].proof_count,2);
@@ -108,46 +108,42 @@ test('Points DESC, proof_count DESC, reached_at ASC, member_id ASC; nickname nev
 test('Reached_at resets after leaving final pair: positive/negative adjustment oscillations',async () => {
   const m = await h.identity();
   await h.adjust(m,10,at(1)); await h.adjust(m,5,at(2)); await h.adjust(m,-5,at(3));
-  const b = await h.create(); await publish(b);
-  const row = (await h.snapshot(b)).rankings.find(r=>r.member_id===m.memberId);
+  const board=(await (await local.fetch("/api/leaderboards?id=system-history")).json()).data.leaderboards[0];
+  const row = board.rankings.find(r=>r.member_id===m.memberId);
   assert.equal(row.points,10); assert.equal(row.proof_count,0); assert.equal(row.reached_at,at(3));
 });
 test('Reached_at tracks the pair, not MIN/MAX positive award or first equal points',async () => {
   const m = await h.identity(), c = await h.campaign();
   await fixtureProof(m,c,10,at(1)); const second = await fixtureProof(m,c,10,at(2)); await fixtureRevoke(second,at(4));
-  const b = await h.create({type:'campaign',campaign_id:c}); await publish(b); const row = (await h.snapshot(b)).rankings[0];
+  const b = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); await publish(b); const row = (await h.snapshot(b)).rankings[0];
   assert.equal(row.points,10); assert.equal(row.proof_count,1); assert.equal(row.reached_at,at(4));
 });
 test('Same timestamp chronology gives original award precedence over reversal',async () => {
   const m = await h.identity(), c = await h.campaign(); const p = await fixtureProof(m,c,10,at(1));
   await fixtureProof(m,c,10,at(1)); await fixtureRevoke(p,at(1));
-  const b = await h.create({type:'campaign',campaign_id:c}); await publish(b); const row = (await h.snapshot(b)).rankings[0];
+  const b = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); await publish(b); const row = (await h.snapshot(b)).rankings[0];
   assert.equal(row.proof_count,1); assert.equal(row.reached_at,at(1));
 });
 test('Completed never adds activity; revoke nets zero and zero/negative/inactive members are absent',async () => {
   const m = await h.identity(), zero = await h.identity(), negative = await h.identity(), empty = await h.identity(), c = await h.campaign();
   const p = await h.award(m,c); assert.equal((await h.review(h.admin,p.case_id,'complete',1)).status,200);
-  let b = await h.create({type:'campaign',campaign_id:c}); await publish(b); assert.equal((await h.snapshot(b)).rankings[0].proof_count,1);
+  let b = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); await publish(b); assert.equal((await h.snapshot(b)).rankings[0].proof_count,1);
   assert.equal((await h.review(h.admin,p.case_id,'revoke',2,{reason:'Local correction'})).status,200);
   await h.adjust(zero,10,at(1)); await h.adjust(zero,-10,at(2)); await h.adjust(negative,-10,at(1));
   await h.adjust(m,3,at(5)); await local.db.prepare("UPDATE members SET status='suspended' WHERE member_id=?").bind(m.memberId).run();
   b = await h.create(); await publish(b); const ids = (await h.snapshot(b)).rankings.map(r=>r.member_id);
   for (const person of [m,zero,negative,empty]) assert.equal(ids.includes(person.memberId),false);
 });
-test('Campaign/Solo/團體/custom vote_date filtering; unscoped manual points only all-time',async () => {
-  const m = await h.identity(), c = await h.campaign(), other = await h.campaign();
+test('Campaign and custom scopes exclude unscoped adjustments; system history includes them',async()=>{
+  const m=await h.identity(),c=await h.campaign(),other=await h.campaign({category:'團體'});
   await fixtureProof(m,c,10,at(1),{vote_type:'Solo',vote_date:'2026-10-01'});
-  await fixtureProof(m,c,20,at(2),{vote_type:'團體',vote_date:'2026-10-02'});
-  await fixtureProof(m,other,30,at(3),{vote_type:'Solo',vote_date:'2026-10-03'}); await h.adjust(m,7,at(4));
-  for (const [scope,points,count] of [[{type:'campaign',campaign_id:c},30,2],[{type:'campaign',campaign_id:c,vote_type:'Solo'},10,1],
-    [{type:'campaign',campaign_id:c,vote_type:'團體'},20,1],[{vote_type:'Solo'},40,2],
-    [{type:'custom',start_date:'2026-10-02',end_date:'2026-10-02',campaign_id:c},20,1],
-    [{type:'custom',start_date:'2026-10-01',end_date:'2026-10-03'},60,3]]) {
-    const b = await h.create(scope); await publish(b); const row = (await h.snapshot(b)).rankings.find(r=>r.member_id===m.memberId);
-    assert.equal(row.points,points); assert.equal(row.proof_count,count);
+  await fixtureProof(m,other,20,at(2),{vote_type:'團體',vote_date:'2026-10-02'});await h.adjust(m,7,at(4));
+  for(const [scope,points] of [[{type:'campaign',campaign_id:c},10],[{type:'custom',start_date:'2026-10-01',end_date:'2026-10-03'},30]]){
+    const board=await h.create(scope);await publish(board);assert.equal((await h.snapshot(board)).rankings.find(r=>r.member_id===m.memberId).points,points);
   }
-  const b = await h.create(); await publish(b); assert.equal((await h.snapshot(b)).rankings.find(r=>r.member_id===m.memberId).points,67);
+  const system=(await (await local.fetch('/api/leaderboards?id=system-history')).json()).data.leaderboards[0];assert.equal(system.rankings.find(r=>r.member_id===m.memberId).points,37);
 });
+
 test('Custom uses vote_date inclusive calendar boundaries, not UTC review/created time',async () => {
   const c = await h.campaign({campaign_timezone:'Asia/Taipei'}), m = await h.identity();
   await fixtureProof(m,c,10,'2026-10-02T23:59:59.999Z',{vote_date:'2026-10-01'});
@@ -157,7 +153,7 @@ test('Custom uses vote_date inclusive calendar boundaries, not UTC review/create
 });
 test('Nickname snapshot and ledger source survive profile/snapshot-field changes until rebuild',async () => {
   const c = await h.campaign(), m = await h.identity(); await fixtureProof(m,c,10,at(1));
-  const b = await h.create({type:'campaign',campaign_id:c}); const run = await publish(b); const initial = await h.snapshot(b);
+  const b = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); const run = await publish(b); const initial = await h.snapshot(b);
   await local.db.prepare("UPDATE members SET nickname='New nickname' WHERE member_id=?").bind(m.memberId).run();
   await local.db.prepare('UPDATE cases SET points_awarded=999 WHERE member_id=?').bind(m.memberId).run();
   assert.deepEqual(await h.snapshot(b),initial); await publish(await current(b));
@@ -181,18 +177,17 @@ test('Public reads only current successful active public run and safe B1-compati
   assert.equal(response.headers.get('cache-control'),'public, max-age=15, must-revalidate'); const json = await response.json();
   assert.deepEqual(Object.keys(json.data).sort(),['custom_boards','generated_at','leaderboards']); const board = json.data.leaderboards[0];
   assert.deepEqual(Object.keys(board).sort(),['campaign_id','generated_at','leaderboard_id','name','rankings','type','vote_type']);
-  for (const row of board.rankings) assert.deepEqual(Object.keys(row).sort(),['member_id','nickname','points','proof_count','rank','reached_at','tier','tier_configuration_ready']);
+  for (const row of board.rankings) assert.deepEqual(Object.keys(row).sort(),['fan_id','member_id','nickname','points','proof_count','rank','reached_at','tier','tier_configuration_ready']);
   assert.equal(/email|player_id|token|hash|object_key|run_id|created_by/.test(JSON.stringify(json)),false);
   assert.deepEqual((await (await local.fetch('/api/leaderboards?id=missing')).json()).data.leaderboards,[]);
 });
-test('No Apps Script dependency, empty registry and sanitized D1 failure',async t => {
-  t.mock.method(globalThis,'fetch',()=>assert.fail('must not fetch Google'));
-  const db = {prepare(sql) { assert.equal(sql.includes('point_transactions'),false); return {bind(){return {all:async()=>({results:[]})}}};}};
-  const r = await worker.fetch(new Request('https://voteproof.example/api/leaderboards'),{DB:db,GOOGLE_PUBLIC_API_URL:'https://example.invalid/unused'});
-  assert.deepEqual(await r.json(),{ok:true,data:{generated_at:null,leaderboards:[],custom_boards:[]}});
+test('No Apps Script dependency; immutable system registry works with no ledger rows and sanitizes failure',async()=>{
+  const sandbox=await localCaseRuntime({seedCampaign:false});
+  try{const response=await sandbox.fetch('/api/leaderboards');assert.equal(response.status,200);const data=(await response.json()).data;assert.equal(data.leaderboards.length,3);assert.ok(data.leaderboards.every(b=>b.system_fixed && !b.rankings.length));}finally{await sandbox.runtime.dispose();}
   await err(await worker.fetch(new Request('https://voteproof.example/api/leaderboards'),{}),503,'DB_NOT_CONFIGURED');
   await err(await worker.fetch(new Request('https://voteproof.example/api/leaderboards'),{DB:{prepare(){throw Error('sensitive metadata')}}}),503,'LEADERBOARD_SERVICE_UNAVAILABLE');
 });
+
 test('Rebuild audit summary has run/count/time; no full rankings; CAS increments version',async () => {
   const b = await h.create(); const r = await publish(b);
   const audit = await local.db.prepare('SELECT * FROM admin_audit_logs WHERE id=?').bind(r.run_id).first();
@@ -217,13 +212,12 @@ test('Concurrent rebuild only publishes one complete run and no loser artifact/a
   assert.equal((await local.db.prepare("SELECT COUNT(*) n FROM admin_audit_logs WHERE target_id=? AND action='leaderboard_rebuild'").bind(b.leaderboard_id).first()).n,1);
   assert.ok(await h.snapshot(b));
 });
-test('Concurrent ledger append gives one coherent run boundary, never mixed totals/history',async () => {
-  const m = await h.identity(), b = await h.create(); await h.adjust(m,10,at(1));
-  await Promise.all([publish(b),h.adjust(m,5,at(2))]);
-  const r = (await h.snapshot(b)).rankings.find(x=>x.member_id===m.memberId); assert.ok([10,15].includes(r.points));
-  assert.equal(r.reached_at,r.points===10 ? at(1) : at(2));
-  await publish(await current(b)); assert.equal((await h.snapshot(b)).rankings.find(x=>x.member_id===m.memberId).points,15);
+test('Live system ranking reflects concurrent ledger appends without an admin snapshot',async()=>{
+  const m=await h.identity();await h.adjust(m,10,at(1));
+  await Promise.all([local.fetch('/api/leaderboards?id=system-history'),h.adjust(m,5,at(2))]);
+  const system=(await (await local.fetch('/api/leaderboards?id=system-history')).json()).data.leaderboards[0];const row=system.rankings.find(x=>x.member_id===m.memberId);assert.equal(row.points,15);assert.equal(row.reached_at,at(2));
 });
+
 test('Authorization revoked after read is rechecked in rebuild/definition transaction',async () => {
   const a = await actor(), b = await h.create();
   await local.db.prepare("UPDATE admin_memberships SET status='disabled' WHERE member_id=?").bind(h.admin.memberId).run();
@@ -235,15 +229,15 @@ test('Authorization revoked after read is rechecked in rebuild/definition transa
 });
 test('Archived Campaign retains snapshot, supports corrective rebuild, freezes leaderboard scope',async () => {
   const c = await h.campaign(), m = await h.identity(); await fixtureProof(m,c,10,at(1));
-  const b = await h.create({type:'campaign',campaign_id:c}); await publish(b);
+  const b = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); await publish(b);
   await local.db.prepare("UPDATE campaigns SET status='closed' WHERE campaign_id=?").bind(c).run();
   await local.db.prepare("UPDATE campaigns SET status='archived' WHERE campaign_id=?").bind(c).run();
   await publish(await current(b)); assert.equal((await h.snapshot(b)).rankings[0].points,10);
-  await err(await h.update(await current(b),{type:'all_time',campaign_id:null}),409,'LEADERBOARD_CONFLICT');
+  await err(await h.update(await current(b),{type:'all_time',campaign_id:null}),409,'SYSTEM_LEADERBOARD_FIXED');
 });
 test('Integrity error fails rebuild instead of clamping negative proof history',async () => {
   const c = await h.campaign(), m = await h.identity(); const p = await fixtureProof(m,c,10,at(2));
-  const b = await h.create({type:'campaign',campaign_id:c}); await publish(b); const previous = await h.snapshot(b);
+  const b = await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null}); await publish(b); const previous = await h.snapshot(b);
   await fixtureRevoke(p,at(1));
   await err(await h.rebuild(await current(b)),503,'LEADERBOARD_REBUILD_FAILED'); assert.deepEqual(await h.snapshot(b),previous);
 });

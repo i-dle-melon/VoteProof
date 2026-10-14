@@ -24,14 +24,14 @@ export function normalizedMetadata(input) {
     if (!value || [...value].length > max || /[\u0000-\u001f\u007f]/.test(value)) throw new PublicError("INVALID_CASE_REQUEST");
     return value;
   };
-  const nickname = text("nickname", 50), player_id = text("player_id", 100), campaign_id = text("campaign_id", 100);
+  const campaign_id = text("campaign_id", 100);
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(campaign_id) || !["Solo", "團體"].includes(input.vote_type) ||
       !/^\d{4}-\d{2}-\d{2}$/.test(input.vote_date ?? "")) throw new PublicError("INVALID_CASE_REQUEST");
   const date = new Date(input.vote_date + "T00:00:00Z");
   if (!Number.isFinite(date.valueOf()) || date.toISOString().slice(0, 10) !== input.vote_date) throw new PublicError("INVALID_CASE_REQUEST");
   const note = (input.note ?? "").trim();
   if ([...note].length > 500 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(note)) throw new PublicError("INVALID_CASE_REQUEST");
-  return Object.freeze({ nickname, player_id, campaign_id, vote_type: input.vote_type, vote_date: input.vote_date, note: note || null });
+  return Object.freeze({ campaign_id, vote_type: input.vote_type, vote_date: input.vote_date, note: note || null });
 }
 function newIdempotencyKey() {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");

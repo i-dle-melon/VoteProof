@@ -30,11 +30,10 @@ function harness({ count = 2 } = {}) {
 }
 test("frontend normalizes metadata without rewriting backend business rules", () => {
   const normalized = normalizedMetadata(metadata());
-  assert.equal(normalized.nickname, "訪客"); assert.equal(normalized.player_id, "player"); assert.equal(normalized.note, "備註");
+  assert.equal("nickname" in normalized,false); assert.equal("player_id" in normalized,false); assert.equal(normalized.note, "備註");
   assert.equal(normalizedMetadata({ ...metadata(), note: " " }).note, null);
 });
-for (const [label, extra] of [["empty nickname", { nickname: " " }], ["invalid player", { player_id: "x\u0000" }],
-  ["long nickname", { nickname: "x".repeat(51) }], ["unknown type", { vote_type: "invalid" }],
+for (const [label, extra] of [["empty campaign", {campaign_id:" "}], ["invalid campaign",{campaign_id:"../other"}], ["unknown type", { vote_type: "invalid" }],
   ["invalid date", { vote_date: "2026-02-30" }], ["long note", { note: "x".repeat(501) }]]) {
   test(`frontend input rejects ${label}`, () => assert.throws(() => normalizedMetadata({ ...metadata(), ...extra }), PublicError));
 }
@@ -62,7 +61,7 @@ test("case response lost: exact payload/key replay; no second prepare/PUT/comple
   const creates = h.calls.filter((c) => c.path === "/api/cases");
   assert.equal(creates.length, 2); assert.equal(creates[0].body === creates[1].body, true);
   assert.equal(creates[0].headers["Idempotency-Key"] === creates[1].headers["Idempotency-Key"], true);
-  assert.equal(JSON.parse(creates[1].body).nickname, "訪客");
+  assert.equal("nickname" in JSON.parse(creates[1].body),false);
   assert.equal(h.puts.length, 2); assert.equal(h.calls.filter((c) => c.path.endsWith("prepare")).length, 1);
 });
 test("concurrent double attempt shares a single running submission", async () => {

@@ -2,7 +2,7 @@ import { ELEVATED_AUTH_GUARD, actorBindings, adminDenied, AdminError } from "./a
 import { campaignConflict, campaignMissing, campaignUpdatePolicy, CAMPAIGN_ID, CAMPAIGN_STATUSES } from "./campaign-policy.js";
 import { encodeCursor } from "../api/admin-validation.js";
 
-export const PUBLIC_CAMPAIGN_COLUMNS = "campaign_id, name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date, points_per_proof, daily_limit, status";
+export const PUBLIC_CAMPAIGN_COLUMNS = "campaign_id, name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date, points_per_proof, daily_limit, status";
 export const campaignRow = (db, id) => db.prepare("SELECT * FROM campaigns WHERE campaign_id = ?").bind(id).first();
 export async function publicCampaigns(db) {
   const now = new Date().toISOString();
@@ -10,25 +10,25 @@ export async function publicCampaigns(db) {
     WHERE status = 'active' AND start_at <= ? AND end_at > ? ORDER BY start_at, campaign_id`).bind(now, now).all()).results;
 }
 export const campaignSummarySql = alias => `json_object('campaign_id', ${alias}.campaign_id, 'name', ${alias}.name,
-  'category', ${alias}.category, 'start_at', ${alias}.start_at, 'end_at', ${alias}.end_at,
+  'category', ${alias}.category, 'solo_target', ${alias}.solo_target, 'start_at', ${alias}.start_at, 'end_at', ${alias}.end_at,
   'campaign_timezone', ${alias}.campaign_timezone, 'points_per_proof', ${alias}.points_per_proof,
   'daily_limit', ${alias}.daily_limit, 'status', ${alias}.status, 'version', ${alias}.version)`;
-const summary = row => Object.fromEntries(["campaign_id", "name", "category", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "version"].map(k => [k, row[k]]));
+const summary = row => Object.fromEntries(["campaign_id", "name", "category", "solo_target", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "version"].map(k => [k, row[k]]));
 const campaignResult = row => { const { last_mutation_id, ...safe } = row; return safe; };
 export async function saveCampaign(db, actor, input, existing = null) {
   if (existing) campaignUpdatePolicy(existing, input);
   const id = existing?.campaign_id ?? input.campaign_id, marker = crypto.randomUUID(), now = new Date().toISOString();
-  const values = [input.name, input.category, input.start_at, input.end_at, input.campaign_timezone,
+  const values = [input.name, input.category, input.solo_target, input.start_at, input.end_at, input.campaign_timezone,
     input.vote_start_date, input.vote_end_date, input.points_per_proof, input.daily_limit, input.status, input.note];
   const statement = existing
-    ? db.prepare(`UPDATE campaigns SET name = ?, category = ?, start_at = ?, end_at = ?, campaign_timezone = ?,
+    ? db.prepare(`UPDATE campaigns SET name = ?, category = ?, solo_target = ?, start_at = ?, end_at = ?, campaign_timezone = ?,
         vote_start_date = ?, vote_end_date = ?, points_per_proof = ?, daily_limit = ?, status = ?, note = ?,
         updated_at = ?, updated_by = ?, version = version + 1, last_mutation_id = ?
         WHERE campaign_id = ? AND version = ? AND status = ? AND ${ELEVATED_AUTH_GUARD}`)
       .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, ...actorBindings(actor))
-    : db.prepare(`INSERT INTO campaigns (name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
+    : db.prepare(`INSERT INTO campaigns (name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
         points_per_proof, daily_limit, status, note, campaign_id, created_at, updated_at, created_by, updated_by, last_mutation_id)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${ELEVATED_AUTH_GUARD}`)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${ELEVATED_AUTH_GUARD}`)
       .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, ...actorBindings(actor));
   let result;
   try {

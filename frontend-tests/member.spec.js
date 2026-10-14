@@ -29,7 +29,7 @@ async function submission(page, member = false) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
   await expect(page.locator("#submission-mode")).toBeHidden();
   await expect(page.locator("#submission-mode")).toHaveValue(member ? "member" : "guest");
-  await page.locator("#nickname").fill("本機投稿"); await page.locator("#player-id").fill("local-player");
+
   await page.locator("#vote-date").fill(new Date().toISOString().slice(0, 10));
   await page.locator("#proof-images").setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: png });
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
@@ -161,9 +161,9 @@ test("logged-in center displays safe profile, points, current tier, configured p
   await expect(page.locator("#tier-gap")).toHaveText("距離「白銀」還差 77 點");
   await expect(page.locator("#tier-points")).toHaveText("123 / 200 點");
   await expect(page.locator("#tier-progress")).toHaveAttribute("value", "23");
-  await page.locator("#member-cases button").click(); await expect(page.locator("#member-case-detail")).toContainText("已通過");
+  await page.locator("#member-cases button").click(); await expect(page.locator("#owned-case-detail")).toContainText("已通過");
   expect((await page.locator("#member-content").innerText()).includes("private")).toBe(false);
-  await page.locator("#member-cases-more").click(); await expect(page.locator("#member-cases-more")).toBeHidden();
+  if(await page.locator("#owned-case-detail").isVisible())await page.locator("#owned-case-close").click();await page.locator("#member-cases-more").click(); await expect(page.locator("#member-cases-more")).toBeHidden();
   expect(state.calls.filter(call => call.path === "/api/me/points")).toHaveLength(1);
 });
 test("unconfigured tiers show only the current normal tier without invented progress", async ({ page }) => {
@@ -177,7 +177,7 @@ test("profile mutation uses CSRF, validates fields and only sends nickname/playe
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#member"); await expect(page.locator("#member-content")).toBeVisible();
   await page.locator("#profile-nickname").fill(" "); await clickSubmit(page, "profile-form"); await expect(page.locator("#profile-status")).toContainText("請填寫");
   await page.locator("#profile-nickname").fill("新暱稱"); await clickSubmit(page, "profile-form"); await expect(page.locator("#profile-status")).toHaveText("會員資料已保存。");
-  const call = state.calls.find(call => call.path === "/api/me/profile"); expect(Object.keys(call.body).sort()).toEqual(["nickname", "player_id"]);
+  const call = state.calls.find(call => call.path === "/api/me/profile"); expect(Object.keys(call.body).sort()).toEqual(["nickname"]);
   expect(call.headers["x-csrf-token"] === state.csrf).toBe(true); expect(call.headers["x-voteproof-request"]).toBe("1");
 });
 test("Google member can update nickname without inventing a required player ID", async ({ page }) => {
@@ -187,9 +187,9 @@ test("Google member can update nickname without inventing a required player ID",
   expect(state.calls.find(call => call.path === "/api/me/profile").body).toEqual({ nickname: "只改暱稱" });
 });
 test("revoked session logs out cleanly without polling or erasing Guest draft", async ({ page }) => {
-  const state = await memberFixture(page, { authenticated: true }); await page.goto("/#submit"); await page.locator("#nickname").fill("未送出訪客");
+  const state = await memberFixture(page, { authenticated: true }); await page.goto("/#submit"); await page.locator("#note").fill("未送出訪客");
   state.revoked = true; await page.locator("#member-entry").click(); await expect(page.locator("#member-gate")).toBeVisible(); await expect(page.locator("#login-entry")).toBeVisible();
-  await page.locator(".bottom-nav a[href='#submit'],.sidebar nav a[href='#submit']").filter({ visible: true }).click(); await expect(page.locator("#nickname")).toHaveValue("未送出訪客");
+  await page.locator(".bottom-nav a[href='#submit'],.sidebar nav a[href='#submit']").filter({ visible: true }).click(); await expect(page.locator("#note")).toHaveValue("未送出訪客");
   expect(state.calls.filter(call => call.path === "/api/auth/me").length).toBeLessThanOrEqual(3);
 });
 test("logout calls revoke API and clears member state", async ({ page }) => {
@@ -215,7 +215,7 @@ test("auth/provider outage leaves Guest upload/lookup/public navigation usable",
   const state = await memberFixture(page, { authDown: true }); await beginLogin(page, state); await clickSubmit(page, "login-form");
   await expect(page.locator("#login-error")).toContainText("會員服務暫時無法使用"); await submission(page);
   await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
-  await page.locator("#lookup-created").click(); await page.locator("#lookup-button").click(); await expect(page.locator("#lookup-result")).toContainText("待審核");
+  await page.locator("#success-query-info summary").click();await page.locator("#lookup-created").click(); await page.locator("#lookup-button").click(); await expect(page.locator("#lookup-result")).toContainText("待審核");
   const create = state.calls.find(call => call.path === "/api/cases"); expect(create.headers["x-csrf-token"]).toBeUndefined();
 });
 test("auth sensitive values never enter storage/URL/logs; backend text remains inert", async ({ page }) => {
@@ -242,8 +242,8 @@ test("auth forms/member center fit 320/375/390/430/768/desktop, labels/focus/tap
 
 test("session expiry returns logged-out UI once while preserving Guest work", async ({ page }) => {
   await page.clock.install(); const state = await memberFixture(page, { authenticated: true, shortSession: true });
-  await page.goto("/#submit"); await page.locator("#nickname").fill("保留草稿"); await page.clock.fastForward(1000);
-  await expect(page.locator("#login-entry")).toBeVisible(); await expect(page.locator("#nickname")).toHaveValue("保留草稿");
+  await page.goto("/#submit"); await page.locator("#note").fill("保留草稿"); await page.clock.fastForward(1000);
+  await expect(page.locator("#login-entry")).toBeVisible(); await expect(page.locator("#note")).toHaveValue("保留草稿");
   await expect(page.locator("#account-status")).toContainText("登入已失效"); expect(state.calls.filter(call => call.path === "/api/auth/me").length).toBeLessThanOrEqual(3);
 });
 test("pagehide/BFCache cannot retain enrollment QR or one-time recovery codes", async ({ page }) => {

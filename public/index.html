@@ -64,7 +64,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
         </nav>
         <div class="sidebar-footer">
           <span class="eyebrow">一起為 i-dle 應援</span>
-          <p>免登入也能投稿。<br />請保存案件編號與查詢碼。</p>
+          <p>免登入也能匿名投稿。<br />需要追蹤進度時再保存查詢資訊。</p>
           <a href="#about">使用說明與隱私</a>
         </div>
       </aside>
@@ -273,7 +273,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             <div class="page-head">
               <span class="eyebrow">GUEST SUBMISSION</span>
               <h1 data-view-title id="submit-title" tabindex="-1">提交投票證明</h1>
-              <p class="sub">活動開放時可提交投票證明，送出後請保存案件編號與查詢碼。</p>
+              <p class="sub">選擇活動即可提交投票證明；匿名快速投稿不需粉絲 ID 或暱稱。</p>
             </div>
             <h2 id="submit-state">目前暫停投稿</h2>
             <p id="submit-availability" class="notice info" role="status" aria-live="polite">
@@ -309,19 +309,16 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   </div>
                   <div class="field">
                     <label for="vote-type">投票類型 <span class="required">必填</span></label
-                    ><select id="vote-type" name="vote_type" required>
-                      <option value="Solo">Solo</option>
-                      <option value="團體">團體</option>
-                    </select>
+                    ><output id="vote-type" aria-live="polite">請先選擇活動</output><p class="tiny">由活動設定決定</p>
                   </div>
                   <div class="field">
                     <label for="vote-date">投票日期 <span class="required">必填</span></label
                     ><input id="vote-date" name="vote_date" type="date" required />
                   </div>
-                  <div class="field">
+                  <div class="field" hidden>
                     <label for="nickname">暱稱 <span class="required">必填</span></label
                     ><input
-                      id="nickname"
+                      id="nickname" disabled
                       name="nickname"
                       maxlength="50"
                       autocomplete="nickname"
@@ -329,16 +326,16 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                       placeholder="希望顯示的暱稱"
                     />
                   </div>
-                  <div class="field">
-                    <label for="player-id">玩家 ID <span class="required">必填</span></label
+                  <div class="field" hidden>
+                    <label for="player-id">粉絲 ID <span class="required">必填</span></label
                     ><input
-                      id="player-id"
+                      id="player-id" disabled
                       name="player_id"
                       maxlength="100"
                       spellcheck="false"
                       autocomplete="off"
                       required
-                      placeholder="投票平台上的玩家 ID"
+                      placeholder="投票平台上的粉絲 ID"
                     />
                   </div>
                   <div class="field full">
@@ -395,7 +392,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 ⚠️ 投票證明由人工審核；如有重複或需要補充的內容，請留意案件狀態。
               </div>
               <p class="tiny">
-                投票證明僅供授權審核，不會公開圖片網址。送出後請保存案件編號及查詢碼。
+                投票證明僅供授權審核，不會公開圖片網址。會員可至「我的案件」查看；匿名投稿若需後續查詢，再保存資訊。
               </p>
               <div id="upload-progress" hidden>
                 <label for="progress">投稿進度</label
@@ -419,13 +416,13 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <p id="batch-summary" role="status" aria-live="polite"></p>
               <div id="batch-items" class="list"></div>
               <p class="tiny">
-                每張圖片各自審核。成功送出仍需等待審核，點數依活動規則計算；請保存每個案件的查詢資訊。
+                每張圖片各自審核，點數依活動規則計算。會員可在「我的案件」查看；匿名投稿若之後想查詢，再保存資訊。
               </p>
-              <button class="btn btn-white" type="button" id="batch-copy">
+              <details id="batch-query-info"><summary>其他查詢方式</summary><button class="btn btn-white" type="button" id="batch-copy">
                 複製已成功案件的查詢資訊
               </button>
               <button class="btn btn-soft" id="batch-download" type="button">下載查詢資訊</button>
-              <p id="batch-copy-status" role="status" aria-live="polite"></p>
+              <p id="batch-copy-status" role="status" aria-live="polite"></p></details>
             </section>
             <section
               class="card success-card"
@@ -436,7 +433,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             >
               <span class="eyebrow">THANK YOU FOR YOUR SUPPORT</span>
               <h2 id="success-title" tabindex="-1">投稿成功</h2>
-              <p>案件已送出，等待審核。</p>
+              <p id="submission-success-message">投稿完成。</p><a id="success-owned-cases" class="btn btn-primary" href="#lookup" hidden>我的案件</a><details id="success-query-info"><summary>其他查詢方式</summary><p id="query-info-hint" class="tiny"></p>
               <dl class="credentials">
                 <dt>案件編號</dt>
                 <dd id="success-case-id"></dd>
@@ -444,7 +441,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <dd id="success-query-key"></dd>
               </dl>
               <p class="notice warn">
-                查詢碼已隱藏，是查看案件所需的重要資料，請自行保存。可複製或下載到私人筆記，請勿公開分享。
+                若之後需要手動查詢，可主動複製或下載以下資訊到私人筆記，請勿公開分享。
               </p>
               <div class="form-actions">
                 <button class="btn btn-white" type="button" id="copy-case">複製案件編號</button
@@ -455,9 +452,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </div>
               <button class="btn btn-soft" id="receipt-download" type="button">下載查詢資訊</button>
               <p id="copy-status" role="status" aria-live="polite"></p>
-              <div class="form-actions">
-                <button class="btn btn-soft" type="button" id="lookup-created">查詢這個案件</button
-                ><button class="btn btn-white" type="button" id="new-submission">
+              <button class="btn btn-soft" type="button" id="lookup-created">查詢這個案件</button></details><div class="form-actions"><button class="btn btn-white" type="button" id="new-submission">
                   開始另一筆投稿
                 </button>
               </div>
@@ -510,10 +505,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <button id="owned-cases-more" class="btn btn-soft" type="button" hidden>
                 載入更多案件
               </button>
-              <div id="owned-case-detail" hidden>
-                <h3 tabindex="-1" id="owned-case-detail-title">案件資訊</h3>
-                <dl id="owned-case-fields" class="case-details"></dl>
-              </div>
+
             </section>
             <form class="card form-card" id="lookup-form" novalidate>
               <div class="form-grid">
@@ -583,7 +575,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             </div>
             <div class="grid grid-2 leaderboard-grid">
               <article class="card leader-card">
-                <h2 class="board-caption" id="board-name"></h2>
+                <label id="solo-target-wrap" hidden>Solo 對象<select id="solo-target-filter"></select></label><h2 class="board-caption" id="board-name"></h2><p id="board-rule-status" class="tiny" role="status"></p>
                 <progress
                   class="board-progress"
                   id="board-progress"
@@ -656,8 +648,9 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             <div class="card form-card prose">
               <h2>如何投稿</h2>
               <p>
-                選擇開放中的活動，填寫投票日期、暱稱及玩家 ID，選取 1～5
-                張清楚的證明圖片。完成人機驗證後送出，並保存案件編號與查詢碼。
+                選擇開放中的活動與投票日期，選取 1～20 張清楚的證明圖片。
+                投稿類型由活動決定；匿名投稿不需填寫粉絲 ID 或暱稱。
+                完成人機驗證後送出，會員可至「我的案件」查看；匿名投稿需要追蹤進度時再保存查詢資訊。
               </p>
               <h2>案件狀態</h2>
               <p>
@@ -778,7 +771,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   </button>
                 </div>
               </form>
-              <form id="register-password-form" hidden novalidate>
+              <form id="register-password-form" hidden novalidate><div class="field"><label for="register-nickname">暱稱</label><input id="register-nickname" maxlength="50" value="會員" required /></div><p id="register-nickname-warning" role="status" class="notice warn" hidden></p><div class="field"><label for="register-fan">粉絲 ID（首次設定）</label><input id="register-fan" maxlength="100" /><p class="tiny">全會員唯一，建立後無法修改；可稍後在會員中心設定。</p></div>
                 <p>信箱驗證完成。請設定 12～128 個字元的密碼，不會另外要求字元種類。</p>
                 <div class="field">
                   <label for="register-password">密碼</label>
@@ -1194,17 +1187,17 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   </dl>
                   <p id="member-auth-status" role="status"></p>
                   <a class="btn btn-white" href="#security">登入與安全</a>
-                  <p class="tiny">會員編號：<span id="member-id"></span></p>
+                  <p class="tiny">粉絲 ID：<span id="member-id"></span></p>
                   <div class="field">
                     <label for="profile-nickname">暱稱</label
                     ><input id="profile-nickname" autocomplete="nickname" maxlength="50" required />
                   </div>
                   <div class="field">
-                    <label for="profile-player">玩家 ID（選填）</label
-                    ><input id="profile-player" autocomplete="off" maxlength="100" />
-                    <p class="tiny">留空會保留原玩家 ID。</p>
+                    <label for="profile-player">粉絲 ID（選填）</label
+                    ><input id="profile-player" autocomplete="off" maxlength="100" /><p id="profile-fan-readonly" hidden></p><p class="tiny">建立後無法修改</p>
+                    <p class="tiny">留空會保留原粉絲 ID。</p>
                   </div>
-                  <p id="profile-status" role="status" aria-live="polite"></p>
+                  <p id="profile-nickname-warning" class="notice warn" role="status" hidden></p><p id="profile-status" role="status" aria-live="polite"></p>
                   <button class="btn btn-primary" type="submit" id="profile-save">保存資料</button>
                 </form>
                 <article class="card form-card">
@@ -1294,10 +1287,10 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <div id="google-profile" hidden>
                   <div class="field">
                     <label for="google-nickname">VoteProof 暱稱</label
-                    ><input id="google-nickname" autocomplete="nickname" maxlength="50" />
+                    ><input id="google-nickname" autocomplete="nickname" maxlength="50" /><p id="google-nickname-warning" class="notice warn" role="status" hidden></p>
                   </div>
                   <div class="field">
-                    <label for="google-player">玩家 ID</label
+                    <label for="google-player">粉絲 ID</label
                     ><input id="google-player" maxlength="100" autocomplete="off" />
                   </div>
                   <p>不需 VoteProof 密碼、Authenticator 或復原碼。</p>
@@ -1560,7 +1553,11 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
           <footer class="footer-note">
             VoteProof · 每一票，都留下證明 <a href="#about">使用說明與隱私</a>
           </footer>
-        </main>
+        <dialog id="owned-case-detail" aria-labelledby="owned-case-detail-title" class="case-dialog"><button type="button" id="owned-case-close" class="btn btn-white">關閉</button>
+                <h3 tabindex="-1" id="owned-case-detail-title">案件詳情</h3>
+                <dl id="owned-case-fields" class="case-details"></dl>
+              </dialog>
+</main>
       </div>
     </div>
 
@@ -1665,7 +1662,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       <span id="admin-copy-040">返回案件列表</span>
       <span id="admin-copy-041">案件編號</span>
       <span id="admin-copy-042">投稿者</span>
-      <span id="admin-copy-043">玩家 ID</span>
+      <span id="admin-copy-043">粉絲 ID</span>
       <span id="admin-copy-044">活動</span>
       <span id="admin-copy-045">投票日期</span>
       <span id="admin-copy-046">類型</span>
@@ -1827,7 +1824,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       </div>
       <p>選擇活動並提交投票證明。每批最多 20 張，每張各自建立案件，未成功的項目可以重試。</p>
       <p>
-        審核後依活動規則累積點數。登入會員可直接查看自己的案件；訪客請私人保存案件編號與查詢碼。
+        審核後依活動規則累積點數。登入會員可直接查看自己的案件；匿名投稿若想追蹤進度，可選擇私人保存查詢資訊。
       </p>
       <p>圖片只供授權審核。查詢碼不會顯示在頁面上，可複製或下載至自己的安全筆記。</p>
     </dialog>

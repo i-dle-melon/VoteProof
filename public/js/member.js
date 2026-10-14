@@ -20,6 +20,10 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   let registration = "email", challengeId = "", transactionId = "", deadline = 0, cooldown = 0;
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
+  let caseOpener=null;
+  function closeCase(){if($("owned-case-detail").open)$("owned-case-detail").close();}
+  $("owned-case-close").addEventListener("click",closeCase);
+  $("owned-case-detail").addEventListener("close",()=>{if(caseOpener?.isConnected)caseOpener.focus();});
   let profileSnapshot = null, recentSequence = 0, dashboardSequence=0, pendingCaseId=null;
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
   let loginSessionChecked = false, linkPurpose = "connect", setupKind = "enroll", setupTx = "", setupDeadline = 0, recoveryLogout = false;
@@ -32,7 +36,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     wasLoggedIn = Boolean(member);
     $("lookup-member-shortcut").hidden = !member;
     $("owned-case-center").hidden=!member;
-    if(!member){pendingCaseId=null;$("owned-cases").replaceChildren();$("owned-case-fields").replaceChildren();$("owned-case-detail").hidden=true;}
+    if(!member){closeCase();pendingCaseId=null;$("owned-cases").replaceChildren();$("owned-case-fields").replaceChildren();$("owned-case-detail").hidden=true;}
     $("top-avatar").textContent = member ? [...(member.nickname || "")][0] || "◎" : "G";
     $("top-avatar").href = member ? "#member" : "#login";
     $("top-avatar").setAttribute("aria-label", member ? "會員中心" : "會員登入");
@@ -40,8 +44,10 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     $("member-welcome").textContent = member ? `${member.nickname}，歡迎回來。` : "";
     $("member-gate").hidden = Boolean(member); $("member-content").hidden = !member;
     if (member) {
-      $("member-id").textContent = member.member_id;
-      $("member-avatar").textContent = [...(member.nickname || "")][0] || "◎"; $("member-profile-name").textContent = member.nickname; $("member-profile-player").textContent = member.player_id ? "玩家 ID · " + member.player_id : "尚未設定玩家 ID";
+      $("member-id").textContent = member.player_id??"尚未設定";
+      $("profile-player").hidden=Boolean(member.player_id);$("profile-player").disabled=Boolean(member.player_id);
+      $("profile-fan-readonly").hidden=!member.player_id;$("profile-fan-readonly").textContent=member.player_id??"";
+      $("member-avatar").textContent = [...(member.nickname || "")][0] || "◎"; $("member-profile-name").textContent = member.nickname; $("member-profile-player").textContent = member.player_id ? "粉絲 ID · " + member.player_id : "尚未設定粉絲 ID";
       const newOwner = profileSnapshot?.member_id !== member.member_id;
       if (newOwner) {
         $("member-public-rank").textContent="—";$("member-trusted-state").textContent="正在確認…";
@@ -165,6 +171,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       }
     }
   }
+  const showNicknameWarning=(prefix,duplicate)=>{const target=$(prefix+"-nickname-warning");target.hidden=!duplicate;target.textContent=duplicate?"已有其他粉絲使用相同暱稱，仍可繼續使用。":"";};
+  async function warnNickname(prefix){const input=$(prefix+"-nickname"),name=input.value.trim();if(!name)return showNicknameWarning(prefix,false);try{const data=await session.request("/api/auth/profile-warning",{method:"POST",body:{nickname:name}});if(input.value.trim()===name)showNicknameWarning(prefix,data.duplicate);}catch{showNicknameWarning(prefix,false);}}
+  for(const prefix of ["profile","google","register"])$(prefix+"-nickname").addEventListener("blur",()=>void warnNickname(prefix));
   const post = (path, body) => session.request("/api/auth/" + path, { method: "POST", body, signal: controller.signal });
   const unexpired = time => { if (Date.now() >= time) throw new PublicError("AUTH_VERIFICATION_FAILED"); };
   const expires = data => Date.now() + data.expires_in * 1000;
@@ -371,7 +380,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   form("register-password-form", "register", async current => {
     unexpired(deadline); const password = passwordValue($("register-password").value, $("register-confirm").value);
     $("register-password").value = $("register-confirm").value = "";
-    const data = await post("register/credentials", { transaction_id: transactionId, password });
+    const data = await post("register/credentials", { transaction_id: transactionId, password,nickname:$("register-nickname").value.trim()||"會員",...($("register-fan").value.trim()?{player_id:$("register-fan").value.trim()}:{}) });
     if (!current()) return;
     const manual = enrollmentKey(data.otpauth_uri);
     drawEnrollment($("enrollment-qr"), data.otpauth_uri); $("enrollment-key").textContent = manual;
@@ -521,9 +530,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
             for(const fields of ["member-case-fields","owned-case-fields"]){$(fields).replaceChildren();
             for (const [name, value] of [["案件編號", detail.case_id], ["活動", campaignName(detail.campaign_id)], ["投稿時間", memberDate(detail.created_at)], ["已給點數", detail.points_awarded ?? "—"], ["投票日期", detail.vote_date],
               ["類型", detail.vote_type], ["狀態", statuses[detail.status] ?? "狀態更新中"], ["審核結果",detail.status==="pending"?"等待人工審核":statuses[detail.status]??"更新中"], ["退件原因",detail.rejection_reason??"—"], ["證明附件",Array.isArray(detail.files)?detail.files.map(f=>`${f.content_type} · ${(f.size/1024).toFixed(1)} KB`).join("；")||"附件資訊暫時無法取得":"附件資訊暫時無法取得"]]) $(fields).append(element("dt", name), element("dd", value));}
-            $("owned-case-detail").hidden=false;
-            if(view==="lookup")$("owned-case-detail-title").focus();
-            $("member-case-detail").hidden = false;
+            caseOpener=button;$("owned-case-detail").hidden=false;
+            if(!$("owned-case-detail").open)$("owned-case-detail").showModal();
+            $("owned-case-close").focus();
           } catch (error) { if (sameMember(owner, sequence)) $("owned-cases-status").textContent = $("member-cases-status").textContent = error.status === 404 ? "無法查詢此案件。" : authMessage(error); }
           finally { button.disabled = false; }
         });
@@ -554,7 +563,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     try { await session.refresh(); }
     catch (error) { if (view === "member") $("member-error").textContent = authMessage(error); return; }
     if (view !== "member" || !session.member || sequence !== memberEpoch) return;
-    const owner = session.member.member_id;
+    const owner = session.member.member_id;void warnNickname("profile");
     $("points-content").hidden = true; $("points-status").textContent = "正在載入點數…"; $("member-refresh").disabled = true;
     casesCursor = null; $("member-case-detail").hidden = true;
     const cases = loadCases(false, sequence);
@@ -585,12 +594,12 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     event.preventDefault(); const button = $("profile-save"); if (button.disabled || !session.member) return;
     const nickname = $("profile-nickname").value.trim(), player_id = $("profile-player").value.trim();
     if (!nickname || [...nickname].length > 50 || [...player_id].length > 100 || /[\u0000-\u001f\u007f]/.test(nickname + player_id)) {
-      $("profile-status").textContent = "請填寫 1～50 字暱稱；玩家 ID 最多 100 字。"; return;
+      $("profile-status").textContent = "請填寫 1～50 字暱稱；粉絲 ID 最多 100 字。"; return;
     }
     const owner = session.member.member_id, sequence = memberEpoch; button.disabled = true;
     try {
-      const data = await session.request("/api/me/profile", { method: "PATCH", body: { nickname, ...(player_id ? { player_id } : {}) } });
-      if (sameMember(owner, sequence)) { session.updateProfile(data.member); $("profile-status").textContent = "會員資料已保存。"; }
+      const data = await session.request("/api/me/profile", { method: "PATCH", body: { nickname, ...(!session.member.player_id && player_id ? { player_id } : {}) } });
+      if (sameMember(owner, sequence)) { session.updateProfile(data.member); $("profile-status").textContent = "會員資料已保存。";showNicknameWarning("profile",data.nickname_warning?.duplicate); }
     } catch (error) { if (view === "member") $("profile-status").textContent = authMessage(error); }
     finally { button.disabled = false; }
   });
@@ -602,7 +611,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       $("view-" + view).setAttribute("aria-busy", "false");
       resetAuth();
     }
-    memberEpoch++; view = next; clearInterval(ticker);
+    closeCase();memberEpoch++; view = next; clearInterval(ticker);
     if (view === "login") {
       const url = new URL(location.href), notice = url.searchParams.get("auth_notice");
       const messages = { google_cancelled: "Google 登入已取消；沒有建立新的 VoteProof 登入。你仍可使用訪客功能或重新登入。",

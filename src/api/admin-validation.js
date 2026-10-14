@@ -22,16 +22,17 @@ export function encodeCursor(value) {
     .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 export function adminPage(url, audit = false) {
-  const allowed = audit ? ["action", "target_type", "target_id", "admin_member_id"] : ["status", "campaign_id", "vote_type", "duplicate_flag"];
+  const allowed = audit ? ["action", "target_type", "target_id", "admin_member_id"] : ["status", "campaign_id", "vote_type", "duplicate_flag", "review_stage"];
   allowed.push("created_from", "created_to", "cursor", "limit");
   for (const key of url.searchParams.keys()) if (!allowed.includes(key) || url.searchParams.getAll(key).length !== 1) invalid();
   const f = Object.fromEntries(allowed.filter(k => !["cursor", "limit"].includes(k)).map(k => [k, url.searchParams.get(k)]));
+  if(f.review_stage!==undefined && f.review_stage!==null && !["initial","detailed"].includes(f.review_stage))invalid();
   if (f.status !== undefined && f.status !== null && !CASE_STATUSES.includes(f.status)) invalid();
   if (f.campaign_id !== undefined && f.campaign_id !== null && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(f.campaign_id)) invalid();
   if (f.vote_type !== undefined && f.vote_type !== null && !["Solo", "團體"].includes(f.vote_type)) invalid();
   if (f.duplicate_flag !== undefined && f.duplicate_flag !== null && !["0", "1"].includes(f.duplicate_flag)) invalid();
   if (audit) {
-    if (f.action !== null && !["approve", "reject", "mark_duplicate", "complete", "revoke", "bootstrap_membership", "campaign_create", "campaign_update", "manual_adjustment", "leaderboard_create", "leaderboard_update", "leaderboard_rebuild", "leaderboard_archive", "member_tier_update"].includes(f.action)) invalid();
+    if (f.action !== null && !["approve", "reject", "mark_duplicate", "complete", "revoke", "bootstrap_membership", "campaign_create", "campaign_update", "manual_adjustment", "leaderboard_create", "leaderboard_update", "leaderboard_rebuild", "leaderboard_archive", "member_tier_update", "flag_detailed"].includes(f.action)) invalid();
     if (f.target_type !== null && !["case", "admin_membership", "campaign", "point_transaction", "leaderboard", "member_tier"].includes(f.target_type)) invalid();
     if (f.target_id !== null && !/^[A-Za-z0-9_-]{1,100}$/.test(f.target_id)) invalid();
     if (f.admin_member_id !== null && (!f.admin_member_id.startsWith("M-") || !UUID_PATTERN.test(f.admin_member_id.slice(2)))) invalid();

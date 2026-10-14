@@ -1,20 +1,26 @@
 import { jsonSuccess } from "./response.js";
-import { authHandler } from "./auth.js";
+import { throttle } from "../lib/auth-store.js";
+import { authHandler, authContext } from "./auth.js";
 import { AuthError, AUTH_LIMITS, readAuthJson, profileInput, suspended } from "./auth-validation.js";
 import { memberSession, memberCsrf, publicMember, authDatabase } from "../lib/auth-session.js";
 import { CASE_ID_PATTERN } from "../lib/case-keys.js";
 import { guestFiles } from "../lib/case-store.js";
 
+import { fanIdError, fanIdImmutable, nicknameWarning } from "../lib/fan-id.js";
+
 export const updateProfile = authHandler(async (env, _url, request) => {
   const member = await memberSession(request, env);
   await memberCsrf(request, env, member);
   const input = profileInput(await readAuthJson(request)), db = authDatabase(env);
-  const result = await db.prepare(`UPDATE members SET nickname = COALESCE(?, nickname), player_id = COALESCE(?, player_id), updated_at = ?
-    WHERE member_id = ? AND status = 'active' AND EXISTS (SELECT 1 FROM auth_sessions
+  if (input.player_id !== undefined && member.player_id !== null && input.player_id !== member.player_id) throw fanIdImmutable();
+  let result;
+  try { result = await db.prepare(`UPDATE members SET nickname = COALESCE(?, nickname), player_id = COALESCE(?, player_id), updated_at = ?
+    WHERE member_id = ? AND status = 'active' AND (player_id IS NULL OR ? IS NULL OR player_id = ?) AND EXISTS (SELECT 1 FROM auth_sessions
     WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > CAST(strftime('%s', 'now') AS INTEGER))`)
-    .bind(input.nickname ?? null, input.player_id ?? null, new Date().toISOString(), member.member_id, member.tokenHash).run();
-  if (result.meta.changes !== 1) { await memberSession(request, env); throw suspended(); }
-  return jsonSuccess({ member: publicMember(await memberSession(request, env)) });
+    .bind(input.nickname ?? null, input.player_id ?? null, new Date().toISOString(), member.member_id, input.player_id ?? null, input.player_id ?? null, member.tokenHash).run(); } catch(error) { throw fanIdError(error); }
+  if (result.meta.changes !== 1) { const fresh=await memberSession(request, env); if(input.player_id !== undefined && fresh.player_id !== input.player_id) throw fanIdImmutable(); throw suspended(); }
+  const fresh=await memberSession(request,env);
+  return jsonSuccess({ member: publicMember(fresh), nickname_warning: await nicknameWarning(db,fresh.nickname,member.member_id) });
 });
 
 const columns = "id, case_id, created_at, nickname, campaign_id, vote_type, vote_date, status, points_awarded";
@@ -62,4 +68,12 @@ export const getMemberCase = authHandler(async (env, url, request) => {
   if (!row) throw notFound();
   const { id, ...data } = row;
   return jsonSuccess({ ...data, files: await guestFiles(authDatabase(env), id) });
+});
+
+export const checkNickname = authHandler(async (env,_url,request)=>{
+ const db=await authContext(request,env),input=profileInput(await readAuthJson(request));
+ if(Object.keys(input).length!==1 || !input.nickname)throw new AuthError(400,"INVALID_AUTH_REQUEST","請提供暱稱。");
+ await throttle(request,env,"nickname-warning",input.nickname,30);
+ const member=await memberSession(request,env,false);
+ return jsonSuccess(await nicknameWarning(db,input.nickname,member?.member_id??null));
 });

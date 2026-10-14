@@ -5,15 +5,15 @@ import { localCaseRuntime, guestBody } from "./local-case-runtime.mjs";
 
 export async function localAdminRuntime(options) {
   const local = await localCaseRuntime(options);
-  async function identity({ role, status = "active", membershipStatus = "active", expired = false, revoked = false, elevated = true } = {}) {
+  async function identity({ role, fanId, nickname="本機審核員", status = "active", membershipStatus = "active", expired = false, revoked = false, elevated = true } = {}) {
     const memberId = "M-" + randomUUID(), token = randomBytes(32).toString("base64url");
     const hash = createHash("sha256").update("VoteProof/member-session/v1:" + token).digest("hex");
     const now = Math.floor(Date.now() / 1000), timestamp = new Date().toISOString();
     const db = local.db;
     await db.batch([
       db.prepare(`INSERT INTO members (id, member_id, login_name, nickname, player_id, status, created_at, updated_at, last_login_at)
-        VALUES (?, ?, ?, '本機審核員', 'local-player', ?, ?, ?, ?)`)
-        .bind(randomUUID(), memberId, randomUUID().replaceAll("-", ""), status, timestamp, timestamp, timestamp),
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(randomUUID(), memberId, randomUUID().replaceAll("-", ""), nickname, fanId===undefined?"local-"+memberId:fanId, status, timestamp, timestamp, timestamp),
       db.prepare(`INSERT INTO auth_sessions (token_hash, member_id, created_at, expires_at, revoked_at, elevated_until) VALUES (?, ?, ?, ?, ?, ?)`)
         .bind(hash, memberId, now - 60, expired ? now - 1 : now + 3600, revoked ? now : null, elevated ? now + 3600 : now - 1),
     ]);
@@ -26,7 +26,7 @@ export async function localAdminRuntime(options) {
       Origin: "https://voteproof.example", "X-CSRF-Token": csrf } };
   }
   async function makeCase({ member, metadata = {}, idempotencyKey = randomUUID() } = {}) {
-    if (metadata.campaign_id) await local.campaign({ campaign_id: metadata.campaign_id });
+    if (metadata.campaign_id) await local.campaign({ campaign_id: metadata.campaign_id,category:metadata.vote_type??"Solo" });
     const reference = await local.upload();
     const body = { ...guestBody(reference), ...metadata };
     const headers = { ...(member?.headers ?? {}), "Idempotency-Key": idempotencyKey };

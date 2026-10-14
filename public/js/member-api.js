@@ -118,6 +118,7 @@ export function adminPath(path) {
   if (typeof path !== "string" || /[.#\\]/.test(path)) return false;
   const [pathname, query, extra] = path.split("?");
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
+  if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;
   if (/^\/api\/admin\/(?:backups(?:\/backfill|\/[a-f0-9-]{36}\/(?:retry|process))?|cases\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}\/backups)$/.test(pathname)) return true;
   return /^\/api\/admin\/(?:me|audit-logs|cases(?:\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}(?:\/review|\/files\/[a-f0-9-]{36})?)?|campaigns(?:\/[A-Za-z0-9_-]{1,100}(?:\/update)?)?|leaderboards(?:\/[A-Za-z0-9_-]{1,100}(?:\/(?:update|rebuild|results))?)?|member-tiers(?:\/[a-z]+\/update)?|submissions(?:\/update)?)$/.test(pathname);
@@ -140,6 +141,8 @@ export function codeValue(value) {
   return code;
 }
 export const authMessage = (error) => ({
+  FAN_ID_TAKEN: "這個粉絲 ID 已被使用，請選擇其他 ID。",
+  FAN_ID_IMMUTABLE: "粉絲 ID 建立後無法修改。",
   AUTH_IDENTITY_CONFLICT: "這個登入身份無法連結。請使用原登入方式，或聯絡支援；不會自動合併會員。",
   AUTH_METHOD_CONFLICT: "登入方式設定未完成。請使用 Google 登入，並重試原本的設定；若已過期請聯絡支援。",
   AUTH_GOOGLE_REAUTH_REQUIRED: "請先重新驗證 Google，再為同一會員新增密碼登入。",

@@ -19,7 +19,7 @@ export async function googleProof(local, email = randomUUID() + "@local.example"
 }
 export async function googleMember(local, email) {
   const proof = await googleProof(local, email); assert.equal(proof.callback.status, 303);
-  const response = await local.fetch("/api/auth/google/confirm", "POST", { transaction_id: proof.result.transaction_id, confirmed: true, nickname: "Google會員", player_id: "local-player" }, proof.headers);
+  const response = await local.fetch("/api/auth/google/confirm", "POST", { transaction_id: proof.result.transaction_id, confirmed: true, nickname: "Google會員", player_id: "google-"+randomUUID() }, proof.headers);
   assert.equal(response.status, 200); const data = (await response.json()).data, cookie = responseCookie(response, SESSION_COOKIE);
   return { ...data, email: proof.oauth.user.email, cookie, response, provider: proof.oauth.user, headers: { ...loginHeaders(), Cookie: cookie, "X-CSRF-Token": data.csrf_token } };
 }

@@ -96,7 +96,7 @@ test("queue puts pending before other statuses and uses stable UUID tie ordering
 test("queue supports status, campaign, vote type, duplicate flag and UTC date range filters", async () => {
   const campaign = "FILTER-" + randomUUID();
   const a = await h.makeCase({ metadata: { campaign_id: campaign, vote_type: "團體" } });
-  const b = await h.makeCase({ metadata: { campaign_id: campaign, vote_type: "Solo" } });
+  const b = await h.makeCase({ metadata: { campaign_id: campaign+"-SOLO", vote_type: "Solo" } });
   assert.equal((await h.review(reviewer, a.case_id, "approve")).status, 200);
   const date = new Date().toISOString().slice(0, 10);
   const query = `campaign_id=${campaign}&status=approved&vote_type=${encodeURIComponent("團體")}&duplicate_flag=0&created_from=${date}&created_to=${date}`;
@@ -128,7 +128,7 @@ test("review approve records actor, optimistic version, safe audit and preserves
   assert.equal(row.points_awarded, 0); assert.equal(row.status_reason, "已核對"); assert.ok(row.reviewed_at);
   const audit = await local.db.prepare("SELECT * FROM admin_audit_logs WHERE target_id = ?").bind(fixture.case_id).first();
   assert.equal(audit.admin_role, "reviewer"); assert.equal(audit.admin_member_id, reviewer.memberId); assert.equal(audit.action, "approve");
-  assert.deepEqual(JSON.parse(audit.before_json), { status: "pending", version: 0, duplicate_of_case_id: null, points_awarded: 0, point_status: null });
+  assert.deepEqual(JSON.parse(audit.before_json), { status: "pending", version: 0, duplicate_of_case_id: null, points_awarded: 0, point_status: null,review_stage:"initial",review_risk_reason:null,status_reason:null });
   assert.equal(JSON.parse(audit.after_json).status, "approved"); safeJson(audit, [fixture.query_key, reviewer.token]);
   const guest = await local.fetch(`/api/cases/${fixture.case_id}?key=${fixture.query_key}`); assert.equal(guest.status, 200);
   const guestData = (await guest.json()).data; assert.equal(guestData.status, "approved"); safeJson(guestData);

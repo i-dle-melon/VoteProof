@@ -19,14 +19,15 @@ export async function insertCase(db, input, record, files, manifest) {
         AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         AND EXISTS (SELECT 1 FROM campaigns p WHERE p.campaign_id = ? AND p.version = ? AND p.status = 'active'
           AND p.start_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND p.end_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-          AND ? BETWEEN p.vote_start_date AND p.vote_end_date)
+          AND ? BETWEEN p.vote_start_date AND p.vote_end_date AND p.category = ?
+          AND (p.category='團體' OR (p.category='Solo' AND p.solo_target IS NOT NULL)))
         AND (? IS NULL OR EXISTS (SELECT 1 FROM members m JOIN auth_sessions s ON s.member_id = m.member_id
           WHERE m.member_id = ? AND m.status = 'active' AND s.token_hash = ? AND s.revoked_at IS NULL
           AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER)))`)
         .bind(record.id, record.caseId, record.now, record.now, input.nickname, input.playerId,
           input.campaignId, input.voteType, input.voteDate, record.queryHash, input.note,
           input.sessionId, input.memberId ?? null, input.memberId ? "member" : "guest", input.sessionId, manifest,
-          input.campaignId, input.campaignVersion, input.voteDate,
+          input.campaignId, input.campaignVersion, input.voteDate, input.voteType,
           input.memberId ?? null, input.memberId ?? null, input.sessionHash ?? null),
       ...files.map(file => db.prepare(`INSERT INTO case_files
         (id, case_id, object_key, content_type, size, etag, created_at, upload_object_key)

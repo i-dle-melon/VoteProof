@@ -41,7 +41,7 @@ test("normal Guest case uses server ids, only a hashed query key, pending status
   const row = await local.db.prepare("SELECT * FROM cases WHERE case_id = ?").bind(created.case_id).first();
   assert.equal(row.query_key_hash, await sha256(created.query_key));
   assert.equal(JSON.stringify(row).includes(created.query_key), false);
-  assert.equal(row.nickname, "測試訪客"); assert.equal(row.player_id, "local-player"); assert.equal(row.note, "本機測試");
+  assert.equal(row.nickname, "匿名投稿"); assert.equal(row.player_id, "匿名投稿"); assert.equal(row.note, "本機測試");
   assert.equal(row.member_id, null); assert.equal(row.source, "guest"); assert.equal(row.status, "pending");
   assert.equal(row.points_awarded, 0); assert.equal(row.duplicate_flag, 0); assert.equal(row.reviewer_id, null);
   const files = (await local.db.prepare("SELECT * FROM case_files WHERE case_id = ?").bind(row.id).all()).results;
@@ -59,14 +59,15 @@ test("normal Guest case uses server ids, only a hashed query key, pending status
 });
 
 test("case creation supports five B2 files and the official 團體 vote type", async () => {
-  const created = await create(await local.upload({ count: 5 }), { vote_type: "團體", note: null });
+  await local.campaign({campaign_id:"GROUP-TEST",category:"團體"});
+  const created = await create(await local.upload({ count: 5 }), { campaign_id:"GROUP-TEST",vote_type: "團體", note: null });
   const data = (await (await get(created)).json()).data;
   assert.equal(data.files.length, 5); assert.equal(data.vote_type, "團體");
 });
 
 const invalidFields = [
-  ["missing nickname", { nickname: undefined }], ["blank nickname", { nickname: "  " }],
-  ["long nickname", { nickname: "長".repeat(51) }], ["missing player id", { player_id: undefined }],
+  ["forged fan ID", { fan_id: "stolen" }], ["blank nickname", { nickname: "  " }],
+  ["long nickname", { nickname: "長".repeat(51) }], ["forged public ID", { public_id: "stolen" }],
   ["long player id", { player_id: "a".repeat(101) }], ["control character", { player_id: "a\u0000b" }],
   ["missing campaign", { campaign_id: undefined }], ["long campaign", { campaign_id: "A".repeat(101) }],
   ["invalid campaign format", { campaign_id: "../campaign" }], ["wrong vote type", { vote_type: "solo" }],

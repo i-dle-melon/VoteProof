@@ -7,7 +7,7 @@ export const CAMPAIGN_STATUSES = Object.freeze(["draft", "active", "closed", "ar
 export const invalidCampaign = () => new AdminError(400, "INVALID_CAMPAIGN_REQUEST", "Invalid campaign request");
 export const campaignConflict = () => new AdminError(409, "CAMPAIGN_CONFLICT", "Campaign version or policy has changed");
 export const campaignMissing = () => new AdminError(404, "CAMPAIGN_NOT_FOUND", "Campaign not found");
-const fields = ["name", "category", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "note"];
+const fields = ["name", "category", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "note", "solo_target"];
 const text = (v, max) => {
   if (typeof v !== "string" || !v.trim() || [...v.trim()].length > max || /[\u0000-\u001f\u007f]/.test(v)) throw invalidCampaign();
   return v.trim();
@@ -25,6 +25,8 @@ export function campaignDate(instantValue, timezone) {
 export function campaignInput(body, updating = false) {
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(k => ![...fields, updating ? "expected_version" : "campaign_id"].includes(k))) throw invalidCampaign();
   const result = { name: text(body.name, CAMPAIGN_LIMITS.name), category: text(body.category, CAMPAIGN_LIMITS.category), start_at: instant(body.start_at), end_at: instant(body.end_at) };
+  result.solo_target=body.solo_target ?? null;
+  if (!["Solo","團體"].includes(result.category) || (result.category==="Solo" && (typeof result.solo_target!=="string" || !CAMPAIGN_ID.test(result.solo_target))) || (result.category==="團體" && result.solo_target!==null)) throw invalidCampaign();
   if (result.start_at >= result.end_at) throw invalidCampaign();
   const timezone = body.campaign_timezone ?? "UTC";
   if (typeof timezone !== "string" || timezone.length > 100) throw invalidCampaign();
@@ -52,6 +54,7 @@ export function campaignInput(body, updating = false) {
 }
 export function campaignUpdatePolicy(row, input) {
   if (row.version !== input.expected_version || row.status === "archived") throw campaignConflict();
+  if ((row.status!=="draft" && row.category!==input.category) || (row.solo_target && row.solo_target!==input.solo_target)) throw campaignConflict();
   const next = { draft: ["draft", "active", "archived"], active: ["active", "closed"], closed: ["closed", "archived"] };
   if (!next[row.status]?.includes(input.status) || (row.status !== "draft" &&
     ["start_at", "end_at", "campaign_timezone"].some(k => row[k] !== input[k]))) throw campaignConflict();
@@ -63,12 +66,14 @@ export async function requireCaseCampaign(db, input, now = new Date().toISOStrin
 export function requireCaseCampaignRow(row,input,now=new Date().toISOString()) {
   if (!row) throw new CaseError(400, "CAMPAIGN_NOT_FOUND", "Campaign does not exist");
   if (row.status !== "active" || row.start_at > now || row.end_at <= now) throw new CaseError(400, "CAMPAIGN_NOT_OPEN", "Campaign is not accepting submissions");
+  if (!["Solo","團體"].includes(row.category) || (row.category==="Solo" && !row.solo_target)) throw new CaseError(400,"CAMPAIGN_TYPE_INVALID","活動投稿類型尚未設定，暫時無法投稿。");
+  if (input.voteType !== row.category) throw new CaseError(400,"CAMPAIGN_TYPE_MISMATCH","投稿類型必須與活動設定一致。");
   if (input.voteDate < row.vote_start_date || input.voteDate > row.vote_end_date) throw new CaseError(400, "VOTE_DATE_OUTSIDE_CAMPAIGN", "Vote date is outside the campaign window");
   return row;
 }
 export async function reviewCampaign(db, row) {
   const campaign = await db.prepare("SELECT * FROM campaigns WHERE campaign_id = ?").bind(row.campaign_id).first();
-  if (!campaign || !["active", "closed"].includes(campaign.status) || row.vote_date < campaign.vote_start_date || row.vote_date > campaign.vote_end_date) {
+  if (!campaign || row.vote_type!==campaign.category || (campaign.category==="Solo" && !campaign.solo_target) || !["active", "closed"].includes(campaign.status) || row.vote_date < campaign.vote_start_date || row.vote_date > campaign.vote_end_date) {
     throw new AdminError(409, "CAMPAIGN_NOT_REVIEWABLE", "Campaign does not allow this approval");
   }
   return campaign;

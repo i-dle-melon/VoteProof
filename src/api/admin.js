@@ -1,3 +1,4 @@
+import {batchReviewInput,batchApprove} from "../lib/review-batch.js";
 import { jsonSuccess } from "./response.js";
 import { adminHandler } from "./admin-response.js";
 import { authDatabase, csrfToken } from "../lib/auth-session.js";
@@ -66,7 +67,9 @@ export const listAdminAudit = adminHandler(async (env, url, request) => {
   return jsonSuccess(await auditLogs(authDatabase(env), adminPage(url, true)));
 });
 
+export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);const items=batchReviewInput(await readReviewJson(request));return jsonSuccess(await batchApprove(authDatabase(env),actor,items));});
 const exactRoutes = new Map([
+  ["/api/admin/cases/batch-approve",{method:"POST",handler:approveAdminBatch}],
   ["/api/admin/me", { method: "GET", handler: currentAdmin }],
   ["/api/admin/cases", { method: "GET", handler: listAdminCases }],
   ["/api/admin/audit-logs", { method: "GET", handler: listAdminAudit }],

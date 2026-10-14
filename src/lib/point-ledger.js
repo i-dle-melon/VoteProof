@@ -16,7 +16,7 @@ export function reviewPointStatements(db, actor, row, input, marker, now, campai
     ? db.prepare(`INSERT INTO point_transactions (transaction_id, created_at, member_id, case_id, campaign_id, category,
         vote_type, vote_date, points, reason, created_by, metadata_json)
         SELECT ?, ?, c.member_id, c.id, c.campaign_id, 'proof_approved', c.vote_type, c.vote_date, p.points_per_proof, ?, ?,
-          json_object('campaign_version', p.version, 'campaign_category', p.category, 'campaign_timezone', p.campaign_timezone,
+          json_object('campaign_version', p.version, 'campaign_category', p.category, 'solo_target', p.solo_target, 'campaign_timezone', p.campaign_timezone,
             'points_per_proof', p.points_per_proof, 'daily_limit', p.daily_limit)
         FROM cases c JOIN campaigns p ON p.campaign_id = c.campaign_id
         WHERE c.id = ? AND c.last_review_id = ? AND c.member_id IS NOT NULL AND p.points_per_proof > 0

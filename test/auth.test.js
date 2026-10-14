@@ -145,7 +145,7 @@ test("registration is pending until TOTP; encrypted setup has no clear secret/pa
     [
       "member_id",
       "nickname",
-      "player_id",
+      "player_id", "fan_id",
       "status",
       "created_at",
       "updated_at",

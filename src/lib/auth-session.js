@@ -71,6 +71,6 @@ export async function memberCsrf(request, env, member) {
   const expected = await csrfToken(member, env);
   if (typeof supplied !== "string" || !/^[a-f0-9]{64}$/.test(supplied) || !equalQueryHash(supplied, expected)) throw new AuthError(403, "CSRF_REJECTED", "Request verification is required");
 }
-export const publicMember = member => ({ member_id: member.member_id, nickname: member.nickname, player_id: member.player_id,
+export const publicMember = member => ({ member_id: member.member_id, nickname: member.nickname, player_id: member.player_id, fan_id: member.player_id,
   status: member.status, created_at: member.created_at, updated_at: member.updated_at, last_login_at: member.last_login_at });
 export const sessionCookie = (token, seconds = AUTH_LIMITS.sessionSeconds) => cookie(SESSION_COOKIE, token, seconds);

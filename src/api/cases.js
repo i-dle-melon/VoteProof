@@ -31,6 +31,7 @@ export async function createCase(env, _url, request) {
     db = caseDatabase(env);
     const replay = await replayCase(db, identity);
     if (replay) return jsonSuccess(replay, "no-store", 201);
+    if (member) { input.nickname = member.nickname; input.playerId = member.player_id ?? "尚未設定"; } else {input.nickname="匿名投稿";input.playerId="匿名投稿";}
     const preflight = await casePreflight(db,input);
     input.campaignVersion = preflight.campaign.version;
     const completed = preflight.completed;

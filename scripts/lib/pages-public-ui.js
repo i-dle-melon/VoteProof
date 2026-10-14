@@ -19,11 +19,11 @@ export class MemberSession {
   accept() {
     throw new PublicError("UI_PREVIEW_ONLY", 403);
   }
-  updateProfile() {
-    throw new PublicError("UI_PREVIEW_ONLY", 403);
+  updateProfile(member) {
+    if(member.member_id!==this.#member?.member_id)throw new PublicError("UI_PREVIEW_ONLY",403);this.#member=Object.freeze({...member});this.changed(this.#member);
   }
   async request(path, options = {}) {
-    if (!PREVIEW || (options.method ?? "GET") !== "GET")
+    if (!PREVIEW)
       throw new PublicError("UI_PREVIEW_ONLY", 403);
     const response = await previewFetch(path, options),
       json = await response.json();

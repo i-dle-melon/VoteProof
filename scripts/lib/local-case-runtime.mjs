@@ -59,13 +59,13 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     // Explicit fixture opt-in only. The migration/Production default stays OFF.
     if (submissionsEnabled) await db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
     // Explicit disposable fixture only. Migrations/Worker never seed Campaigns.
-    async function campaign({ campaign_id = "LOCAL-TEST", name = "Local fixture", category = "local", start_at = "2000-01-01T00:00:00.000Z",
+    async function campaign({ campaign_id = "LOCAL-TEST", name = "Local fixture", category = "Solo", solo_target = category === "Solo" ? "local-solo" : null, start_at = "2000-01-01T00:00:00.000Z",
       end_at = "2100-01-01T00:00:00.000Z", campaign_timezone = "UTC", vote_start_date = "2000-01-01", vote_end_date = "2099-12-31",
       points_per_proof = 0, daily_limit = 0, status = "active" } = {}) {
-      await db.prepare(`INSERT INTO campaigns (campaign_id, name, category, start_at, end_at, campaign_timezone,
+      await db.prepare(`INSERT INTO campaigns (campaign_id, name, category, solo_target, start_at, end_at, campaign_timezone,
         vote_start_date, vote_end_date, points_per_proof, daily_limit, status, created_at, updated_at)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM campaigns WHERE campaign_id = ?)`)
-        .bind(campaign_id, name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM campaigns WHERE campaign_id = ?)`)
+        .bind(campaign_id, name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
           points_per_proof, daily_limit, status, new Date().toISOString(), new Date().toISOString(), campaign_id).run();
       return campaign_id;
     }

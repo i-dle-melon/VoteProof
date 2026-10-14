@@ -170,11 +170,8 @@
     "attributes": {}
   },
   "vote-type": {
-    "tag": "select",
-    "attributes": {
-      "name": "vote_type",
-      "required": ""
-    }
+    "tag": "output",
+    "attributes": {}
   },
   "vote-date": {
     "tag": "input",

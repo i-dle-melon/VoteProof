@@ -4,9 +4,9 @@ import { memberFixture, png } from "./member-fixture.mjs";
 export async function adminFixture(page, options = {}) {
   const state = await memberFixture(page, { authenticated: true, dual: true, adminRole: "admin", submissionsOff: true, ...options });
   state.role = options.role ?? "admin"; state.elevationUntil = options.expiredMfa ? 0 : Date.now() / 1000 + 600;
-  state.campaigns = [{ campaign_id: "LOCAL", name: "本機應援活動", category: "Solo", start_at: "2026-09-10T15:00:00.000Z", end_at: "2026-10-20T14:59:00.000Z", campaign_timezone: "Asia/Taipei", status: "active", daily_limit: null, points_per_proof: 10, version: 0, note: null }];
-  state.cases = [{ case_id: state.caseId, created_at: "2026-10-09T10:00:00.000Z", nickname: "本機會員", player_id: "local-player", campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09", status: options.caseStatus ?? "pending", version: 0, points_awarded: 0, files: [{ file_id: randomUUID(), content_type: "image/png", size: png.length }] }];
-  state.boards = [{ leaderboard_id: "BOARD", name: "本機公開成績", type: "all_time", campaign_id: null, start_date: null, end_date: null, vote_type: null, top_n: 10, is_public: true, status: "active", version: 0 }];
+  state.campaigns = [{ campaign_id: "LOCAL", name: "本機應援活動", category: "Solo",solo_target:"local-solo", start_at: "2026-09-10T15:00:00.000Z", end_at: "2026-10-20T14:59:00.000Z", campaign_timezone: "Asia/Taipei", status: "active", daily_limit: null, points_per_proof: 10, version: 0, note: null }];
+  state.cases = [{ case_id: state.caseId, created_at: "2026-10-09T10:00:00.000Z", nickname: "本機會員", player_id: "local-player", campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09", review_stage:"initial",review_risk_reason:null,status: options.caseStatus ?? "pending", version: 0, points_awarded: 0, files: [{ file_id: randomUUID(), content_type: "image/png", size: png.length }] }];
+  state.boards = [{ leaderboard_id: "BOARD", name: "本機公開成績", type: "campaign",campaign_id:"LOCAL", campaign_id: null, start_date: null, end_date: null, vote_type: null, top_n: 10, is_public: true, status: "active", version: 0 }];
   state.tiers = ["普通", "青銅", "白銀", "黃金", "白金", "翡翠", "鑽石", "星耀"].map((name, i) => ({ tier_id: ["normal", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "stellar"][i], name, min_points: i ? null : 0, status: i ? "disabled" : "active", version: 0 }));
   state.submissions = { submissions_enabled: false, submissions_message: "尚未開放投稿", version: 0 };
   state.audit = []; state.conflict = false; state.failAdmin = false;
@@ -35,6 +35,7 @@ export async function adminFixture(page, options = {}) {
     if (path === '/api/admin/backups/backfill') return reply({ scanned: state.backupMissing, ready: state.backupMissing ? ['local-proof'] : [], missing: [], changed: [], enqueued: body.dry_run ? 0 : state.backupMissing });
     if (path === "/api/admin/cases") return reply({ cases: options.emptyCases ? [] : state.cases, next_cursor: null });
     if (path.includes("/files/")) return route.fulfill({ contentType: "image/png", headers: { "Cache-Control": "no-store" }, body: png });
+    if (path.endsWith("/review") && body.action==="flag_detailed"){state.cases[0].review_stage="detailed";state.cases[0].review_risk_reason=body.review_risk_reason;state.cases[0].version++;return reply(state.cases[0]);}
     if (path.endsWith("/review")) { state.cases[0].status = { approve: "approved", reject: "rejected", mark_duplicate: "duplicate", complete: "completed", revoke: "revoked" }[body.action]; state.cases[0].version++; return reply(state.cases[0]); }
     if (path.startsWith("/api/admin/cases/")) return reply(state.cases[0]);
     if (path === "/api/admin/campaigns") { if (body) { state.campaigns.push({ ...body, version: 0 }); return reply(state.campaigns.at(-1), 201); } return reply({ campaigns: state.campaigns, next_cursor: null }); }

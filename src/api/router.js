@@ -7,7 +7,7 @@ import { createCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
 import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
 import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
-import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
+import { checkNickname, updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
 import { backupAdminRoute } from "./admin-backups.js";
 import { internalBackupRoute } from "./internal-drive-backups.js";
@@ -57,6 +57,7 @@ const routes = new Map([
   ["/api/auth/google/result", { method: "GET", handler: googleResult }],
   ["/api/auth/login-security", { method: "GET", handler: loginSecurity }],
   ...Object.entries({
+    "/api/auth/profile-warning": checkNickname,
     "/api/auth/google/start": googleStart,
     "/api/auth/google/confirm": googleConfirm,
     "/api/auth/google/cancel": googleCancel,

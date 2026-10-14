@@ -161,9 +161,8 @@ test('Stellar member has no administrative authorization; normal admin remains a
   assert.equal((await local.fetch('/api/admin/member-tiers','GET',undefined,m.headers)).status,403);
   assert.equal((await points(admin)).tier.tier_id,'normal');assert.equal((await local.fetch('/api/admin/member-tiers','GET',undefined,admin.headers)).status,200);
 });
-test('Leaderboard snapshot ranks stay unchanged while current tier follows configuration',async()=>{
-  const body=definition(),created=await local.fetch('/api/admin/leaderboards','POST',body,admin.headers);assert.equal(created.status,201);
-  assert.equal((await local.fetch('/api/admin/leaderboards/'+body.leaderboard_id+'/rebuild','POST',{expected_version:0},admin.headers)).status,200);
+test('System leaderboard ranks stay unchanged while current tier follows configuration',async()=>{
+  const body={leaderboard_id:'system-history'};
   const before=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).json();
   assert.equal((await edit(await row('bronze'),{min_points:101})).status,200);
   const after=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).json();

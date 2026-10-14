@@ -14,7 +14,7 @@ let h, local, admin, reviewer, superAdmin;
 before(async () => { h = await localAdminRuntime(); local = h.local; admin = await h.identity({ role: "admin" });
   reviewer = await h.identity({ role: "reviewer" }); superAdmin = await h.identity({ role: "super_admin" }); });
 after(async () => { await local?.runtime.dispose(); });
-export const campaignBody = (extra = {}) => ({ campaign_id: "C-" + randomUUID(), name: "本機活動", category: "投票",
+export const campaignBody = (extra = {}) => ({ campaign_id: "C-" + randomUUID(), name: "本機活動", category: "Solo",solo_target:"local-solo",
   start_at: "2000-01-01T00:00:00.000Z", end_at: "2100-01-01T00:00:00.000Z", campaign_timezone: "UTC",
   points_per_proof: 10, daily_limit: 3, status: "active", ...extra });
 const get = (path, actor = admin) => local.fetch(path, "GET", undefined, actor.headers);
@@ -22,7 +22,7 @@ async function error(response, status, code) { assert.equal(response.status, sta
   const json = await response.json(); assert.equal(json.error.code, code); return json; }
 async function campaign(extra = {}) { const body = campaignBody(extra), response = await local.fetch("/api/admin/campaigns", "POST", body, admin.headers);
   assert.equal(response.status, 201); return (await response.json()).data; }
-function updateBody(row, extra = {}) { return { ...Object.fromEntries(["name", "category", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "note"].map(k => [k, row[k]])), expected_version: row.version, ...extra }; }
+function updateBody(row, extra = {}) { return { ...Object.fromEntries(["name", "category", "solo_target", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "note"].map(k => [k, row[k]])), expected_version: row.version, ...extra }; }
 const update = (row, extra = {}, actor = admin) => local.fetch(`/api/admin/campaigns/${row.campaign_id}/update`, "POST", updateBody(row, extra), actor.headers);
 const ledger = async id => (await local.db.prepare("SELECT * FROM point_transactions WHERE case_id = ? ORDER BY created_at, transaction_id").bind(id).all()).results;
 const caseState = async id => local.db.prepare("SELECT * FROM cases WHERE id = ?").bind(id).first();
@@ -151,7 +151,7 @@ test("Public campaigns expose only active current windows and safe fields; empty
   const response = await local.fetch("/api/campaigns"); assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
   const rows = (await response.json()).data.campaigns; assert.ok(rows.some(r => r.campaign_id === active.campaign_id));
   for (const c of [draft, future, past, closed]) assert.ok(!rows.some(r => r.campaign_id === c.campaign_id));
-  for (const row of rows) assert.deepEqual(Object.keys(row).sort(), ["campaign_id", "name", "category", "start_at", "end_at", "campaign_timezone", "vote_start_date", "vote_end_date", "points_per_proof", "daily_limit", "status"].sort());
+  for (const row of rows) assert.deepEqual(Object.keys(row).sort(), ["campaign_id", "name", "category", "solo_target", "start_at", "end_at", "campaign_timezone", "vote_start_date", "vote_end_date", "points_per_proof", "daily_limit", "status"].sort());
   await error(await worker.fetch(new Request("https://voteproof.example/api/campaigns"), {}), 503, "DB_NOT_CONFIGURED");
 });
 test("Campaign admin pagination has stable ordering, status filtering and bound cursor scope", async () => {

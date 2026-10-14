@@ -33,8 +33,9 @@ function text(value, max) {
 
 export function validateCase(body, now = new Date()) {
   if (!record(body) || Object.keys(body).some(name => !fields.has(name))) invalid();
-  const nickname = text(body.nickname, CASE_LIMITS.nickname);
-  const playerId = text(body.player_id, CASE_LIMITS.playerId);
+  if (body.nickname !== undefined) text(body.nickname, CASE_LIMITS.nickname);
+  if (body.player_id !== undefined) text(body.player_id, CASE_LIMITS.playerId);
+  const nickname = body.nickname===undefined?"匿名投稿":text(body.nickname,CASE_LIMITS.nickname), playerId = body.player_id===undefined?"匿名投稿":text(body.player_id,CASE_LIMITS.playerId);
   const campaignId = text(body.campaign_id, CASE_LIMITS.campaignId);
   // D1 Campaign existence/window/open-state checks run after idempotent replay.
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(campaignId)) invalid();

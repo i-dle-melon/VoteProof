@@ -18,10 +18,10 @@ async function memberCase(member, reference, key = randomUUID(), extra = {}) {
 }
 
 test("profile supports trimmed validated nickname/player_id, never exposes login_name or internal id", async () => {
-  const member = await login(local), response = await local.fetch("/api/me/profile", "PATCH", { nickname: "  新暱稱  ", player_id: "  PLAYER  " }, member.headers);
+  const member = await login(local), response = await local.fetch("/api/me/profile", "PATCH", { nickname: "  新暱稱  " }, member.headers);
   assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
   const data = (await response.json()).data.member;
-  assert.equal(data.nickname, "新暱稱"); assert.equal(data.player_id, "PLAYER"); assert.equal(data.member_id, member.member.member_id);
+  assert.equal(data.nickname, "新暱稱"); assert.equal(data.player_id, member.member.player_id); assert.equal(data.member_id, member.member.member_id);
   for (const key of ["id", "login_name", "token_hash"]) assert.equal(Object.hasOwn(data, key), false);
 });
 for (const [name, body] of [["blank nickname", { nickname: " " }], ["long nickname", { nickname: "長".repeat(51) }],
@@ -37,19 +37,19 @@ test("profile accepts Unicode boundary lengths and independent concurrent partia
   const member = await login(local), responses = await Promise.all([
     local.fetch("/api/me/profile", "PATCH", { nickname: "🦊".repeat(50) }, member.headers),
     local.fetch("/api/me/profile", "PATCH", { player_id: "a".repeat(100) }, member.headers),
-  ]); for (const response of responses) assert.equal(response.status, 200);
+  ]); assert.deepEqual(responses.map(r=>r.status),[200,409]);
   const data = (await (await local.fetch("/api/auth/me", "GET", undefined, member.headers)).json()).data.member;
-  assert.equal(data.nickname, "🦊".repeat(50)); assert.equal(data.player_id, "a".repeat(100));
+  assert.equal(data.nickname, "🦊".repeat(50)); assert.equal(data.player_id, member.member.player_id);
 });
 test("member case binds server identity, preserves B3 logical response and metadata snapshots", async () => {
   const member = await login(local), created = await memberCase(member, await local.upload());
   assert.deepEqual(Object.keys(created.data).sort(), ["case_id", "query_key", "status"]);
   const row = await local.db.prepare("SELECT * FROM cases WHERE case_id=?").bind(created.data.case_id).first();
   assert.equal(row.member_id, member.member.member_id); assert.equal(row.source, "member");
-  assert.equal(row.nickname, created.body.nickname); assert.equal(row.player_id, created.body.player_id);
+  assert.equal(row.nickname, member.member.nickname); assert.equal(row.player_id, member.member.player_id);
   await local.fetch("/api/me/profile", "PATCH", { nickname: "Changed", player_id: "Changed" }, member.headers);
   const found = (await (await local.fetch(`/api/me/cases/${created.data.case_id}`, "GET", undefined, member.headers)).json()).data;
-  assert.equal(found.nickname, created.body.nickname); assert.equal(JSON.stringify(found).includes("query_key"), false);
+  assert.equal(found.nickname, member.member.nickname); assert.equal(JSON.stringify(found).includes("query_key"), false);
 });
 test("client supplied member_id cannot bind or impersonate another member", async () => {
   const a = await login(local), b = await login(local), reference = await local.upload();

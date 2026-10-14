@@ -1,7 +1,7 @@
 // Build-only presentation state. These are UI selectors, never credentials.
 const choices = {
   identity: ["guest", "member", "admin"],
-  gate: ["on", "off"],
+  gate: ["on", "off"],nickname:["duplicate","unique"],review:["success","error","partial"],
   data: ["normal", "empty", "error"],
   theme: ["dark", "light"],
   submission: ["zero", "multi", "twenty", "uploading", "success", "failed"],
@@ -16,7 +16,7 @@ export const previewState = Object.freeze(
         ? params.get("preview_" + key)
         : {
             identity: "member",
-            gate: "on",
+            gate: "on",nickname:"duplicate",review:"success",
             data: "normal",
             theme: "dark",
             submission: "zero",

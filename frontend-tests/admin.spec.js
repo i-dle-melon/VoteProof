@@ -33,11 +33,11 @@ test("privileged role recheck on foreground preserves unsaved profile fields", a
   const state = await adminFixture(page); await page.goto("/#member");
   await expect(page.locator("#member-admin-entry")).toBeVisible();
   await expect(page.locator("#profile-nickname")).toHaveValue(state.member.nickname);
-  await page.locator("#profile-nickname").fill("尚未送出的暱稱"); await page.locator("#profile-player").fill("draft-player");
+  await page.locator("#profile-nickname").fill("尚未送出的暱稱");
   const before = state.calls.filter(c => c.path === "/api/admin/me").length;
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => state.calls.filter(c => c.path === "/api/admin/me").length).toBeGreaterThan(before);
-  await expect(page.locator("#profile-nickname")).toHaveValue("尚未送出的暱稱"); await expect(page.locator("#profile-player")).toHaveValue("draft-player");
+  await expect(page.locator("#profile-nickname")).toHaveValue("尚未送出的暱稱"); await expect(page.locator("#profile-fan-readonly")).toHaveText("local-player");
 });
 
 test("session-bound admin MFA remains available beyond one hour and revocation still closes it", async ({ page }) => {
@@ -80,10 +80,10 @@ test("password step-up uses password and TOTP, never edits timestamps", async ({
   expect(Object.keys(state.calls.find(c => c.path === "/api/auth/step-up").body).sort()).toEqual(["code", "password"]);
 });
 test("review preview uses private stream/blob and is erased on leaving", async ({ page }) => {
-  const state = await adminFixture(page); await page.goto("/#admin"); await save(page, "查看與審核"); await save(page, "查看證明 1");
-  await expect(panel(page).locator("img")).toBeVisible(); expect(await panel(page).locator("img").getAttribute("src")).toMatch(/^blob:/);
+  const state = await adminFixture(page); await page.goto("/#admin"); await save(page, "查看與審核");
+  await expect(panel(page).locator(".inline-review img")).toBeVisible(); expect(await panel(page).locator(".inline-review img").getAttribute("src")).toMatch(/^blob:/);
   const proof = state.calls.find(c => c.path.includes("/files/")); expect(proof.method).toBe("GET");
-  await page.locator("#member-entry").click(); await expect(panel(page).locator("img")).toHaveCount(0);
+  await page.locator("#member-entry").click(); await expect(panel(page).locator(".inline-review img")).toHaveCount(0);
   expect(await page.locator("body").innerText()).not.toMatch(/proofs\/|cloudflarestorage|private SQL/);
 });
 test("reviewer sees review only and cannot complete/revoke or manage", async ({ page }) => {
@@ -111,7 +111,7 @@ for (const [mode, limit] of [["zero", 0], ["limited", 1], ["limited", 1000]]) te
 });
 test("campaign create converts Taiwan datetime and uses explicit supported values", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "活動管理"); await save(page, "建立活動");
-  for (const [id, val] of [["campaign_id", "NEW"], ["name", "新活動"], ["category", "Solo"], ["start_at", "2026-09-10T23:00"], ["end_at", "2026-10-20T22:59"], ["points_per_proof", "10"]]) await page.locator("#admin-field-" + id).fill(val);
+  for (const [id, val] of [["campaign_id", "NEW"], ["name", "新活動"], ["solo_target","local-solo"], ["start_at", "2026-09-10T23:00"], ["end_at", "2026-10-20T22:59"], ["points_per_proof", "10"]]) await page.locator("#admin-field-" + id).fill(val);
   await page.locator("#admin-field-daily_mode").selectOption("unlimited"); await save(page, "保存活動"); await expect(panel(page)).toContainText("新活動");
   const write = state.calls.find(c => c.path === "/api/admin/campaigns" && c.method === "POST"); expect(write.body.start_at).toBe("2026-09-10T15:00:00.000Z"); expect(write.body.daily_limit).toBeNull();
 });
@@ -145,11 +145,11 @@ test("submission OFF to ON requires explicit confirmation and never toggles auto
 });
 test("audit renders real safe fields as text, no internal result JSON", async ({ page }) => {
   const state = await adminFixture(page); state.audit.push({ action: "campaign_create", target_id: '<img src=x onerror="unsafe()">', admin_member_id: state.member.member_id, created_at: new Date().toISOString(), before: { private: "not-for-display" } });
-  await open(page, "操作紀錄"); await expect(panel(page)).toContainText("建立活動"); await expect(panel(page)).toContainText("<img"); await expect(panel(page).locator("img")).toHaveCount(0); await expect(panel(page)).not.toContainText("not-for-display");
+  await open(page, "操作紀錄"); await expect(panel(page)).toContainText("建立活動"); await expect(panel(page)).toContainText("<img"); await expect(panel(page).locator(".inline-review img")).toHaveCount(0); await expect(panel(page)).not.toContainText("not-for-display");
 });
 test("MFA expires during admin fetch, private previews/nav are cleared", async ({ page }) => {
-  const state = await adminFixture(page); await page.goto("/#admin"); await save(page, "查看與審核"); await save(page, "查看證明 1"); await expect(panel(page).locator("img")).toBeVisible();
-  state.elevationUntil = 0; await page.evaluate(() => window.dispatchEvent(new Event("focus"))); await expect(page.locator("#admin-content")).toBeHidden(); await expect(panel(page).locator("img")).toHaveCount(0);
+  const state = await adminFixture(page); await page.goto("/#admin"); await save(page, "查看與審核"); await expect(panel(page).locator(".inline-review img")).toBeVisible();
+  state.elevationUntil = 0; await page.evaluate(() => window.dispatchEvent(new Event("focus"))); await expect(page.locator("#admin-content")).toBeHidden(); await expect(panel(page).locator(".inline-review img")).toHaveCount(0);
 });
 test("security devices/recovery/reset require confirmation and use supported endpoints", async ({ page }) => {
   const state = await adminFixture(page); state.devices = [{ id: "12345678-1234-4234-8234-123456789abc", label: "本機手機", expires_at: Date.now() / 1000 + 500 }];

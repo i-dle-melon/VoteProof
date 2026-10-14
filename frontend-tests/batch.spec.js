@@ -33,7 +33,6 @@ async function fixture(page, options = {}) {
 }
 async function form(page, count = 20) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
-  await page.locator("#player-id").fill("local-player");
   await page.locator("#proof-images").setInputFiles(Array.from({ length: count }, (_, index) => ({ name: `proof-${index}.png`, mimeType: "image/png", buffer: png })));
   await expect(page.locator("#image-list .image-item")).toHaveCount(count);
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
@@ -51,7 +50,7 @@ test("20-image member batch creates 20 independent cases, status/receipts and mo
   expect(state.receipts.size).toBe(20); expect(new Set([...state.receipts.values()].map(row => row.case_id)).size).toBe(20);
   expect(state.posts.every(post => !Object.hasOwn(post.body, "member_id") && post.body.upload_session.keys.length === 1 && post.headers["x-csrf-token"] === state.member.csrf)).toBe(true);
   expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => call.path === "/api/cases").every(call => call.credentials === "same-origin"))).toBe(true);
-  await page.locator("#batch-copy").click();
+  await page.locator("#batch-query-info summary").click();await page.locator("#batch-copy").click();
   expect((await page.evaluate(() => globalThis.__copiedFixture)).match(/案件編號：/g).length).toBe(20);
   for (const width of [320, 390, 430]) for (const theme of ["dark", "light"]) {
     await page.setViewportSize({ width, height: 844 });

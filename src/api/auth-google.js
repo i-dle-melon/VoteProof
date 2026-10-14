@@ -1,3 +1,4 @@
+import { fanIdError } from "../lib/fan-id.js";
 import { authHandler, authContext, createTransaction, readTransaction, consumeTransaction, issueSession } from "./auth.js";
 import { AuthError, readAuthJson, onlyFields, profileInput, invalidVerification, suspended } from "./auth-validation.js";
 import { authDatabase, newAuthToken, browserHash, cookie, readCookie, withCookies, configuredAuthOrigin, memberSession, memberCsrf, LOGIN_COOKIE } from "../lib/auth-session.js";
@@ -141,7 +142,7 @@ export const googleConfirm = authHandler(async (env, _url, request) => {
   }
   statements.push(identityEvent(db, member, tx.data.flow_id, "google_enabled", tx.data.provider_subject, tx.data.google_identity_id));
   try { return await issueSession(request, env, member, { guards, statements, tx, remember: body.remember_me === true, method: "google" }); }
-  catch (e) { if (e instanceof AuthError || /constraint/i.test(String(e.message))) throw conflict(); throw e; }
+  catch (original) { const e=fanIdError(original); if(e.code?.startsWith("FAN_ID_")) throw e; if (e instanceof AuthError || /constraint/i.test(String(e.message))) throw conflict(); throw e; }
 });
 export const googleCancel = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env), body = await readAuthJson(request); onlyFields(body, ["transaction_id"]);

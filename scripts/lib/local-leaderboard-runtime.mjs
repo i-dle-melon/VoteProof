@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { localAdminRuntime } from './local-admin-runtime.mjs';
 
-export const definition = (extra = {}) => ({ leaderboard_id:'LB-'+randomUUID(),name:'Local leaderboard',type:'all_time',
-  campaign_id:null,start_date:null,end_date:null,vote_type:null,top_n:100,is_public:true,status:'active',...extra });
+export const definition = (extra = {}) => ({ leaderboard_id:'LB-'+randomUUID(),name:'Local leaderboard',type:'custom',
+  campaign_id:null,start_date:'2000-01-01',end_date:'2099-12-31',vote_type:null,top_n:100,is_public:true,status:'active',...extra });
 export async function localLeaderboardRuntime() {
   const h = await localAdminRuntime(), { local } = h;
   const admin = await h.identity({ role:'admin' }), reviewer = await h.identity({ role:'reviewer' });
   const create = async extra => {
-    const response = await local.fetch('/api/admin/leaderboards','POST',definition(extra),admin.headers);
+    const response = await local.fetch('/api/admin/leaderboards','POST',definition({...extra,...(extra?.type==='campaign'?{start_date:null,end_date:null}:{})}),admin.headers);
     assert.equal(response.status,201,JSON.stringify(await response.clone().json())); return (await response.json()).data;
   };
   const rebuild = (board,actor = admin,version = board.version) => local.fetch(`/api/admin/leaderboards/${board.leaderboard_id}/rebuild`,'POST',{expected_version:version},actor.headers);

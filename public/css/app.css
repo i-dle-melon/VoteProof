@@ -2615,3 +2615,25 @@ button.legacy-case-row:hover {
     scroll-behavior: auto !important;
   }
 }
+.case-dialog { color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:var(--radius);width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;padding:24px;box-sizing:border-box; }
+.case-dialog::backdrop { background:#0009; }
+.case-dialog .case-details { overflow-wrap:anywhere; }
+.case-dialog #owned-case-close { float:right; }
+.inline-review { grid-column:1/-1;min-width:0;width:100%;border-top:1px solid var(--line);padding-top:20px;overflow-wrap:anywhere; }
+.inline-review .admin-proof-grid img { max-width:100%;height:auto; }
+.inline-review .review-collapse { margin-bottom:16px; }
+#vote-type,#profile-fan-readonly { display:block;font-weight:700;padding:12px 0;overflow-wrap:anywhere; }
+#success-query-info { margin-top:20px; }
+#solo-target-wrap select { max-width:100%; }
+@media(max-width:600px) { .case-dialog { padding:16px; } .case-dialog .case-details { grid-template-columns:1fr; } }
+.review-album { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px; }
+.review-album .admin-case-row { display:block;min-width:0;padding:16px; }
+.review-album .case-preview { width:100%;height:180px;margin:12px 0;overflow:hidden; }
+.review-album .case-preview img { width:100%;height:100%;object-fit:contain; }
+.review-album .case-summary,.review-album .review-person { margin:12px 0; }
+.review-album .review-actions { display:flex;flex-wrap:wrap;gap:8px;margin-top:12px; }
+.album-select { display:flex;align-items:center;gap:8px;font-size:14px;overflow-wrap:anywhere; }
+.album-select input { width:20px;height:20px;flex:none; }
+.batch-review-controls { padding:16px 0; }
+.batch-review-results { overflow-wrap:anywhere; }
+@media(max-width:600px) { .review-album { grid-template-columns:1fr; } }

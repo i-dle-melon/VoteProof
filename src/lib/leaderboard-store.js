@@ -1,3 +1,4 @@
+import { systemBoards,isSystemBoard,rejectSystemMutation,liveSystemBoards } from './system-leaderboards.js';
 import { AdminError, ELEVATED_AUTH_GUARD, actorBindings, adminDenied } from './admin-identity.js';
 import { boardConflict, boardMissing } from './leaderboard-policy.js';
 import { LEDGER_CTE, INTEGRITY_SQL } from './leaderboard-ranking.js';
@@ -10,6 +11,7 @@ const scopeFields = ['type','campaign_id','start_date','end_date','vote_type'];
 const safeBoard = row => { const { last_mutation_id, ...safe } = row; return { ...safe, is_public: Boolean(safe.is_public) }; };
 export const boardRow = (db, id) => db.prepare('SELECT * FROM leaderboards WHERE leaderboard_id = ?').bind(id).first();
 export async function getBoard(db, id) {
+  const fixed=systemBoards.find(b=>b.leaderboard_id===id); if(fixed)return fixed;
   if (typeof id !== 'string' || !CAMPAIGN_ID.test(id)) throw boardMissing();
   const row = await boardRow(db, id); if (!row) throw boardMissing(); return safeBoard(row);
 }
@@ -18,7 +20,7 @@ export async function listBoards(db, url) {
   for (const k of url.searchParams.keys()) if (!['limit','cursor','status'].includes(k) || url.searchParams.getAll(k).length !== 1) invalid();
   const status = url.searchParams.get('status'), raw = url.searchParams.get('limit'), limit = raw === null ? 20 : Number(raw);
   if (status !== null && !['draft','active','archived'].includes(status) || raw !== null && !/^[1-9]\d?$/.test(raw) || limit > 50) invalid();
-  const where = [], args = [];
+  const where = ["type!='all_time'"], args = [];
   if (status) { where.push('status = ?'); args.push(status); }
   const encoded = url.searchParams.get('cursor');
   if (encoded !== null) {
@@ -31,9 +33,10 @@ export async function listBoards(db, url) {
   }
   const rows = (await db.prepare(`SELECT * FROM leaderboards ${where.length ? 'WHERE '+where.join(' AND ') : ''} ORDER BY created_at DESC, leaderboard_id DESC LIMIT ?`).bind(...args,limit+1).all()).results;
   const selected = rows.slice(0,limit), last = selected.at(-1);
-  return { leaderboards: selected.map(safeBoard), next_cursor: rows.length > limit ? encodeCursor([status,last.created_at,last.leaderboard_id]) : null };
+  return { leaderboards: selected.map(safeBoard), system_boards:encoded===null && (!status || status==="active")?systemBoards:[], next_cursor: rows.length > limit ? encodeCursor([status,last.created_at,last.leaderboard_id]) : null };
 }
 export async function saveBoard(db, actor, input, existing = null) {
+  rejectSystemMutation(existing);rejectSystemMutation(input);
   if (existing && (existing.status === 'archived' || existing.version !== input.expected_version ||
       !({ draft:['draft','active','archived'], active:['active','archived'] }[existing.status]?.includes(input.status)))) throw boardConflict();
   const archiving = Boolean(existing && input.status === 'archived');
@@ -76,6 +79,7 @@ export async function saveBoard(db, actor, input, existing = null) {
   return safeBoard(result[2].results[0]);
 }
 export async function rebuildBoard(db, actor, board, expectedVersion) {
+  rejectSystemMutation(board);
   if (board.status === 'archived' || board.version !== expectedVersion) throw boardConflict();
   const run = crypto.randomUUID(), now = new Date().toISOString();
   let result;
@@ -113,16 +117,16 @@ export async function rebuildBoard(db, actor, board, expectedVersion) {
 // One joined query per response: a concurrent publish cannot mix runs/rows.
 export async function publishedBoards(db, id = null, admin = false) {
   const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,b.type,b.campaign_id,b.vote_type,r.run_id,r.generated_at,
-      x.rank,x.member_id,x.nickname,x.points,x.proof_count,x.reached_at
+      x.rank,x.member_id,x.nickname,m.player_id fan_id,x.points,x.proof_count,x.reached_at
     FROM leaderboards b JOIN leaderboard_runs r ON r.run_id = b.current_run_id AND r.status = 'success'
-    LEFT JOIN leaderboard_results x ON x.run_id = r.run_id
-    WHERE (? IS NULL OR b.leaderboard_id = ?) ${admin ? '' : "AND b.is_public = 1 AND b.status = 'active'"}
+    LEFT JOIN leaderboard_results x ON x.run_id = r.run_id LEFT JOIN members m ON m.member_id=x.member_id
+    WHERE b.type!='all_time' AND (? IS NULL OR b.leaderboard_id = ?) ${admin ? '' : "AND b.is_public = 1 AND b.status = 'active'"}
     ORDER BY b.leaderboard_id,x.rank`).bind(id,id).all()).results;
-  const boards = [];
+  const boards = await liveSystemBoards(db,id);
   for (const row of rows) {
     let board = boards.at(-1);
     if (!board || board.leaderboard_id !== row.leaderboard_id) { board = { leaderboard_id:row.leaderboard_id,name:row.name,type:row.type,campaign_id:row.campaign_id,vote_type:row.vote_type,generated_at:row.generated_at,rankings:[] }; boards.push(board); }
-    if (row.rank !== null) board.rankings.push(Object.fromEntries(['rank','member_id','nickname','points','proof_count','reached_at'].map(k => [k,row[k]])));
+    if (row.rank !== null) board.rankings.push(Object.fromEntries(['rank','member_id','nickname','fan_id','points','proof_count','reached_at'].map(k => [k,row[k]])));
   }
   const members=[...new Set(boards.flatMap(b=>b.rankings.map(r=>r.member_id)))];
   if(members.length){
@@ -137,7 +141,7 @@ export async function publishedBoards(db, id = null, admin = false) {
       db.prepare('SELECT tier_id,name,icon_key,rank_order,min_points,status FROM member_tiers ORDER BY rank_order'),
     ]);
     const balances=new Map(totals.results.map(r=>[r.member_id,r.total_points]));
-    for(const board of boards)for(const row of board.rankings){
+    for(const board of boards.filter(b=>!b.system_fixed))for(const row of board.rankings){
       const resolved=resolveMemberTier(balances.get(row.member_id)??0,configuration.results);
       const {tier_id,name,icon_key}=resolved.tier;
       row.tier={tier_id,name,icon_key};row.tier_configuration_ready=resolved.tier_configuration_ready;

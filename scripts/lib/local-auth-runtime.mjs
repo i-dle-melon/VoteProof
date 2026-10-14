@@ -37,7 +37,7 @@ export async function begin(
   assert.equal(started.status,202);const challenge=(await started.json()).data;
   const verified=await local.fetch("/api/auth/register/verify-email","POST",{challenge_id:challenge.challenge_id,code:local.provider.codeFor(email)}, {...headers,Cookie:responseCookie(started,LOGIN_COOKIE)});
   assert.equal(verified.status,202);const registration=(await verified.json()).data;
-  const response=await local.fetch("/api/auth/register/credentials","POST",{transaction_id:registration.transaction_id,password,nickname:"本機會員",player_id:"local-player",...extra}, {...headers,Cookie:responseCookie(verified,LOGIN_COOKIE)});
+  const response=await local.fetch("/api/auth/register/credentials","POST",{transaction_id:registration.transaction_id,password,nickname:"本機會員",player_id:"local-"+name.replaceAll("@","_").slice(0,70),...extra}, {...headers,Cookie:responseCookie(verified,LOGIN_COOKIE)});
   assert.equal(response.status,202);const data=(await response.json()).data,otp=URI.parse(data.otpauth_uri);
   return {id:data.transaction_id,data,code:otp.generate(),otp,password,email:email.trim().toLowerCase(),email_hash:await local.emailHash(email),cookie:responseCookie(response,LOGIN_COOKIE),headers,response};
 }

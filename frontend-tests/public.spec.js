@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ioAAAAASUVORK5CYII=", "base64");
 const today = () => new Date().toISOString().slice(0, 10);
-const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", category: "投票活動", status: "active", campaign_timezone: "Asia/Taipei",
+const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", category: "Solo",solo_target:"local-solo", status: "active", campaign_timezone: "Asia/Taipei",
   vote_start_date: "2000-01-01", vote_end_date: "2099-12-31", start_at: "2000-01-01T00:00:00Z", end_at: "2100-01-01T00:00:00Z", points_per_proof: 10, daily_limit: null };
 async function fixture(page, options = {}) {
   const query = randomBytes(32).toString("base64url"), token = randomBytes(24).toString("base64url");
@@ -63,7 +63,7 @@ async function fixture(page, options = {}) {
 async function form(page, files = 1) {
   await page.goto("/#submit");
   await expect(page.locator("#submission-fields")).toBeEnabled();
-  await page.locator("#nickname").fill("測試粉絲"); await page.locator("#player-id").fill("player-123");
+  await page.locator("#note").fill("測試備註");
   await page.locator("#vote-date").fill(today());
   if (files) await page.locator("#proof-images").setInputFiles(Array.from({ length: files }, (_, i) => ({ name: `proof-${i}.png`, mimeType: "image/png", buffer: png })));
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
@@ -142,7 +142,7 @@ test("fresh pre-submit check rejects OFF without clearing chosen files or metada
   await page.locator("#submit-button").click();
   await expect(page.locator("#submit-button")).toBeDisabled();
   await expect(page.locator("#submit-state")).toHaveText("目前暫停投稿");
-  await expect(page.locator("#nickname")).toHaveValue("測試粉絲");
+  await expect(page.locator("#note")).toHaveValue("測試備註");
   await expect(page.locator("#image-list .image-item")).toHaveCount(1);
   expect(state.calls.some(c => c.path.startsWith("/api/uploads/") || c.path === "/api/cases")).toBe(false);
 });
@@ -202,11 +202,11 @@ test("global status outage fails closed even with active campaigns", async ({ pa
 });
 test("refreshing availability reflects admin OFF then ON without resetting form", async ({ page }) => {
   const options={};await fixture(page,options);await page.goto('/#submit');
-  await expect(page.locator('#nickname')).toBeEnabled();await page.locator('#nickname').fill('保留資料');
+  await expect(page.locator('#note')).toBeEnabled();await page.locator('#note').fill('保留資料');
   options.submissionsOff=true;options.submissionsMessage='維護中';await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await page.evaluate(()=>{location.hash='submit';});
   await expect(page.locator('#submit-button')).toBeDisabled();await expect(page.locator('#submit-availability')).toHaveText('維護中');
   options.submissionsOff=false;options.submissionsMessage=null;await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await page.evaluate(()=>{location.hash='submit';});
-  await expect(page.locator('#nickname')).toBeEnabled();await expect(page.locator('#nickname')).toHaveValue('保留資料');
+  await expect(page.locator('#note')).toBeEnabled();await expect(page.locator('#note')).toHaveValue('保留資料');
 });
 
 test("homepage CTA, public navigation, keyboard focus and responsive layout", async ({ page }) => {
@@ -240,7 +240,7 @@ test("campaign service failure has a usable reload path", async ({ page }) => {
 test("invalid form and missing images do not send an upload request", async ({ page }) => {
   const state = await fixture(page); await form(page, 0); await page.locator("#submit-button").click();
   await expect(page.locator("#submission-error")).toContainText("至少選擇");
-  await page.locator("#nickname").fill(" "); await page.locator("#proof-images").setInputFiles({ name: "p.png", mimeType: "image/png", buffer: png });
+  await page.locator("#vote-date").fill(""); await page.locator("#proof-images").setInputFiles({ name: "p.png", mimeType: "image/png", buffer: png });
   await page.locator("#submit-button").click(); await expect(page.locator("#submission-error")).not.toBeEmpty();
   expect(state.calls.some((c) => c.path.includes("uploads"))).toBe(false);
 });
@@ -261,8 +261,8 @@ test("full upload success shows query warning, copy controls and safe lookup", a
   await expect(page.locator("#submission-success")).toBeVisible();
   await expect(page.locator("#success-query-key")).toContainText("已隱藏");
   expect((await page.locator("body").innerText()).includes(state.query)).toBe(false);
-  await expect(page.locator("#submission-success")).toContainText("請自行保存");
-  await expect(page.locator("#batch-copy")).toBeVisible();
+  await expect(page.locator("#submission-success")).toContainText("不需要特別記錄");
+  await expect(page.locator("#batch-copy")).toBeHidden();await page.locator("#batch-query-info summary").click();await expect(page.locator("#batch-copy")).toBeVisible();
   await expect(page.locator("#batch-items .credentials")).toHaveCount(2);
   await expect(page.locator("#copy-case")).toBeHidden();
   expect(state.puts.length).toBe(2);
@@ -272,7 +272,7 @@ test("full upload success shows query warning, copy controls and safe lookup", a
   expect(state.puts.every((p) => p.bytes === undefined || p.bytes > 0)).toBe(true);
   expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path)).toEqual(["/api/uploads/prepare", "/api/uploads/complete", "/api/cases", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases"]);
   expect(state.receipts.size).toBe(2);
-  await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click();
+  await page.locator("#batch-items details summary").first().click();await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click();
   await expect(page.locator("#lookup-result")).toContainText("待審核");
   expect((await page.locator("#lookup-result").innerText()).includes("not-for-display")).toBe(false);
   expect(page.url().includes(state.query)).toBe(false); expect(await page.evaluate(() => Object.keys(localStorage).length + sessionStorage.length)).toBe(0);

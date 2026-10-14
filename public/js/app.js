@@ -71,12 +71,13 @@ function syncOwnership() {
     $("submission-mode").value = mode;
   }
   $("submission-mode").disabled = true;
+  for(const id of ["nickname","player-id"]){$(id).disabled=true;$(id).required=false;$(id).closest(".field").hidden=true;}
   $("submission-owner-hint").textContent = $("submission-mode").value === "member"
     ? "本次以會員身份投稿；審核通過後可依活動規則取得點數。登入身份改變時需重新登入原會員再重試。"
-    : "訪客投稿不會綁定會員，也不計入會員點數。";
+    : "匿名投稿：不需粉絲 ID 或暱稱，不占用會員身份，也不計入會員點數。";
 }
 
-const campaignOpen = c => c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
+const campaignOpen = c => ["Solo","團體"].includes(c?.category) && (c.category!=="Solo" || /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(c.solo_target??"")) && c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
 const submissionReady = () => submissionsEnabled && campaigns.some(campaignOpen);
 // Local file selection can finish during a foreground gate recheck. It grants
 // no upload permission; queued selections wait for the authoritative response.
@@ -139,6 +140,7 @@ function loadSubmissionStatus() {
 }
 function campaignHint() {
   const selected = campaigns.find((c) => c.campaign_id === $("campaign").value);
+  $("vote-type").textContent=selected && ["Solo","團體"].includes(selected.category)?selected.category:"請先選擇活動";
   if (!selected) { $("campaign-hint").textContent = "請選擇開放中的活動。"; return; }
   $("campaign-hint").textContent = `投票期間 ${voteDateLabel(selected.vote_start_date)} ～ ${voteDateLabel(selected.vote_end_date)} · ${scoringLabel(selected)}`;
   $("vote-date").min = selected.vote_start_date;
@@ -287,7 +289,7 @@ function renderBatch(summary) {
       lookup.addEventListener("click", () => {
         $("lookup-id").value = item.result.case_id; $("lookup-key").value = item.result.query_key; location.hash = "lookup";
       });
-      row.append(details, lookup);
+      const disclosure=node("details"),caption=node("summary","其他查詢方式");disclosure.append(caption,details,lookup);row.append(disclosure);
     }
     $("batch-items").append(row);
   }
@@ -302,6 +304,10 @@ function renderSubmissionReceipt(batch) {
   success = batch.items[0].result;
   $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = "已隱藏 · 請複製或下載保存";
   $("submission-form").hidden = true; $("submission-success").hidden = false;
+  $("success-query-info").open=false;$("batch-query-info").open=false;
+  $("success-owned-cases").hidden=!member.session.member;
+  $("submission-success-message").textContent=member.session.member?"投稿完成，可至『我的案件』查看進度。":"如果只是快速投稿，不需要特別記錄。若之後想查詢審核進度，再保存以下查詢資訊。";
+  $("query-info-hint").textContent="查詢碼只保留在此分頁記憶體；需要時可主動複製或下載，請勿公開分享。";
   $("success-title").textContent = batch.total > 1 ? `${batch.total} 個案件已送出` : "投稿成功";
   $("submission-success").querySelector(".credentials").hidden = batch.total > 1;
   for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = batch.total > 1;
@@ -338,7 +344,9 @@ $("submission-form").addEventListener("submit", async (event) => {
     try {
       const sender = member.session.member ? member.session.caseSender() : null;
       submissionIdentityCheck = sender ? sender.verify : async () => {};
-      submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
+      const chosen=campaigns.find(c=>c.campaign_id===$("campaign").value);
+      if(!["Solo","團體"].includes(chosen?.category) || (chosen.category==="Solo" && !chosen.solo_target))throw new PublicError("CAMPAIGN_TYPE_INVALID");
+      submission.start({...Object.fromEntries(new FormData($("submission-form"))),vote_type:chosen.category}, images.map((i) => i.file),
         { caseApi: sender ? async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); } : undefined });
     }
     catch (e) { $("submission-error").textContent = e.code?.startsWith("AUTH_") ? authMessage(e) : errorMessage(e); return; }
@@ -457,14 +465,16 @@ function renderBoardPosition() {
   for (const board of publicBoards) {
     const result = board.rankings?.find(row => row.member_id === identity.member_id);
     const line = node("div", undefined, "mini-kpi");
-    line.append(node("span", board.name), node("strong", result ? Number(result.points).toLocaleString("zh-TW") : "—"));
+    line.append(node("span", board.name+(board.solo_target?" · "+board.solo_target:"")), node("strong", result ? Number(result.points).toLocaleString("zh-TW") : "—"));
     $("board-member-summary").append(line);
   }
 }
 let boardCategory = "history";
+$("solo-target-filter").addEventListener("change",()=>renderBoard(publicBoards.find(b=>b.solo_target===$("solo-target-filter").value && b.system_fixed)));
 const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo排行"]];
 function categoryOf(board) {
   if(board.type === "custom") return "custom:" + board.leaderboard_id;
+  if(board.type === "campaign")return "comeback";
   if(board.vote_type === "團體") return "group";
   if(board.vote_type === "Solo") return "solo";
   return board.type === "campaign" ? "comeback" : "history";
@@ -472,8 +482,8 @@ function categoryOf(board) {
 function boardMatches(board, category) {
   if(board.type === "custom") return category === "custom:" + board.leaderboard_id;
   if(category === "comeback") return board.type === "campaign";
-  if(category === "group") return board.vote_type === "團體";
-  if(category === "solo") return board.vote_type === "Solo";
+  if(category === "group") return board.type!=="campaign" && board.vote_type === "團體";
+  if(category === "solo") return board.type!=="campaign" && board.vote_type === "Solo";
   return category === "history" && !board.vote_type && board.type !== "campaign";
 }
 function renderBoardTabs() {
@@ -513,6 +523,10 @@ function renderBoard(board) {
   currentBoard = board ?? null;
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
+  $("board-rule-status").textContent=board?.system_fixed?(board.rule??"系統固定榜：由正式積分即時統計。")+(board.unresolved_solo_transactions?" 尚有 "+board.unresolved_solo_transactions+" 筆 Solo 積分缺少對象 key，未混算。":""):"";
+  const solo=publicBoards.filter(b=>b.system_fixed && b.vote_type==="Solo" && b.solo_target);
+  $("solo-target-wrap").hidden=boardCategory!=="solo" || !solo.length;$("solo-target-filter").replaceChildren(...solo.map(b=>new Option(b.solo_target,b.solo_target)));
+  $("solo-target-filter").value=board?.solo_target??"";
   $("board-generated").textContent = board?.generated_at ? `更新時間：${dateLabel(board.generated_at)}` : "";
   $("board-progress").value = board ? 100 : 0;
   renderBoardPosition();
@@ -527,7 +541,7 @@ function renderBoard(board) {
     name.append(node("strong", row.nickname ?? "—"), node("span", board.name));
     const tier=node("span",undefined,"tier-inline"),art=node("span");
     if(row.tier?.tier_id){renderTierArtwork(art,row.tier.tier_id);tier.append(art,node("span",tierArtwork(row.tier.tier_id)?.name??"等級未提供"));}else tier.append(node("span","等級未提供"));
-    name.append(tier);
+    if(row.fan_id)name.append(node("span","粉絲 ID · "+row.fan_id,"tiny"));name.append(tier);
     tr.append(rank, name, node("td", Number(row.points).toLocaleString("zh-TW") + " 點", "points"), node("td", String(row.proof_count ?? "—"), "board-proof-count"));
     $("board-results").append(tr);
   }

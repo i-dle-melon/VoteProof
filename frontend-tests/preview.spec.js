@@ -86,7 +86,7 @@ test("normal member fixture fills shared Home, seven board buttons, own Cases an
   expect(errors).toEqual([]);
   expect(
     requests.some(
-      (u) => new URL(u).hostname !== "127.0.0.1" || new URL(u).pathname.includes("/api/"),
+      (u) => ["http:","https:"].includes(new URL(u).protocol) && (new URL(u).hostname !== "127.0.0.1" || new URL(u).pathname.includes("/api/")),
     ),
   ).toBe(false);
 });
@@ -105,7 +105,7 @@ test("preview controls change guest/member/admin, Gate, Empty/Error and theme", 
   await expect(page.locator("#home-submit-button")).toBeEnabled();
   await control(page, "identity", "admin");
   await expect(page.locator("#admin-content")).toBeVisible();
-  await expect(page.locator(".admin-case-row")).toHaveCount(5);
+  await expect(page.locator(".admin-case-row")).toHaveCount(3);
   await control(page, "data", "empty");
   await expect(page.locator("#admin-panel")).toContainText("目前沒有符合條件的案件");
   await control(page, "data", "error");
@@ -197,7 +197,7 @@ test("mutation transport, proof URLs, auth and secrets remain impossible despite
   await expect(page.locator("#preview-action-status")).toContainText("不會送出");
   expect(
     requests.some(
-      (u) => new URL(u).hostname !== "127.0.0.1" || new URL(u).pathname.includes("/api/"),
+      (u) => ["http:","https:"].includes(new URL(u).protocol) && (new URL(u).hostname !== "127.0.0.1" || new URL(u).pathname.includes("/api/")),
     ),
   ).toBe(false);
   expect(await page.evaluate(() => document.cookie)).toBe("");

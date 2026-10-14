@@ -1,5 +1,5 @@
 <aside id="ui-preview-banner" aria-label="UI 預覽情境">
-  <strong>UI PREVIEW · 非正式網站</strong><span>全部是假資料；不登入、不送出、不保存。</span>
+  <strong>UI PREVIEW · 非正式網站</strong><span>全部是假資料；不登入、不連正式 API；互動只存於本頁記憶體。</span>
   <details id="preview-controls">
     <summary>切換預覽情境</summary>
     <div class="preview-controls-grid">
@@ -48,7 +48,7 @@
           <option value="failed">failed</option>
         </select></label
       >
-    </div>
+    <label>暱稱提示<select id="preview-nickname" data-preview-control="nickname"><option value="duplicate">Duplicate warning</option><option value="unique">Unique nickname</option></select></label><label>審核結果<select id="preview-review" data-preview-control="review"><option value="success">模擬成功</option><option value="error">API Error（保留展開）</option><option value="partial">Partial failure</option></select></label></div>
   </details>
   <span id="preview-action-status" role="status"></span>
 </aside>

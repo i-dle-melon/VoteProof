@@ -33,6 +33,7 @@ export async function memberFixture(page, options = {}) {
     state.calls.push({ path, method: request.method(), body, serialized: request.postData(), headers: request.headers() });
     const reply = (data, status = 200) => route.fulfill({ status, headers: { "Cache-Control": "no-store" }, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
     const error = (code, status = 400) => route.fulfill({ status, headers: { "Retry-After": "90" }, contentType: "application/json", body: JSON.stringify({ ok: false, error: { code, message: "private provider message" } }) });
+    if(path==="/api/auth/profile-warning")return reply({duplicate:false});
     if (path === "/api/submissions/status") return reply({ submissions_enabled: !options.submissionsOff, submissions_message: options.submissionsMessage ?? null });
     if (path.startsWith("/api/auth/") || path.startsWith("/api/me/")) {
       if (state.authDown) return error("AUTH_PROVIDER_UNAVAILABLE", 502);
@@ -103,7 +104,7 @@ export async function memberFixture(page, options = {}) {
       if (path === "/api/me/cases") return reply({ cases: url.searchParams.has("cursor") ? [] : [{ case_id: state.caseId, vote_date: "2026-10-09", status: "approved" }], next_cursor: url.searchParams.has("cursor") ? null : "localCursor" });
       if (path.startsWith("/api/me/cases/")) return reply({ case_id: state.caseId, campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09", status: "approved", query_key_hash: "private", object_key: "private" });
     }
-    if (path === "/api/campaigns") return reply({ campaigns: [{ campaign_id: "LOCAL", name: "本機活動", category: "local", status: "active",
+    if (path === "/api/campaigns") return reply({ campaigns: [{ campaign_id: "LOCAL", name: "本機活動", category: "Solo",solo_target:"local-solo", status: "active",
       campaign_timezone: "UTC", vote_start_date: "2000-01-01", vote_end_date: "2099-12-31", start_at: "2000-01-01T00:00:00Z", end_at: "2100-01-01T00:00:00Z", points_per_proof: 10, daily_limit: null }] });
     if (path === "/api/leaderboards") return reply({ leaderboards: [] });
     if (path === "/api/uploads/prepare") {

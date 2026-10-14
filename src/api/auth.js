@@ -1,3 +1,4 @@
+import { fanIdError } from "../lib/fan-id.js";
 import { jsonSuccess, jsonError } from "./response.js";
 import {
   AuthError,
@@ -41,7 +42,8 @@ import {
 export const authHandler = (action) => async (env, url, request) => {
   try {
     return await action(env, url, request);
-  } catch (e) {
+  } catch (original) {
+    const e = fanIdError(original);
     if (e instanceof AuthError || e instanceof UploadError)
       return jsonError(
         e.status,

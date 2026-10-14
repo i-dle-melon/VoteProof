@@ -124,8 +124,8 @@ test("all Admin configuration and five exact-duplicate states use shared rendere
     await page
       .locator(".admin-case-row")
       .first()
-      .getByRole("button", { name: "查看與審核", exact: true })
-      .click();
+      .locator(".case-preview")
+      .click({position:{x:12,y:12}});
     await expect(page.locator('[aria-label="檔案比對提示"]')).toContainText(
       {
         pending: "尚未分析",

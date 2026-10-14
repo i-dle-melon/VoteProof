@@ -27,14 +27,15 @@ SELECT campaign_id FROM campaigns WHERE category='Solo' AND solo_target IS NULL;
 
 Campaign `category` is the sole Solo/group classification. `solo_target` is a
 stable explicit key shared across campaigns, frozen once assigned; no names are
-used to infer it. Approval records that key in immutable ledger metadata. Old
-Solo ledger entries without metadata use an explicitly assigned campaign key;
-unresolved entries are reported and excluded from Solo target totals, while
-history totals still include all valid points. No backfill runs here.
+used to infer it. Approval records that key in immutable ledger metadata. The
+Solo system ranking does not filter or split by this key. It includes all formal
+historical Solo points, including legacy entries without target metadata.
+No backfill runs here.
 
 History/group/Solo use direct ledger reads including compensating reversals.
 History also includes formal unscoped adjustments. Group uses `vote_type='團體'`;
-Solo groups independently by stable target. Existing all_time snapshots remain
+Solo uses `vote_type='Solo'` across every historical campaign, just like group.
+Existing all_time snapshots remain
 for audit but are never served, edited or rebuilt. Campaign/custom snapshots,
 version guards, publication and rebuild controls remain supported. Fixed board
 metadata is outside the mutable Admin pagination in `system_boards`.

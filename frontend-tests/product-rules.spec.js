@@ -42,31 +42,31 @@ test('own case dialog closes on Escape and restores focus, including narrow mobi
 test('Preview inline review loads proof automatically, switches one panel and approves/rejects with collapse',async({page})=>{
  const requests=[];page.on('request',r=>requests.push(r.url()));page.on('dialog',d=>d.accept());
  await page.goto(scene({identity:'admin'},'admin'));await ready(page);
- const rows=page.locator('.admin-case-row'),open=i=>rows.nth(i).getByRole('button',{name:'查看與審核',exact:true});
- await open(0).click();await expect(rows.nth(0).locator('.inline-review')).toBeVisible();await expect(open(0)).toHaveAttribute('aria-expanded','true');
+ const rows=page.locator('.admin-case-row'),open=i=>rows.nth(i).locator('.case-preview');
+ await open(0).click({position:{x:12,y:12}});await expect(rows.nth(0).locator('.inline-review')).toBeVisible();await expect(open(0)).toHaveAttribute('aria-expanded','true');
  await expect(rows.nth(0).locator('.admin-proof-grid img')).toBeVisible();
- await open(1).click();await expect(rows.nth(0).locator('.inline-review')).toHaveCount(0);await expect(open(0)).toHaveAttribute('aria-expanded','false');
+ await open(1).click({position:{x:12,y:12}});await expect(rows.nth(0).locator('.inline-review')).toHaveCount(0);await expect(open(0)).toHaveAttribute('aria-expanded','false');
  await rows.nth(1).getByRole('button',{name:'收合',exact:true}).click();
- await open(0).click();await page.locator('#admin-field-action').selectOption('approve');await page.locator('[data-preview-review] button[type=submit]').click();
+ await open(0).click({position:{x:12,y:12}});await page.locator('#admin-field-action').selectOption('approve');await page.locator('[data-preview-review] button[type=submit]').click();
  await expect(rows.nth(0).locator('.inline-review')).toHaveCount(0);await expect(rows.nth(0).locator(':scope > .status')).toHaveText('已通過');
- await open(1).click();await page.locator('#admin-field-action').selectOption('reject');await page.locator('#admin-field-reason').fill('Preview only rejection');await page.locator('[data-preview-review] button[type=submit]').click();
+ await open(1).click({position:{x:12,y:12}});await page.locator('#admin-field-action').selectOption('reject');await page.locator('#admin-field-reason').fill('Preview only rejection');await page.locator('[data-preview-review] button[type=submit]').click();
  await expect(rows.nth(1).locator('.inline-review')).toHaveCount(0);await expect(rows.nth(1).locator(':scope > .status')).toHaveText('未通過');
  expect(requests.some(u=>new URL(u).protocol==='http:' && (u.includes('/api/')||new URL(u).hostname!=='127.0.0.1'))).toBe(false);
 });
 test('Preview review API failure retains expanded panel and retryable form',async({page})=>{
  page.on('dialog',d=>d.accept());await page.goto(scene({identity:'admin',review:'error'},'admin'));await ready(page);
- await page.locator('.admin-case-row').first().getByRole('button',{name:'查看與審核',exact:true}).click();await page.locator('[data-preview-review] button[type=submit]').click();
+ await page.locator('.admin-case-row').first().locator('.case-preview').click({position:{x:12,y:12}});await page.locator('[data-preview-review] button[type=submit]').click();
  await expect(page.locator('.inline-review')).toBeVisible();await expect(page.locator('.inline-review [role=alert]')).not.toBeEmpty();await expect(page.locator('[data-preview-review] button[type=submit]')).toBeEnabled();
 });
 test('system ranking cards expose no edit/rebuild and custom buttons stay fifth through seventh',async({page})=>{
  await page.goto(scene({identity:'admin'},'admin'));await ready(page);await page.locator('#admin-tabs').getByRole('button',{name:'排行榜管理',exact:true}).click();
  const fixed=page.locator('#admin-panel article').filter({hasText:'系統固定榜'});await expect(fixed).toHaveCount(3);await expect(fixed.locator('button')).toHaveCount(0);
  await page.goto(scene({},'leaderboards'));await ready(page);await expect(page.locator('#board-categories button')).toHaveCount(7);
- await page.locator('#board-categories button').nth(3).click();await expect(page.locator('#solo-target-wrap')).toBeVisible();
+ await page.locator('#board-categories button').nth(3).click();await expect(page.locator('#solo-target-wrap')).toBeHidden();await expect(page.locator('#board-rule-status')).toContainText('歷史積分');
 });
 test('actual frontend uses protected Admin proof path automatically; API failure keeps review inline',async({page})=>{
  const fixture=await adminFixture(page);await page.goto('/admin#admin');
- await page.getByRole('button',{name:'查看與審核',exact:true}).click();await expect(page.locator('.inline-review img')).toBeVisible();
+ await page.locator('.case-preview').click({position:{x:12,y:12}});await expect(page.locator('.inline-review img')).toBeVisible();
  expect(fixture.calls.some(c=>c.path.includes('/files/'))).toBe(true);
  fixture.failAdmin=true;await page.locator('[data-preview-review] button[type=submit]').click();await expect(page.locator('.inline-review')).toBeVisible();
 });
@@ -79,7 +79,7 @@ test('inline review row click fits mobile themes and collapse revokes proof obje
  await page.addInitScript(()=>{const revoke=URL.revokeObjectURL;globalThis.__revokedProofs=0;URL.revokeObjectURL=url=>{globalThis.__revokedProofs++;revoke.call(URL,url);};});
  for(const width of [320,390,430])for(const theme of ['dark','light']){
   await page.setViewportSize({width,height:800});await page.goto(scene({identity:'admin',theme},'admin'));await ready(page);
-  await page.locator('.admin-case-row .case-summary').first().click();
+  await page.locator('.admin-case-row .case-preview').first().click({position:{x:12,y:12}});
   await expect(page.locator('.inline-review img')).toHaveJSProperty('naturalWidth',640);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.locator('.inline-review').getByRole('button',{name:'收合',exact:true}).click();

@@ -465,12 +465,11 @@ function renderBoardPosition() {
   for (const board of publicBoards) {
     const result = board.rankings?.find(row => row.member_id === identity.member_id);
     const line = node("div", undefined, "mini-kpi");
-    line.append(node("span", board.name+(board.solo_target?" · "+board.solo_target:"")), node("strong", result ? Number(result.points).toLocaleString("zh-TW") : "—"));
+    line.append(node("span", board.name), node("strong", result ? Number(result.points).toLocaleString("zh-TW") : "—"));
     $("board-member-summary").append(line);
   }
 }
 let boardCategory = "history";
-$("solo-target-filter").addEventListener("change",()=>renderBoard(publicBoards.find(b=>b.solo_target===$("solo-target-filter").value && b.system_fixed)));
 const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo排行"]];
 function categoryOf(board) {
   if(board.type === "custom") return "custom:" + board.leaderboard_id;
@@ -523,10 +522,8 @@ function renderBoard(board) {
   currentBoard = board ?? null;
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
-  $("board-rule-status").textContent=board?.system_fixed?(board.rule??"系統固定榜：由正式積分即時統計。")+(board.unresolved_solo_transactions?" 尚有 "+board.unresolved_solo_transactions+" 筆 Solo 積分缺少對象 key，未混算。":""):"";
-  const solo=publicBoards.filter(b=>b.system_fixed && b.vote_type==="Solo" && b.solo_target);
-  $("solo-target-wrap").hidden=boardCategory!=="solo" || !solo.length;$("solo-target-filter").replaceChildren(...solo.map(b=>new Option(b.solo_target,b.solo_target)));
-  $("solo-target-filter").value=board?.solo_target??"";
+  $("board-rule-status").textContent=board?.system_fixed?(board.rule??"系統固定榜：由正式歷史積分即時統計。"):"";
+  $("solo-target-wrap").hidden=true;$("solo-target-filter").replaceChildren();
   $("board-generated").textContent = board?.generated_at ? `更新時間：${dateLabel(board.generated_at)}` : "";
   $("board-progress").value = board ? 100 : 0;
   renderBoardPosition();

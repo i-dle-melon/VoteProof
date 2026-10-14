@@ -68,7 +68,7 @@ test('legacy missing/invalid campaign type fails closed without consuming proof 
  }});
  try{const reference=await sandbox.upload();await error(await sandbox.fetch('/api/cases','POST',{...guestBody(reference),campaign_id:'LEGACY'}),400,'CAMPAIGN_TYPE_INVALID');assert.equal((await sandbox.db.prepare('SELECT consumed_case_id FROM completed_uploads WHERE session_id=?').bind(reference.session_id).first()).consumed_case_id,null);}finally{await sandbox.runtime.dispose();}
 });
-test('system history/group/Solo are live ledger sums; Solo targets stay separate, reversals and adjustments count',async()=>{
+test('system history/group/Solo are live historical ledger sums; Solo targets combine, reversals and adjustments count',async()=>{
  const m=await h.identity(),campaigns=[['RULE-A','Solo','artist_a'],['RULE-A2','Solo','artist_a'],['RULE-B','Solo','artist_b'],['RULE-G','團體',null]];
  let first;
  for(const [campaign_id,category,solo_target] of campaigns){await local.campaign({campaign_id,category,solo_target,points_per_proof:10,daily_limit:null});const created=await h.makeCase({member:m,metadata:{campaign_id,vote_type:category}});await data(await h.review(admin,created.case_id,'approve'));first??=created;}
@@ -76,12 +76,31 @@ test('system history/group/Solo are live ledger sums; Solo targets stay separate
  let boards=(await data(await local.fetch('/api/leaderboards'))).leaderboards;
  assert.equal(boards.find(b=>b.leaderboard_id==='system-history').rankings.find(r=>r.member_id===m.memberId).points,47);
  assert.equal(boards.find(b=>b.leaderboard_id==='system-group').rankings.find(r=>r.member_id===m.memberId).points,10);
- assert.equal(boards.find(b=>b.solo_target==='artist_a').rankings.find(r=>r.member_id===m.memberId).points,20);
- assert.equal(boards.find(b=>b.solo_target==='artist_b').rankings.find(r=>r.member_id===m.memberId).points,10);
+ const solo=boards.filter(b=>b.leaderboard_id==='system-solo');assert.equal(solo.length,1);
+ assert.equal(solo[0].rankings.find(r=>r.member_id===m.memberId).points,30);
+ assert.equal(solo[0].rankings.find(r=>r.member_id===m.memberId).proof_count,3);
  await data(await h.review(admin,first.case_id,'revoke',1,{reason:'Local reversal'}));
  boards=(await data(await local.fetch('/api/leaderboards'))).leaderboards;
  assert.equal(boards.find(b=>b.leaderboard_id==='system-history').rankings.find(r=>r.member_id===m.memberId).points,37);
+ assert.equal(boards.find(b=>b.leaderboard_id==='system-solo').rankings.find(r=>r.member_id===m.memberId).points,20);
+ assert.equal(boards.find(b=>b.leaderboard_id==='system-group').rankings.find(r=>r.member_id===m.memberId).points,10);
  for(const id of ['system-history','system-group','system-solo'])await error(await local.fetch('/api/admin/leaderboards/'+id+'/rebuild','POST',{expected_version:0},admin.headers),409,'SYSTEM_LEADERBOARD_FIXED');
+});
+
+test('Solo history includes valid legacy ledger with no target key or target metadata',async()=>{
+ const memberId='M-'+randomUUID(),caseId=randomUUID(),sessionId=randomUUID(),now='2025-01-01T00:00:00.000Z';
+ const sandbox=await localCaseRuntime({seedCampaign:false,migrationHook:async(db,name)=>{
+  if(name!=='0013_async_proof_duplicates.sql')return;
+  await db.batch([
+   db.prepare('UPDATE submission_settings SET submissions_enabled=1 WHERE id=1'),
+   db.prepare("INSERT INTO members(id,member_id,login_name,nickname,status,created_at,updated_at,last_login_at) VALUES(?,?,?,'Legacy fixture','active',?,?,?)").bind(randomUUID(),memberId,randomUUID().replaceAll('-',''),now,now,now),
+   db.prepare("INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at) VALUES('LEGACY-SOLO','Legacy Solo','Solo','2025-01-01','2025-02-01','UTC','2025-01-01','2025-02-01',10,'closed',?,?)").bind(now,now),
+   db.prepare('INSERT INTO completed_uploads(session_id,manifest_hash,completed_at) VALUES(?,?,?)').bind(sessionId,'a'.repeat(64),now),
+   db.prepare("INSERT INTO cases(id,case_id,created_at,updated_at,member_id,nickname,player_id,campaign_id,vote_type,vote_date,status,query_key_hash,source,upload_session_id) VALUES(?,'VP-20250101-AAAAAAAAAAAAAAAA',?,?,?,'Legacy fixture','legacy-fan','LEGACY-SOLO','Solo','2025-01-01','approved',?,'member',?)").bind(caseId,now,now,memberId,'b'.repeat(64),sessionId),
+   db.prepare("INSERT INTO point_transactions(transaction_id,created_at,member_id,case_id,campaign_id,category,vote_type,vote_date,points,reason,created_by,metadata_json) VALUES(?,?,?,?,'LEGACY-SOLO','proof_approved','Solo','2025-01-01',10,'Historical approved fixture',?,NULL)").bind(randomUUID(),now,memberId,caseId,memberId),
+  ]);
+ }});
+ try{const boards=(await data(await sandbox.fetch('/api/leaderboards?id=system-solo'))).leaderboards;assert.equal(boards.length,1);assert.equal(boards[0].rankings[0].points,10);assert.equal(boards[0].rankings[0].proof_count,1);}finally{await sandbox.runtime.dispose();}
 });
 test('campaign/custom publication remains functional alongside immutable system boards',async()=>{
  for(const type of ['campaign','custom']){

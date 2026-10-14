@@ -77,7 +77,7 @@ export const boards = [
   top_n: 100,
   is_public: true,
   status: "active",
-  system_fixed:type==="all_time",rule:type==="all_time"?"系統固定榜：跨活動正式積分累積；Solo 依穩定對象 key 分開。":undefined,solo_target:vote_type==="Solo"?"PREVIEW-SOLO-A":null,
+  system_fixed:type==="all_time",rule:type==="all_time"?"系統固定榜：跨所有活動正式歷史積分累積，Solo 不再細分對象。":undefined,
   version: 1,
 }));
 export const cases = ["pending", "approved", "rejected", "pending", "completed"].map(
@@ -198,7 +198,6 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
         : boards.filter(
             (b) => !url.searchParams.has("id") || b.leaderboard_id === url.searchParams.get("id"),
           );
-    const solo=selected.find(b=>b.vote_type==="Solo" && b.system_fixed);if(solo)selected.push({...solo,solo_target:"PREVIEW-SOLO-B",rankings:solo.rankings.map(r=>({...r,points:r.points+20}))});
     return reply({
       generated_at: "2026-10-14T04:00:00Z",
       leaderboards: selected,

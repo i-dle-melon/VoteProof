@@ -130,7 +130,7 @@ export function adminUI(session) {
     const matches=row=>[row.case_id,row.nickname,row.player_id].filter(Boolean).join(" ").toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase());
     search.addEventListener("input",()=>{for(const card of $("admin-panel").querySelectorAll(".admin-case-row"))card.hidden=!card.dataset.search.includes(search.value.trim().toLocaleLowerCase());});
     submitButton(filters, copy("admin-copy-037"));const filterDisclosure=node("details","","review-filter-disclosure");filterDisclosure.open=reviewMode==="all";filterDisclosure.append(node("summary","篩選案件：活動 / 類型 / 搜尋"),filters);$("admin-panel").append(filterDisclosure);
-    const statusTabs=node("div","","tabs admin-status-tabs");statusTabs.setAttribute("aria-label","案件狀態篩選");$("admin-panel").append(statusTabs);
+    const statusTabs=node("div","","tabs admin-status-tabs");statusTabs.setAttribute("aria-label","案件狀態篩選");(reviewMode==="album"?filterDisclosure:$("admin-panel")).append(statusTabs);
     const area = node("section"); $("admin-panel").append(area);
     const batchBox=node("section","","batch-review-controls"),batchCount=node("p","尚未選擇案件"),batchStatus=node("div","","batch-review-results");batchStatus.setAttribute("role","status");
     const approveSelected=button("通過已選案件",()=>void run(async current=>{
@@ -164,10 +164,13 @@ export function adminUI(session) {
       for(const [action,label] of [["approve","通過"],["reject","駁回"]])if(allowed.includes(action))actions.append(button(label,()=>void caseDetail(row.case_id,action)));
       actions.append(button(copy("admin-copy-039"),()=>void caseDetail(row.case_id)));
       card.dataset.caseId=row.case_id;
+      let photo=null;
       if(reviewMode==="album"){
         card.classList.add("album-case");
+        photo=node("div","","album-photo");photo.append(image);image.replaceChildren();
+        summary.hidden=player.hidden=state.hidden=actions.hidden=true;
         if(row.status==="pending" && (row.review_stage??"initial")==="initial"){
-          const label=node("label","選取初審案件 "+row.case_id,"album-select"),checkbox=node("input");checkbox.type="checkbox";checkbox.dataset.reviewSelect="";checkbox.setAttribute("aria-label","選取案件 "+row.case_id);label.prepend(checkbox);card.prepend(label);
+          const label=node("label","","album-select"),checkbox=node("input"),circle=node("span","","album-check");checkbox.type="checkbox";checkbox.dataset.reviewSelect="";checkbox.setAttribute("aria-label","選取案件 "+row.case_id);circle.setAttribute("aria-hidden","true");label.append(checkbox,circle);photo.append(label);
           checkbox.addEventListener("change",()=>{if(checkbox.checked && selectedReviews.size>=20 && !selectedReviews.has(row.case_id)){checkbox.checked=false;return;}if(checkbox.checked)selectedReviews.set(row.case_id,{...row});else selectedReviews.delete(row.case_id);syncSelected();});
         }
         const primary=row.primary_file_id??row.files?.[0]?.file_id;
@@ -181,7 +184,7 @@ export function adminUI(session) {
       for(const b of [image,...actions.children]){b.setAttribute("aria-expanded","false");b.setAttribute("aria-controls","review-"+row.case_id);}
       card.dataset.search=[row.case_id,row.nickname,row.player_id].filter(Boolean).join(" ").toLocaleLowerCase();card.hidden=!matches(row);
       card.addEventListener("click",event=>{if(!event.target.closest("button,a,label,input,select,textarea,.inline-review"))void caseDetail(row.case_id);});
-      card.append(image,summary,player,state,actions);return card;
+      card.append(photo??image,summary,player,state,actions);return card;
     };
     const loadFiltered = async () => {
       // Lists are attached to the panel; remove only the prior list/page button.

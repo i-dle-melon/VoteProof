@@ -3,7 +3,7 @@ import { adminFixture } from "./admin-fixture.mjs";
 import { memberFixture } from "./member-fixture.mjs";
 const panel = page => page.locator("#admin-panel");
 const open = async (page, tab) => { await page.goto("/#admin"); await page.locator("#admin-tabs").getByRole("button", { name: tab, exact: true }).click(); };
-const save = async (page, name) => panel(page).getByRole("button", { name, exact: true }).click();
+const save = async (page, name) => name === "查看與審核" ? panel(page).locator(".case-preview").click({position:{x:12,y:12}}) : panel(page).getByRole("button", { name, exact: true }).click();
 test("guest/ordinary member cannot see admin or infer it from storage/profile", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); state.member.role = "super_admin";
   await page.addInitScript(() => localStorage.setItem("role", "super_admin"));

@@ -1192,12 +1192,13 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                     <label for="profile-nickname">暱稱</label
                     ><input id="profile-nickname" autocomplete="nickname" maxlength="50" required />
                   </div>
+                  <p id="profile-nickname-warning" class="notice warn" role="status" hidden></p>
                   <div class="field">
-                    <label for="profile-player">粉絲 ID（選填）</label
+                    <label for="profile-player">粉絲 ID</label
                     ><input id="profile-player" autocomplete="off" maxlength="100" /><p id="profile-fan-readonly" hidden></p><p class="tiny">建立後無法修改</p>
                     <p class="tiny">留空會保留原粉絲 ID。</p>
                   </div>
-                  <p id="profile-nickname-warning" class="notice warn" role="status" hidden></p><p id="profile-status" role="status" aria-live="polite"></p>
+                  <p id="profile-status" role="status" aria-live="polite"></p>
                   <button class="btn btn-primary" type="submit" id="profile-save">保存資料</button>
                 </form>
                 <article class="card form-card">

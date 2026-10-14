@@ -95,7 +95,8 @@ export class Submission {
       c.digests ??= await Promise.all(c.files.map(async file => Array.from(new Uint8Array(
         await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')));
       const started = this.now();
-      c.prepared = checkedPrepare(await this.api("/api/uploads/prepare", { method: "POST", body: {
+      c.prepared = checkedPrepare(await (c.caseApi??this.api)("/api/uploads/prepare", { method: "POST", body: {
+        ...(c.files.length===1?{storage_version:2,campaign_id:c.metadata.campaign_id}:{}),
         turnstile_token: token, files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);
       c.expiresAt = started + c.prepared.expires_in * 1000;
     }
@@ -104,13 +105,18 @@ export class Submission {
       const update = (fraction) => this.progress({ phase: "put", file: i + 1, count: c.files.length,
         fraction: (c.uploaded.size + fraction) / c.files.length });
       update(0);
-      await this.put(c.prepared.uploads[i], c.files[i], update);
+      try {await this.put(c.prepared.uploads[i], c.files[i], update);}
+      catch(error) {
+        if(error.code==='UPLOAD_REPREPARE_REQUIRED'&&!c.payload){c.prepared=null;c.uploaded.clear();}
+        throw error;
+      }
       c.uploaded.add(i);
     }
-    const reference = { session_id: c.prepared.session_id, keys: c.prepared.uploads.map((u) => u.key) };
+    const reference = { session_id: c.prepared.session_id, keys: c.prepared.uploads.map((u) => u.key),
+      ...(c.prepared.capability?{capability:c.prepared.capability}:{}) };
     if (!c.completed) {
       this.progress({ phase: "complete", fraction: 1 });
-      try { await this.api("/api/uploads/complete", { method: "POST", body: reference }); }
+      try { await (c.caseApi??this.api)("/api/uploads/complete", { method: "POST", body: reference }); }
       catch (e) { if (e.code === "UPLOAD_INCOMPLETE") c.uploaded.clear(); throw e; }
       c.completed = true;
     }

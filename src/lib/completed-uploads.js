@@ -28,7 +28,7 @@ export async function completedFiles(db, sessionId) {
   return (await completedFilesStatement(db,sessionId).all()).results;
 }
 
-export async function rememberCompletedUpload(env, sessionId, files) {
+export async function rememberCompletedUpload(env, sessionId, files, intent) {
   // Global submission gate requires D1; no no-database upload mode.
   const db = caseDatabase(env);
   try {
@@ -36,8 +36,11 @@ export async function rememberCompletedUpload(env, sessionId, files) {
     const hash = await manifestHash(files);
     const now = new Date();
     await db.batch([
-      db.prepare("INSERT INTO completed_uploads (session_id, manifest_hash, completed_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
-        .bind(sessionId, hash, now.toISOString(), new Date(now.valueOf() + COMPLETED_UPLOAD_TTL_SECONDS * 1000).toISOString()),
+      db.prepare(intent?`INSERT INTO completed_uploads (session_id,manifest_hash,completed_at,expires_at) SELECT ?,?,?,?
+        FROM proof_upload_intents WHERE session_id=? AND state IN ('prepared','uploaded','sealed')
+        AND consumed_case_id IS NULL AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') ON CONFLICT(session_id) DO NOTHING`
+        :"INSERT INTO completed_uploads (session_id, manifest_hash, completed_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING")
+        .bind(sessionId, hash, now.toISOString(), intent?.expires_at??new Date(now.valueOf() + COMPLETED_UPLOAD_TTL_SECONDS * 1000).toISOString(),...(intent?[sessionId]:[])),
       ...files.map(file => db.prepare(
         `INSERT INTO completed_upload_files (session_id, object_key, content_type, size, etag)
          SELECT ?, ?, ?, ?, ? FROM completed_uploads
@@ -48,6 +51,10 @@ export async function rememberCompletedUpload(env, sessionId, files) {
         SELECT object_key,?,?,? FROM completed_upload_files WHERE object_key=? AND session_id=? AND etag=? AND size=?
         AND EXISTS(SELECT 1 FROM completed_uploads WHERE session_id=? AND manifest_hash=? AND consumed_case_id IS NULL)
         ON CONFLICT(object_key) DO NOTHING`).bind(file.sha256,file.etag,file.size,file.key,sessionId,file.etag,file.size,sessionId,hash)),
+      ...(intent?[db.prepare(`UPDATE proof_upload_intents SET state='sealed',sealed_at=coalesce(sealed_at,?),uploaded_at=coalesce(uploaded_at,?)
+        WHERE session_id=? AND state IN ('prepared','uploaded','sealed') AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        AND EXISTS(SELECT 1 FROM completed_uploads WHERE session_id=? AND manifest_hash=? AND consumed_case_id IS NULL)`)
+        .bind(now.toISOString(),now.toISOString(),sessionId,sessionId,hash)]:[]),
     ]);
     const [stateResult,filesResult] = await db.batch([uploadStateStatement(db,sessionId),completedFilesStatement(db,sessionId)]);
     const state = stateResult.results[0];

@@ -59,13 +59,14 @@ test("member pending submission cannot downgrade to Guest after logout", async (
 });
 test("member Submission retry retains the same case transport/body/idempotency", async () => {
   const session_id = randomUUID(), calls = [], result = { case_id: "VP-20261009-" + "A".repeat(16), query_key: randomBytes(32).toString("base64url") };
-  const flow = new Submission({ api: async path => {
+  const uploadApi=async path => {
     if (path.endsWith("prepare")) return { session_id, expires_in: 300, uploads: [{ key: "local", method: "PUT", headers: { 'Content-Type':'image/png','X-Upload-Grant':randomBytes(48).toString('base64url') }, upload_url: `https://voteproof.example/api/uploads/put/${randomUUID()}/${randomUUID()}` }] };
     if (path === "/api/cases") assert.fail("Guest transport must not be used");
     return {};
-  }, token: async () => randomUUID(), put: async () => {} });
+  };
+  const flow = new Submission({ api: uploadApi, token: async () => randomUUID(), put: async () => {} });
   flow.start({ nickname: "會員", player_id: "player", campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09" }, [{ type: "image/png", size: 3, arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer }],
-    { caseApi: async (_path, options) => { calls.push(options); if (calls.length === 1) throw new PublicError("NETWORK_ERROR"); return result; } });
+    { caseApi: async (path, options) => { if(path!=='/api/cases')return uploadApi(path);calls.push(options); if (calls.length === 1) throw new PublicError("NETWORK_ERROR"); return result; } });
   await assert.rejects(flow.attempt()); await flow.attempt();
   assert.equal(calls[0].body === calls[1].body, true); assert.equal(calls[0].headers["Idempotency-Key"] === calls[1].headers["Idempotency-Key"], true);
   assert.equal("member_id" in JSON.parse(calls[0].body), false);

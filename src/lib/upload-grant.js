@@ -10,10 +10,10 @@ async function key(env) {
   return crypto.subtle.importKey('raw', Uint8Array.from(env.UPLOAD_GRANT_SECRET.match(/../g), v => parseInt(v,16)), 'AES-GCM', false, ['encrypt','decrypt']);
 }
 export async function uploadGrantConfig(env) { return { key: await key(env), origin: configuredAuthOrigin(env) }; }
-export async function issueUploadGrant(config, path, objectKey, file) {
+export async function issueUploadGrant(config, path, objectKey, file, binding) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const body = new TextEncoder().encode(JSON.stringify({ v:1, path, key:objectKey, size:file.size, type:file.type,
-    sha256:file.sha256, expires:Math.floor(Date.now()/1000)+UPLOAD_LIMITS.expiresSeconds }));
+  const body = new TextEncoder().encode(JSON.stringify({ v:binding?2:1, path, key:objectKey, size:file.size, type:file.type,
+    sha256:file.sha256, expires:binding?.expires??Math.floor(Date.now()/1000)+UPLOAD_LIMITS.expiresSeconds,...(binding?{session_id:binding.sessionId,proof_id:binding.proofId,campaign_id:binding.campaignId,member_id:binding.memberId,guest_capability_hash:binding.guestCapabilityHash}: {}) }));
   const encrypted = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad},config.key,body));
   const token = new Uint8Array(iv.length+encrypted.length); token.set(iv); token.set(encrypted,iv.length);
   return { key:objectKey, method:'PUT', upload_url:config.origin+path, headers:{'Content-Type':file.type,'X-Upload-Grant':encode(token)} };
@@ -25,7 +25,7 @@ export async function readUploadGrant(env, request, path) {
     const bytes = Uint8Array.from(atob(token.replaceAll('-','+').replaceAll('_','/')), x=>x.charCodeAt(0));
     const clear = await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.subarray(0,12),additionalData:aad},await key(env),bytes.subarray(12));
     const grant = JSON.parse(new TextDecoder().decode(clear));
-    if (grant.v!==1 || grant.path!==path || !Number.isSafeInteger(grant.expires) || grant.expires<=Math.floor(Date.now()/1000)) throw denied();
+    if (![1,2].includes(grant.v) || grant.path!==path || !Number.isSafeInteger(grant.expires) || grant.expires<=Math.floor(Date.now()/1000)) throw denied();
     return grant;
   } catch (error) { if (error instanceof UploadError && error.status===503) throw error; throw denied(); }
 }

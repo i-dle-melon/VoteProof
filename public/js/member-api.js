@@ -44,7 +44,7 @@ export class MemberSession {
     this.changed(this.#member);
   }
   async request(path, { method = "GET", body, headers = {}, signal } = {}) {
-    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|cases)$/.test(path))
+    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|uploads\/(?:prepare|complete)|cases)$/.test(path))
       throw new PublicError("INVALID_AUTH_REQUEST");
     return this.#send(path, { method, body, headers, signal });
   }

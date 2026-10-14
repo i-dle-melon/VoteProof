@@ -28,7 +28,13 @@ export function putImage(upload, file, onProgress) {
     xhr.upload.onprogress = (event) => onProgress(event.lengthComputable ? event.loaded / event.total : 0);
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) { onProgress(1); resolve(); }
-      else reject(new PublicError("PUT_FAILED", xhr.status));
+      else {
+        let code;try{code=JSON.parse(xhr.responseText)?.error?.code;}catch{/* Sanitized fallback. */}
+        // Create-only replay does not attest to the retried body. Complete
+        // verifies the original native R2 checksum before any Case is sent.
+        if(xhr.status===409&&code==='UPLOAD_ALREADY_UPLOADED'){onProgress(1);resolve();}
+        else reject(new PublicError(code==='UPLOAD_REPREPARE_REQUIRED'?code:'PUT_FAILED',xhr.status));
+      }
     };
     xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new PublicError("PUT_FAILED"));
     xhr.send(file);
@@ -36,6 +42,8 @@ export function putImage(upload, file, onProgress) {
 }
 
 const messages = {
+  UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認，請按重試以重新準備安全上傳。",
+  SUBMISSIONS_IMMUTABLE_DISABLED: "安全上傳目前暫停開放，請稍後重試。",
   UI_PREVIEW_ONLY: "這是 UI 預覽，無法登入、投稿或保存變更。",
   SUBMISSIONS_DISABLED: "投稿目前暫停開放，請稍後再試。",
   SUBMISSIONS_UNAVAILABLE: "投稿服務暫時無法使用，請稍後再試。",

@@ -96,6 +96,11 @@ export function validatePrepare(body) {
   if (total > UPLOAD_LIMITS.maxBatchBytes) {
     throw new UploadError(400, "FILE_TOO_LARGE", "The batch exceeds the size limit");
   }
+  if(body.storage_version!==undefined && body.storage_version!==2) invalid('Invalid upload storage version');
+  if(body.storage_version===2) {
+    if(files.length!==1 || typeof body.campaign_id!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(body.campaign_id)) invalid('One proof and a Campaign are required');
+    return {token:body.turnstile_token.trim(),files,storageVersion:2,campaignId:body.campaign_id};
+  }
   return { token: body.turnstile_token.trim(), files };
 }
 
@@ -110,6 +115,11 @@ export function validateComplete(body) {
   const sessionId = body.session_id.toLowerCase();
   if (new Set(body.keys).size !== body.keys.length) invalid("Duplicate object keys are not allowed");
   for (const key of body.keys) {
+    const final=typeof key==='string' && /^proofs\/final\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/.exec(key);
+    if(final) {
+      if(body.keys.length!==1 || final[1]!==sessionId || !UUID_PATTERN.test(final[2]) || Object.keys(body).some(k=>!['session_id','keys','capability'].includes(k))) invalid('Invalid final proof reference');
+      continue;
+    }
     const match = typeof key === "string" && KEY_PATTERN.exec(key);
     if (!match || match[0] !== key || match[4] !== sessionId || !UUID_PATTERN.test(match[4]) || !UUID_PATTERN.test(match[5])) {
       invalid("Object key does not belong to this upload session");
@@ -120,5 +130,6 @@ export function validateComplete(body) {
       invalid("Invalid staging date");
     }
   }
-  return { sessionId, keys: body.keys };
+  if(body.capability!==undefined && (typeof body.capability!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(body.capability)))invalid('Invalid upload capability');
+  return { sessionId, keys: body.keys,...(body.capability===undefined?{}:{capability:body.capability}) };
 }

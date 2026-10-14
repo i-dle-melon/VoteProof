@@ -120,7 +120,7 @@ test("15 real local member proofs create 15 independent cases; 12 approvals prod
       const v = await r.json(); if (!r.ok) throw new PublicError(v.error.code, r.status); return v.data;
     };
     const batch = new BatchSubmission({ api, token: async () => randomUUID(), put: async upload => {
-      await local.put(upload,new Uint8Array([1,2,3]));
+      await local.put(upload,new Uint8Array([1,2,3]),member.headers);
     } });
     batch.start(metadata, files(15), { caseApi: api }); const results = await batch.attempt();
     assert.equal(results.complete, true); assert.equal(new Set(results.items.map(item => item.result.case_id)).size, 15);

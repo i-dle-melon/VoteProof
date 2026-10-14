@@ -4,14 +4,15 @@ import { memberFixture, png } from "./member-fixture.mjs";
 
 async function fixture(page, options = {}) {
   const member = await memberFixture(page, { authenticated: true, ...options });
-  const sessions = new Map(), receipts = new Map(), puts = [], posts = [], prepares = [];
+  const sessions = new Map(), receipts = new Map(), puts = [], posts = [], prepares = [],capabilities=[];
   let failedPut = false, lostCase = false;
   const reply = (route, data) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
   await page.route("**/api/uploads/prepare", route => {
     const body = route.request().postDataJSON(); prepares.push(body);
     const session_id = randomUUID(), index = sessions.size; sessions.set(session_id, index);
-    return reply(route, { session_id, expires_in: 300, uploads: body.files.map(file => ({
-      key: `proofs/staging/local/${session_id}/${randomUUID()}.png`, method: "PUT", headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') },
+    const capability=member.authenticated?null:randomBytes(32).toString('base64url');capabilities.push(capability);
+    return reply(route, { storage_version:2,session_id,...(capability?{capability}:{}), expires_in: 300, uploads: body.files.map(file => ({
+      key: `proofs/final/${session_id}/${randomUUID()}.png`, method: "PUT", headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') },
       upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${randomUUID()}` })) });
   });
   await page.route('**/api/uploads/put/**', async route => {
@@ -29,7 +30,7 @@ async function fixture(page, options = {}) {
     if (options.switchIdentity && index === 0) member.member = { ...member.member, member_id: "M-" + randomUUID() };
     await reply(route, receipts.get(key));
   });
-  return { member, prepares, receipts, puts, posts };
+  return { member, prepares, receipts, puts, posts,capabilities };
 }
 async function form(page, count = 20) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
@@ -45,11 +46,12 @@ test("20-image member batch creates 20 independent cases, status/receipts and mo
   await expect(page.locator("#batch-summary")).toHaveText("共 20 張 · 已送出 20 · 未成功 0 · 等待 0");
   await expect(page.locator("#submission-success")).toBeVisible();
   await expect(page.locator("#batch-items .credentials")).toHaveCount(20);
-  expect(state.prepares.length).toBe(20); expect(state.prepares.every(body => body.files.length === 1)).toBe(true);
+  expect(state.prepares.length).toBe(20); expect(state.prepares.every((body,i) => body.files.length === 1 && body.storage_version===2 && body.campaign_id===state.posts[i].body.campaign_id)).toBe(true);
   expect(state.posts.length).toBe(20); expect(new Set(state.posts.map(post => post.key)).size).toBe(20);
   expect(state.receipts.size).toBe(20); expect(new Set([...state.receipts.values()].map(row => row.case_id)).size).toBe(20);
   expect(state.posts.every(post => !Object.hasOwn(post.body, "member_id") && post.body.upload_session.keys.length === 1 && post.headers["x-csrf-token"] === state.member.csrf)).toBe(true);
   expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => call.path === "/api/cases").every(call => call.credentials === "same-origin"))).toBe(true);
+  expect(await page.evaluate(() => globalThis.__transportFixture.filter(call => /^\/api\/uploads\/(prepare|complete)$/.test(call.path)).every(call => call.credentials === "same-origin"))).toBe(true);
   await page.locator("#batch-query-info summary").click();await page.locator("#batch-copy").click();
   expect((await page.evaluate(() => globalThis.__copiedFixture)).match(/案件編號：/g).length).toBe(20);
   for (const width of [320, 390, 430]) for (const theme of ["dark", "light"]) {
@@ -73,6 +75,16 @@ test("partial batch keeps successes and retries only failed PUT/lost case items"
   expect(state.posts.length).toBe(4); expect(state.receipts.size).toBe(3);
   expect(state.posts[1].serialized).toBe(state.posts[3].serialized); expect(state.posts[1].key).toBe(state.posts[3].key);
   expect(state.posts.filter(post => post.key === state.posts[0].key).length).toBe(1);
+});
+
+test('guest final upload carries its capability only in the request body and keeps anonymous identity',async({page})=>{
+  const state=await fixture(page,{authenticated:false});await form(page,1);await page.locator('#submit-button').click();
+  await expect(page.locator('#batch-summary')).toHaveText('共 1 張 · 已送出 1 · 未成功 0 · 等待 0');
+  expect(state.posts[0].body.upload_session.capability).toBe(state.capabilities[0]);
+  expect(state.posts[0].body).not.toHaveProperty('member_id');expect(state.posts[0].body).not.toHaveProperty('player_id');expect(state.posts[0].body).not.toHaveProperty('nickname');
+  expect(await page.evaluate(()=>globalThis.__transportFixture.filter(c=>/^\/api\/(uploads\/(prepare|complete)|cases)$/.test(c.path)).every(c=>c.credentials==='omit'))).toBe(true);
+  expect(page.url()).not.toContain(state.capabilities[0]);
+  expect(await page.evaluate(cap=>[...Object.values(localStorage),...Object.values(sessionStorage)].some(v=>v.includes(cap)),state.capabilities[0])).toBe(false);
 });
 
 test("fresh OFF blocks all 20 selected images without any upload or new case", async ({ page }) => {

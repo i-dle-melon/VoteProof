@@ -23,12 +23,17 @@ export async function insertCase(db, input, record, files, manifest) {
           AND (p.category='團體' OR (p.category='Solo' AND p.solo_target IS NOT NULL)))
         AND (? IS NULL OR EXISTS (SELECT 1 FROM members m JOIN auth_sessions s ON s.member_id = m.member_id
           WHERE m.member_id = ? AND m.status = 'active' AND s.token_hash = ? AND s.revoked_at IS NULL
-          AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER)))`)
+          AND s.expires_at > CAST(strftime('%s', 'now') AS INTEGER)))
+        AND (NOT EXISTS(SELECT 1 FROM proof_upload_intents WHERE session_id=?) OR EXISTS(
+          SELECT 1 FROM proof_upload_intents i WHERE i.session_id=? AND i.state='sealed' AND i.campaign_id=?
+            AND i.member_id IS ? AND (? IS NOT NULL OR i.guest_capability_hash=?)
+            AND i.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND i.consumed_case_id IS NULL)) RETURNING id`)
         .bind(record.id, record.caseId, record.now, record.now, input.nickname, input.playerId,
           input.campaignId, input.voteType, input.voteDate, record.queryHash, input.note,
           input.sessionId, input.memberId ?? null, input.memberId ? "member" : "guest", input.sessionId, manifest,
           input.campaignId, input.campaignVersion, input.voteDate, input.voteType,
-          input.memberId ?? null, input.memberId ?? null, input.sessionHash ?? null),
+          input.memberId ?? null, input.memberId ?? null, input.sessionHash ?? null,
+          input.sessionId,input.sessionId,input.campaignId,input.memberId??null,input.memberId??null,input.guestCapabilityHash??null),
       ...files.map(file => db.prepare(`INSERT INTO case_files
         (id, case_id, object_key, content_type, size, etag, created_at, upload_object_key)
         SELECT ?, ?, ?, ?, ?, ?, ?, ? FROM cases WHERE id = ?`)
@@ -60,7 +65,9 @@ export async function insertCase(db, input, record, files, manifest) {
     await requireSubmissionsEnabled(db);
     throw new CaseError(500, "DATABASE_ERROR", "Case storage is unavailable");
   }
-  if (results[0]?.meta?.changes !== 1) {
+  // D1 changes includes trigger writes (V2 also consumes the intent). Confirm
+  // the guarded INSERT itself, rather than treating a committed Case as a loss.
+  if (results[0]?.results?.[0]?.id !== record.id) {
     await requireSubmissionsEnabled(db);
     const campaign = await requireCaseCampaign(db, input);
     if (campaign.version !== input.campaignVersion) throw new CaseError(409, "CAMPAIGN_CONFLICT", "Campaign changed; retry submission");

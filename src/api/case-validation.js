@@ -50,7 +50,7 @@ export function validateCase(body, now = new Date()) {
     if (typeof body.note !== "string" || [...body.note.trim()].length > CASE_LIMITS.note || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body.note)) invalid();
     note = body.note.trim() || null;
   }
-  if (!record(body.upload_session) || Object.keys(body.upload_session).some(name => !["session_id", "keys"].includes(name))) invalid();
+  if (!record(body.upload_session) || Object.keys(body.upload_session).some(name => !["session_id", "keys", "capability"].includes(name))) invalid();
   let upload;
   try { upload = validateComplete(body.upload_session); }
   catch { throw new CaseError(400, "INVALID_UPLOAD_REFERENCE", "Invalid completed upload reference"); }

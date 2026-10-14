@@ -7,7 +7,8 @@ import { archiveCaseFiles, cleanPrivateCopies } from "../lib/case-files.js";
 import { insertCase, guestCase, guestFiles } from "../lib/case-store.js";
 import { requestIdempotency, newQuerySeed, reconstructQueryKey, replayCase } from "../lib/case-idempotency.js";
 import { AuthError } from "./auth-validation.js";
-import { memberSession, memberCsrf } from "../lib/auth-session.js";
+import { memberSession, memberCsrf, requestOrigin } from "../lib/auth-session.js";
+import {uploadCapabilityHash,linkFinalProof,finalReference} from '../lib/immutable-uploads.js';
 import { SubmissionError } from "../lib/submission-gate.js";
 import { ensureCaseBackups } from "../lib/proof-backup-store.js";
 
@@ -32,6 +33,10 @@ export async function createCase(env, _url, request) {
     const replay = await replayCase(db, identity);
     if (replay) return jsonSuccess(replay, "no-store", 201);
     if (member) { input.nickname = member.nickname; input.playerId = member.player_id ?? "尚未設定"; } else {input.nickname="匿名投稿";input.playerId="匿名投稿";}
+    if(finalReference(input.keys)) {
+      requestOrigin(request,env);
+      input.guestCapabilityHash=input.capability?await uploadCapabilityHash(input.capability):null;
+    }
     const preflight = await casePreflight(db,input);
     input.campaignVersion = preflight.campaign.version;
     const completed = preflight.completed;
@@ -41,12 +46,13 @@ export async function createCase(env, _url, request) {
     const seed = identity ? newQuerySeed() : null;
     const queryKey = identity ? await reconstructQueryKey(identity, id, seed) : newQueryKey();
     const queryHash = await sha256(queryKey);
-    const files = await archiveCaseFiles(env.PROOFS_BUCKET, id, completed.files, cleanupKeys);
+    const files = completed.intent ? await linkFinalProof(env.PROOFS_BUCKET,completed)
+      : await archiveCaseFiles(env.PROOFS_BUCKET, id, completed.files, cleanupKeys);
     await insertCase(db, input, { id, caseId, now: new Date().toISOString(), queryHash,
       idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null }, files, completed.hash);
     committed = true;
     await ensureCaseBackups(env, id, files);
-    await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
+    if(!completed.intent)await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {
     if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);

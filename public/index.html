@@ -24,14 +24,6 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
     <script type="module" src="/js/app.js"></script>
   </head>
   <body>
-    <!-- ⚠️ DO NOT CHANGE：只有隔離預覽 build 會啟用；正式網站不顯示。 -->
-    <aside id="ui-preview-banner" hidden aria-label="UI 預覽">
-      <strong>UI PREVIEW · 非正式網站</strong>
-      <span>僅看版型，不會登入、投稿或保存設定。</span>
-      <button type="button" data-preview-scene="guest">訪客版面</button>
-      <button type="button" data-preview-scene="member">會員版面</button>
-      <button type="button" data-preview-scene="admin">管理版面</button>
-    </aside>
     <a class="skip-link" href="#main">跳至主要內容</a>
     <div class="app-shell">
       <!-- =========================================================
@@ -141,9 +133,15 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   data-submission-action
                   disabled
                 >
-                  投稿暫停</button
-                ><a class="btn btn-white" href="#lookup">案件查詢</a
-                ><a class="btn btn-soft" href="#leaderboards">查看排行榜</a>
+                  <span class="hero-action-icon" aria-hidden="true">📷</span>
+                  <span class="hero-action-label">投稿暫停</span></button
+                ><a class="btn btn-soft" href="#lookup"
+                  ><span class="hero-action-icon" aria-hidden="true">👤</span
+                  ><span>案件查詢</span></a
+                ><a class="btn btn-white" href="#leaderboards"
+                  ><span class="hero-action-icon" aria-hidden="true">🏆</span
+                  ><span>查看排行榜</span></a
+                >
               </div>
             </div>
             <div class="section-heading"><h2 class="section-title">目前活動</h2></div>
@@ -1165,6 +1163,14 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <form class="card form-card" id="profile-form" novalidate>
                   <h2>會員資料</h2>
                   <dl class="security-summary" id="member-auth-summary">
+                    <div>
+                      <dt>公開榜位置</dt>
+                      <dd id="member-public-rank">—</dd>
+                    </div>
+                    <div>
+                      <dt>信任裝置</dt>
+                      <dd id="member-trusted-state">正在確認…</dd>
+                    </div>
                     <div>
                       <dt>登入方式</dt>
                       <dd id="member-auth-method">正在確認…</dd>

@@ -43,13 +43,14 @@ put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putI
   assertSubmissionOpen();
   const token = await challenge.waitForToken();
   assertSubmissionOpen(); return token;
-}, progress: (state) => {
+}, progress: renderSubmissionProgress });
+function renderSubmissionProgress(state) {
   const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
     complete: "驗證已上傳的圖片…", case: "建立案件，請勿關閉分頁…" };
   $("upload-progress").hidden = false;
   $("progress").value = Math.round(state.fraction * 100);
   $("progress-label").textContent = `圖片 ${state.file}／${state.count} · ${labels[state.phase]}`;
-} });
+}
 let admin;
 const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
   $("member-mode").disabled = !identity;
@@ -106,7 +107,7 @@ function syncForm() {
   $("campaign-refresh").disabled = campaignLoading || submission.pending;
   for (const button of document.querySelectorAll('[data-submission-action]')) {
     button.disabled = !ready;
-    if (!button.classList.contains("quick")) button.textContent = ready ? (button.dataset.campaign ? "投稿這個活動" : "提交投票證明") : "投稿暫停";
+    if (!button.classList.contains("quick")) (button.querySelector(".hero-action-label") ?? button).textContent = ready ? (button.dataset.campaign ? "投稿這個活動" : "提交投票證明") : "投稿暫停";
   }
   for (const state of document.querySelectorAll('[data-submission-status]')) state.hidden = ready;
   $("home-submission-state").textContent = $("quick-submission-state").textContent = ready ? "開放投稿" : "投稿暫停";
@@ -297,6 +298,19 @@ function downloadReceipts(results) {
   const url=URL.createObjectURL(new Blob([results.map(queryInformation).join('\n\n')],{type:'text/plain;charset=utf-8'})),link=node('a');
   link.href=url;link.download='VoteProof-查詢資訊.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+function renderSubmissionReceipt(batch) {
+  success = batch.items[0].result;
+  $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = "已隱藏 · 請複製或下載保存";
+  $("submission-form").hidden = true; $("submission-success").hidden = false;
+  $("success-title").textContent = batch.total > 1 ? `${batch.total} 個案件已送出` : "投稿成功";
+  $("submission-success").querySelector(".credentials").hidden = batch.total > 1;
+  for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = batch.total > 1;
+  clearImages(); $("success-title").focus();
+}
+function renderSubmissionFailure(error) {
+  $("submission-error").textContent = error.code?.startsWith("AUTH_") || ["MEMBER_SUSPENDED", "CSRF_REJECTED"].includes(error.code) ? authMessage(error) : errorMessage(error);
+  $("retry-note").hidden = false;
+}
 $("batch-download").addEventListener('click',()=>downloadReceipts(submission.summary.items.filter(i=>i.result).map(i=>i.result)));
 $("receipt-download").addEventListener('click',()=>downloadReceipts(success?[success]:[]));
 $("batch-copy").addEventListener("click", async () => {
@@ -335,17 +349,10 @@ $("submission-form").addEventListener("submit", async (event) => {
     const batch = await attempt;
     if (batch.succeeded) void member.loadRecentCases();
     if (!batch.complete) throw submission.error ?? new PublicError("BATCH_INCOMPLETE");
-    success = batch.items[0].result;
     void member.loadRecentCases();
-    $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = "已隱藏 · 請複製或下載保存";
-    $("submission-form").hidden = true; $("submission-success").hidden = false;
-    $("success-title").textContent = batch.total > 1 ? `${batch.total} 個案件已送出` : "投稿成功";
-    // The existing single receipt controls remain for one image only.
-    $("submission-success").querySelector(".credentials").hidden = batch.total > 1;
-    for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = batch.total > 1;
-    clearImages(); $("success-title").focus();
+    renderSubmissionReceipt(batch);
   } catch (e) {
-    $("submission-error").textContent = e.code?.startsWith("AUTH_") || ["MEMBER_SUSPENDED", "CSRF_REJECTED"].includes(e.code) ? authMessage(e) : errorMessage(e); $("retry-note").hidden = false;
+    renderSubmissionFailure(e);
     if (["SUBMISSIONS_DISABLED", "SUBMISSIONS_UNAVAILABLE"].includes(e.code)) await loadSubmissionStatus();
   } finally { syncForm(); }
 });
@@ -418,6 +425,7 @@ function renderHomeRank(){
   if(!$("home-member-rank"))return;
   const identity=member.session.member,own=publicBoards.flatMap(b=>b.rankings??[]).find(r=>r.member_id===identity?.member_id);
   $("home-member-rank").textContent=own?'#'+own.rank:'尚未上榜';
+  if($("member-public-rank"))$("member-public-rank").textContent=own?'#'+own.rank:'尚未上榜';
 }
 function renderHomeBoard(board, message) {
   $("home-board-results").replaceChildren(); $("home-board-table").hidden = true;

@@ -1,0 +1,54 @@
+<aside id="ui-preview-banner" aria-label="UI 預覽情境">
+  <strong>UI PREVIEW · 非正式網站</strong><span>全部是假資料；不登入、不送出、不保存。</span>
+  <details id="preview-controls">
+    <summary>切換預覽情境</summary>
+    <div class="preview-controls-grid">
+      <label
+        >身份<select id="preview-identity" data-preview-control="identity">
+          <option value="guest">訪客</option>
+          <option value="member">一般會員（展示）</option>
+          <option value="admin">Admin（展示）</option>
+        </select></label
+      >
+      <label
+        >Submission Gate<select id="preview-gate" data-preview-control="gate">
+          <option value="on">ON（只展示）</option>
+          <option value="off">OFF</option>
+        </select></label
+      >
+      <label
+        >資料情境<select id="preview-data" data-preview-control="data">
+          <option value="normal">Normal · 有資料</option>
+          <option value="empty">Empty · 無資料</option>
+          <option value="error">Error · 載入失敗</option>
+        </select></label
+      >
+      <label
+        >Theme<select id="preview-theme" data-preview-control="theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select></label
+      >
+      <label
+        >投稿畫面<select id="preview-submission" data-preview-control="submission">
+          <option value="zero">0 張</option>
+          <option value="multi">多張（3 張）</option>
+          <option value="twenty">20 張</option>
+          <option value="uploading">Uploading</option>
+          <option value="success">Success</option>
+          <option value="failed">Failed / Retry</option>
+        </select></label
+      >
+      <label
+        >Async 比對<select id="preview-analysis" data-preview-control="analysis">
+          <option value="pending">pending</option>
+          <option value="processing">processing</option>
+          <option value="clear">clear</option>
+          <option value="exact_duplicate">exact_duplicate</option>
+          <option value="failed">failed</option>
+        </select></label
+      >
+    </div>
+  </details>
+  <span id="preview-action-status" role="status"></span>
+</aside>

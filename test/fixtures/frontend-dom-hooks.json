@@ -1,10 +1,4 @@
 {
-  "ui-preview-banner": {
-    "tag": "aside",
-    "attributes": {
-      "hidden": ""
-    }
-  },
   "admin-nav-group": {
     "tag": "div",
     "attributes": {

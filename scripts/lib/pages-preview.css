@@ -1,3 +1,69 @@
 /* Preview framing only. The same public source supplies every product style. */
-#ui-preview-banner { position: relative; }
-@media(min-width:981px){ .sidebar { position:sticky; inset:auto; top:0; align-self:flex-start; flex:0 0 var(--sidebar-width); height:100vh; } .main{margin-left:0;} }
+#ui-preview-banner {
+  position: relative;
+}
+#ui-preview-banner {
+  display: block;
+  padding: 10px 16px;
+  font-size: 12px;
+}
+#ui-preview-banner > span {
+  margin-left: 10px;
+}
+#preview-controls {
+  margin-top: 6px;
+}
+#preview-controls summary {
+  cursor: pointer;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  font-weight: 800;
+}
+.preview-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 10px;
+}
+.preview-controls-grid label {
+  font-size: 12px;
+  color: #161616;
+}
+.preview-controls-grid select {
+  margin-top: 5px;
+  color: #161616;
+  background: #fff8e6;
+  border-color: #856300;
+  font-size: 14px;
+}
+#preview-action-status {
+  display: block;
+}
+@media (max-width: 1024px) {
+  .preview-controls-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .preview-controls-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #ui-preview-banner > span {
+    display: block;
+    margin: 4px 0;
+  }
+}
+@media (min-width: 981px) {
+  .sidebar {
+    position: sticky;
+    inset: auto;
+    top: 0;
+    align-self: flex-start;
+    flex: 0 0 var(--sidebar-width);
+    height: 100vh;
+  }
+  .main {
+    margin-left: 0;
+  }
+}

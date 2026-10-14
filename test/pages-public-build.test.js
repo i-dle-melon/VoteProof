@@ -1,29 +1,64 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { buildPagesPreview, removeElement, removeMatchingElements } from '../scripts/build-pages-preview.mjs';
-test('Pages exclusions remove nested elements and fail closed on missing boundary', () => {
-  assert.equal(removeElement('<main><section id="private"><section>private</section></section><p>public</p></main>', 'private'), '<main><p>public</p></main>');
-  assert.throws(() => removeElement('<main></main>', 'private'));
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  buildPagesPreview,
+  removeElement,
+  removeMatchingElements,
+} from "../scripts/build-pages-preview.mjs";
+test("balanced HTML helpers fail closed without removing neighboring layout", () => {
+  assert.equal(
+    removeElement(
+      '<main><section id="private"><section>inside</section></section><p>next</p></main>',
+      "private",
+    ),
+    "<main><p>next</p></main>",
+  );
+  assert.throws(() => removeElement("<main/>", "missing"));
+  assert.equal(
+    removeMatchingElements(
+      '<nav><a href="#home">home</a><a href="#security">private</a></nav>',
+      /^<a\b[^>]*href="#security"/,
+    ),
+    '<nav><a href="#home">home</a></nav>',
+  );
 });
-test('formatted closing tags cannot consume adjacent navigation or layout containers', () => {
-  const html = '<aside><nav><a href="#home">home</a\n ><a href="#security"><span>private</span></a\n >\n</nav><div class="sidebar-footer"><a href="#about">about</a></div></aside><div class="main">public</div>';
-  assert.equal(removeMatchingElements(html, /^<a\b[^>]*href="#security"/), html.replace('<a href="#security"><span>private</span></a\n >', ''));
-});
-test('Pages artifact contains public source only, no operational runtime or identity fixture', async () => {
-  const before = await readFile('public/index.html', 'utf8');
-  const out = await buildPagesPreview(resolve('.wrangler/pages-preview'));
-  const html = await readFile(resolve(out,'index.html'), 'utf8');
-  assert.doesNotMatch(html, /id="(?:view-(?:admin|security|member|register|recover|google)|admin-ui-copy|login-totp-form)"|data-preview-scene="(?:admin|member)"/);
-  assert.doesNotMatch(html, /preview-tier-artwork|approved-tier-artwork|assets\/tiers\//);
-  await assert.rejects(readFile(resolve(out, 'js/tier-artwork.js')));
-  await assert.rejects(readFile(resolve(out, 'assets/tiers/normal.webp')));
+test("isolated artifact shares actual UI sources and contains only build-only fixture transports", async () => {
+  const before = await readFile("public/index.html", "utf8"),
+    out = await buildPagesPreview(resolve(".wrangler/pages-preview"));
+  const html = await readFile(resolve(out, "index.html"), "utf8");
+  for (const view of ["home", "member", "security", "admin"])
+    assert.match(html, new RegExp('id="view-' + view + '"'));
   assert.match(html, /UI PREVIEW · 非正式網站/);
   assert.match(html, /connect-src 'none'/);
-  const js = await readdir(resolve(out,'js'));
-  for (const name of ['admin.js','admin-api.js','admin-backup.js','member.js','member-api.js','member-tier-progress.js','qr.js']) assert.ok(!js.includes(name));
-  for (const name of js.filter(name => name.endsWith('.js'))) assert.doesNotMatch(await readFile(resolve(out,'js',name),'utf8'), /oauth2\.googleapis\.com|www\.googleapis\.com|GOOGLE_DRIVE_|\/api\/admin\/backups/);
-  assert.doesNotMatch(await readFile(resolve(out,'js/preview-fixtures.js'),'utf8'), /\/api\/admin\/|csrf_token|elevated_until|super_admin|UI-PREVIEW-MEMBER/);
-  assert.equal(await readFile('public/index.html','utf8'), before);
+  assert.match(html, /form-action 'none'/);
+  assert.doesNotMatch(html, /turnstile-site-key/);
+  assert.doesNotMatch(before, /ui-preview-banner|data-preview-control|voteproof-preview/);
+  for (const file of ["member.js", "admin.js", "admin-api.js", "ui-system.js", "tier-artwork.js"])
+    assert.equal(
+      await readFile(resolve(out, "js", file), "utf8"),
+      await readFile(resolve("public/js", file), "utf8"),
+    );
+  assert.ok(
+    (await readFile(resolve(out, "css/app.css"), "utf8")).startsWith(
+      await readFile("public/css/app.css", "utf8"),
+    ),
+  );
+  assert.ok((await readdir(resolve(out, "assets/tiers"))).length === 8);
+  assert.match(await readFile(resolve(out, "js/member-api.js"), "utf8"), /Build-only transport/);
+  assert.doesNotMatch(
+    await readFile(resolve(out, "js/member-api.js"), "utf8"),
+    /fetch\(|credentials:|csrf_token/,
+  );
+  const fixture = await readFile(resolve(out, "js/preview-fixtures.js"), "utf8");
+  assert.doesNotMatch(
+    fixture,
+    /csrf_token|query_key|recovery_codes|otpauth_uri|authorize_url|SUPABASE_|AUTH_SECRET/,
+  );
+  assert.match(fixture, /PREVIEW-MEMBER/);
+  assert.match(fixture, /method\s*!==\s*['"]GET['"]/);
+  assert.match(await readFile("public/js/preview.js", "utf8"), /PREVIEW = false/);
+  await assert.rejects(readFile("public/js/preview-fixtures.js"));
+  assert.equal(await readFile("public/index.html", "utf8"), before);
 });

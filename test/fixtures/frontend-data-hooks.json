@@ -1,8 +1,5 @@
 {
   "[\"html\",[[\"data-theme\",\"dark\"]]]": 1,
-  "[\"button\",[[\"data-preview-scene\",\"guest\"]]]": 1,
-  "[\"button\",[[\"data-preview-scene\",\"member\"]]]": 1,
-  "[\"button\",[[\"data-preview-scene\",\"admin\"]]]": 1,
   "[\"a\",[[\"data-view\",\"home\"]]]": 2,
   "[\"a\",[[\"data-view\",\"submit\"]]]": 2,
   "[\"span\",[[\"data-submission-status\",\"\"]]]": 2,

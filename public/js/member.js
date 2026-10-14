@@ -44,6 +44,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       $("member-avatar").textContent = [...(member.nickname || "")][0] || "◎"; $("member-profile-name").textContent = member.nickname; $("member-profile-player").textContent = member.player_id ? "玩家 ID · " + member.player_id : "尚未設定玩家 ID";
       const newOwner = profileSnapshot?.member_id !== member.member_id;
       if (newOwner) {
+        $("member-public-rank").textContent="—";$("member-trusted-state").textContent="正在確認…";
         $("member-record-total").textContent = "—";pendingCaseId=null;casesCursor=null;
         for(const id of ["member-cases","owned-cases","member-case-fields","owned-case-fields"])$(id).replaceChildren();
         $("member-case-detail").hidden=$("owned-case-detail").hidden=true;
@@ -543,7 +544,8 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       $("member-totp-state").textContent=data.authenticator.configured?'已設定':'尚未設定';
       $("member-recovery-state").textContent=Number.isInteger(data.recovery?.remaining)?'尚有 '+data.recovery.remaining+' 組':'可至安全性設定管理';
       $("member-auth-status").textContent='Google 一般登入不需 TOTP；管理權限一律需近期 MFA。';
-    }catch{if(sameMember(owner,sequence))$("member-auth-status").textContent='登入方式暫時無法取得，請至安全性設定重新載入。';}
+      void session.request('/api/auth/trusted-devices').then(devices=>{if(sameMember(owner,sequence))$("member-trusted-state").textContent=devices.devices.length?`${devices.devices.length} 個信任裝置`:"沒有信任裝置";}).catch(()=>{if(sameMember(owner,sequence))$("member-trusted-state").textContent="暫時無法取得";});
+    }catch{if(sameMember(owner,sequence)){for(const id of ['member-auth-method','member-google-state','member-password-state','member-totp-state','member-recovery-state','member-trusted-state'])$(id).textContent='暫時無法取得';$("member-auth-status").textContent='登入方式暫時無法取得，請至安全性設定重新載入。';}}
   }
   async function loadMember() {
     const sequence = ++memberEpoch;

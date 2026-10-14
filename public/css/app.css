@@ -1832,7 +1832,13 @@ tbody tr:first-child td:first-child {
   font-weight: 850;
 }
 .leaderboard-list .board-proof-count {
-  display: none;
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.leaderboard-list .board-proof-count::after {
+  content: " 張";
 }
 .leaderboard-position .section-title {
   margin-top: 0;
@@ -2046,6 +2052,47 @@ h3 {
   gap: 9px;
   flex-wrap: wrap;
   margin-top: 18px;
+}
+.hero-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 54px;
+  padding: 12px 20px;
+  font-size: 18px;
+  font-weight: 800;
+  border: 1px solid var(--line);
+}
+.hero-actions .btn-primary {
+  color: #fff;
+  border-color: var(--primary);
+}
+.hero-actions .btn-soft {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--line));
+}
+.hero-actions .btn-white {
+  background: var(--card);
+  color: var(--text);
+}
+.hero-actions .btn-primary:disabled {
+  background: var(--primary);
+  color: #fff;
+  opacity: 0.55;
+  box-shadow: none;
+}
+.hero-action-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex: none;
+}
+@media (max-width: 620px) {
+  .hero-actions .btn {
+    font-size: 16px;
+    padding: 12px 14px;
+  }
 }
 .activity-card {
   padding: 19px;

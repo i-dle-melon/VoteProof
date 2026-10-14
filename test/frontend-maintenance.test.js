@@ -24,8 +24,8 @@ test("preview requires both the generated marker and an isolated host", () => {
   assert.equal(previewAllowed("isolated", "localhost", "file:"), false);
 });
 test("production cannot read preview fixture data even through direct import", async () => {
-  const { fixtureResponse } = await import("../public/js/preview-fixtures.js");
-  assert.equal(fixtureResponse("/api/auth/me").status, 403);
+  await assert.rejects(readFile('public/js/preview-fixtures.js'));
+  assert.doesNotMatch(html,/ui-preview-banner|data-preview-control/);
 });
 test("workflows isolate automatic Pages from exact-commit manual Production deployment", async () => {
   const pages = await readFile(".github/workflows/pages-preview.yml", "utf8"), production = await readFile(".github/workflows/production-deploy.yml", "utf8");

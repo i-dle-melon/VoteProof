@@ -176,7 +176,7 @@ test("home and paused submission fit narrow and short mobile screens in both the
     for (const width of [320, 390, 430, 1280]) {
       await page.setViewportSize({ width, height: width === 320 ? 480 : 844 });
       await page.evaluate(() => { location.hash = "home"; }); await expect(page.locator("#view-home")).toBeVisible();
-      await noOverflow(page); await expect(page.locator("#home-submit-button")).toHaveText("投稿暫停");
+      await noOverflow(page); await expect(page.locator("#home-submit-button")).toHaveAccessibleName("投稿暫停");
       await page.screenshot({ path: `.wrangler/frontend-previews/home-${testInfo.project.name}-${width}-${theme}.png`, fullPage: true });
       await page.locator('[data-view="submit"]:visible').click(); await expect(page.locator("#proof-images")).toBeDisabled(); await noOverflow(page);
       await page.locator('#submit-alternatives a[href="#lookup"]').click(); await expect(page.locator("#lookup-form")).toBeVisible();

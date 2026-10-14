@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 const git = args => execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim().split(/\r?\n/).filter(Boolean);
 const tracked = process.argv.includes("--tracked");
-const files = [...new Set([...git(tracked ? ["ls-files"] : ["diff", "--name-only", "HEAD"]), ...git(["ls-files", "--others", "--exclude-standard"])])];
+const deleted = new Set(git(["diff", "--name-only", "--diff-filter=D", "HEAD"]));
+const files = [...new Set([...git(tracked ? ["ls-files"] : ["diff", "--name-only", "HEAD"]), ...git(["ls-files", "--others", "--exclude-standard"])])].filter(file=>!deleted.has(file));
 const rules = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,

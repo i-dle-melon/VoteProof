@@ -72,8 +72,8 @@ async function noOverflow(page) { expect(await page.evaluate(() => document.docu
 
 test("home uses real campaign, independent paused state and published ranks without demo totals", async ({ page }) => {
   await fixture(page, { submissionsOff: true }); await page.goto("/");
-  await expect(page.locator("#home-title")).toHaveText("每一票，都是應援的力量。");
-  await expect(page.locator("#view-home .page-head .sub")).toHaveText("保存投票證明，追蹤審核進度，一起累積應援成果。");
+  await expect(page.locator("#home-title")).toHaveText("每一票，都值得被看見。");
+  await expect(page.locator("#view-home .page-head .sub")).toHaveText("投票、提交、累積。讓每一次應援都有自己的紀錄。");
   await expect(page.locator("#home-campaign-name")).toHaveText(campaign.name);
   await expect(page.locator("#home-campaign-state")).toHaveText("活動進行中");
   await expect(page.locator("#home-submission-state")).toHaveText("投稿暫停");
@@ -259,7 +259,8 @@ test("full upload success shows query warning, copy controls and safe lookup", a
   const state = await fixture(page), logs = []; page.on("console", (message) => logs.push(message.text()));
   await form(page, 2); await page.locator("#submit-button").click();
   await expect(page.locator("#submission-success")).toBeVisible();
-  expect((await page.locator("#success-query-key").textContent()) === state.query).toBe(true);
+  await expect(page.locator("#success-query-key")).toContainText("已隱藏");
+  expect((await page.locator("body").innerText()).includes(state.query)).toBe(false);
   await expect(page.locator("#submission-success")).toContainText("請自行保存");
   await expect(page.locator("#batch-copy")).toBeVisible();
   await expect(page.locator("#batch-items .credentials")).toHaveCount(2);

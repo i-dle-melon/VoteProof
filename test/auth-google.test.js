@@ -134,6 +134,9 @@ test("incomplete password setup keeps Google usable and password login disabled"
 test("Google add password completes same member only after TOTP and recovery creation", async () => {
   const m = await googleMember(local), s = await passwordSetup(m); const r = await finishPassword(s); assert.equal(r.status, 200); const d = (await r.json()).data;
   assert.equal(d.member.member_id, m.member.member_id); assert.equal(d.recovery_codes.length, 10); assert.equal(await count("auth_identities", m.member.member_id), 1);
+  const security = await local.fetch('/api/auth/login-security','GET',undefined,{...m.headers,Cookie:responseCookie(r,SESSION_COOKIE)}); assert.equal(security.status,200);
+  const securityData = (await security.json()).data; assert.deepEqual(securityData.recovery,{remaining:10});
+  assert.ok(d.recovery_codes.every(code=>!JSON.stringify(securityData).includes(code)));
   const p = await googleProof(local, m.email); assert.equal((await (await confirm(p)).json()).data.member.member_id, m.member.member_id);
   const password = await post("login", { email: m.email, password: s.password }); assert.equal(password.status, 202); assert.equal((await password.json()).data.status, "MFA_REQUIRED");
 });

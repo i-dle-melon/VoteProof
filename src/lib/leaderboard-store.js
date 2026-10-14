@@ -2,6 +2,7 @@ import { AdminError, ELEVATED_AUTH_GUARD, actorBindings, adminDenied } from './a
 import { boardConflict, boardMissing } from './leaderboard-policy.js';
 import { LEDGER_CTE, INTEGRITY_SQL } from './leaderboard-ranking.js';
 import { CAMPAIGN_ID } from './campaign-policy.js';
+import { resolveMemberTier } from './member-tier.js';
 import { encodeCursor } from '../api/admin-validation.js';
 
 const definitionFields = ['name','type','campaign_id','start_date','end_date','vote_type','top_n','is_public','status'];
@@ -111,7 +112,7 @@ export async function rebuildBoard(db, actor, board, expectedVersion) {
 }
 // One joined query per response: a concurrent publish cannot mix runs/rows.
 export async function publishedBoards(db, id = null, admin = false) {
-  const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,r.run_id,r.generated_at,
+  const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,b.type,b.campaign_id,b.vote_type,r.run_id,r.generated_at,
       x.rank,x.member_id,x.nickname,x.points,x.proof_count,x.reached_at
     FROM leaderboards b JOIN leaderboard_runs r ON r.run_id = b.current_run_id AND r.status = 'success'
     LEFT JOIN leaderboard_results x ON x.run_id = r.run_id
@@ -120,8 +121,32 @@ export async function publishedBoards(db, id = null, admin = false) {
   const boards = [];
   for (const row of rows) {
     let board = boards.at(-1);
-    if (!board || board.leaderboard_id !== row.leaderboard_id) { board = { leaderboard_id:row.leaderboard_id,name:row.name,generated_at:row.generated_at,rankings:[] }; boards.push(board); }
+    if (!board || board.leaderboard_id !== row.leaderboard_id) { board = { leaderboard_id:row.leaderboard_id,name:row.name,type:row.type,campaign_id:row.campaign_id,vote_type:row.vote_type,generated_at:row.generated_at,rankings:[] }; boards.push(board); }
     if (row.rank !== null) board.rankings.push(Object.fromEntries(['rank','member_id','nickname','points','proof_count','reached_at'].map(k => [k,row[k]])));
   }
-  return { generated_at: boards.reduce((latest,b) => b.generated_at > latest ? b.generated_at : latest,'' ) || null, leaderboards:boards };
+  const members=[...new Set(boards.flatMap(b=>b.rankings.map(r=>r.member_id)))];
+  if(members.length){
+    // Read-only enrichment. Published ranks/points remain the original snapshot;
+    // current Tier uses the same centralized policy as the member point summary.
+    const [totals,configuration]=await db.batch([
+      db.prepare(`SELECT member_id,COALESCE(SUM(points),0) total_points FROM point_transactions WHERE member_id IN (
+        SELECT x.member_id FROM leaderboard_results x JOIN leaderboard_runs r ON r.run_id=x.run_id AND r.status='success'
+        JOIN leaderboards b ON b.current_run_id=r.run_id
+        WHERE (? IS NULL OR b.leaderboard_id=?) ${admin?'':"AND b.is_public=1 AND b.status='active'"}
+      ) GROUP BY member_id`).bind(id,id),
+      db.prepare('SELECT tier_id,name,icon_key,rank_order,min_points,status FROM member_tiers ORDER BY rank_order'),
+    ]);
+    const balances=new Map(totals.results.map(r=>[r.member_id,r.total_points]));
+    for(const board of boards)for(const row of board.rankings){
+      const resolved=resolveMemberTier(balances.get(row.member_id)??0,configuration.results);
+      const {tier_id,name,icon_key}=resolved.tier;
+      row.tier={tier_id,name,icon_key};row.tier_configuration_ready=resolved.tier_configuration_ready;
+    }
+  }
+  // Enabled custom navigation is safe definition metadata, independent of the
+  // publication of scores. Never fabricate a run or change snapshot eligibility.
+  const custom_boards=admin?[]:(await db.prepare(`SELECT leaderboard_id,name,type,campaign_id,vote_type FROM leaderboards
+    WHERE type='custom' AND is_public=1 AND status='active' AND (? IS NULL OR leaderboard_id=?)
+    ORDER BY created_at,leaderboard_id`).bind(id,id).all()).results;
+  return { generated_at: boards.reduce((latest,b) => b.generated_at > latest ? b.generated_at : latest,'' ) || null, leaderboards:boards, custom_boards };
 }

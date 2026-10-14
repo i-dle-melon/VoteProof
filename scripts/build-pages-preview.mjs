@@ -43,7 +43,7 @@ export async function buildPagesPreview(output) {
   await mkdir(allowed, { recursive: true });
   // Explicit file allowlist: stale protected JS from an earlier artifact cannot
   // survive a rebuild. Only files under this fixed generated directory removed.
-  const files = ["index.html", "css/app.css", "js/app.js", "js/api.js", "js/submission.js", "js/turnstile.js", "js/preview.js", "js/preview-fixtures.js"];
+  const files = ["index.html", "css/app.css", "js/app.js", "js/api.js", "js/submission.js", "js/turnstile.js", "js/preview.js", "js/preview-fixtures.js", "js/ui-system.js"];
   async function discardStale(folder) {
     for (const entry of await readdir(folder, { withFileTypes: true })) {
       const file = resolve(folder, entry.name);
@@ -61,19 +61,19 @@ export async function buildPagesPreview(output) {
   html = html.replaceAll('href="/css/', 'href="./css/').replaceAll('src="/js/', 'src="./js/');
   // Banner is present before JavaScript runs; a failed module cannot disguise it.
   html = html.replace(/id="ui-preview-banner"\s+hidden/, 'id="ui-preview-banner"');
-  for (const id of ["view-admin", "admin-ui-copy", "admin-nav-group", "view-security", "view-member", "view-register", "view-recover", "view-google", "login-totp-form"]) html = removeElement(html, id);
+  for (const id of ["view-admin", "admin-ui-copy", "admin-nav-group", "view-security", "view-member", "view-register", "view-recover", "view-google", "login-totp-form", "home-personal", "owned-case-center"]) html = removeElement(html, id);
   html = html.replace(/<meta\b[^>]*name="turnstile-site-key"[^>]*>/, "");
   html = removeMatchingElements(html, /^<button\b[^>]*data-preview-scene="(?:admin|member)"/);
   html = removeMatchingElements(html, /^<a\b[^>]*href="#security"/);
   html = html.replace(/href="#(?:member|register|recover|google)"/g, 'href="#login"').replace(/data-view="member"/g, 'data-view="login"');
   let app = await readFile(resolve(allowed, "js/app.js"), "utf8");
-  for (const module of ["admin", "member", "member-api"]) app = replaceRequired(app, `from "./${module}.js"`, 'from "./pages-public-ui.js"');
+  for (const module of ["admin", "member", "member-api", "tier-artwork"]) app = replaceRequired(app, `from "./${module}.js"`, 'from "./pages-public-ui.js"');
   app = replaceRequired(app, '["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"]', '["home", "submit", "lookup", "leaderboards", "about", "login"]');
   await writeFile(resolve(allowed, "js/app.js"), app);
   await cp(resolve("scripts/lib/pages-public-ui.js"), resolve(allowed, "js/pages-public-ui.js"));
   // Preview-only framing: the banner must not cover the fixed desktop brand.
   await writeFile(resolve(allowed, "css/app.css"), (await readFile(resolve("public/css/app.css"), "utf8")) + '\n' + (await readFile(resolve("scripts/lib/pages-preview.css"), "utf8")));
-  if (/id="(?:view-(?:admin|security|member|register|recover|google)|admin-ui-copy|login-totp-form)"|href="#(?:admin|security)"|data-preview-scene="(?:admin|member)"/.test(html)) throw new Error("Protected view in public preview");
+  if (/id="(?:view-(?:admin|security|member|register|recover|google)|admin-ui-copy|login-totp-form)"|href="(?:#(?:admin|security)|\/admin#admin)"|data-preview-scene="(?:admin|member)"/.test(html)) throw new Error("Protected view in public preview");
   await writeFile(resolve(allowed, "index.html"), html);
   await writeFile(resolve(allowed, ".nojekyll"), "");
   return allowed;

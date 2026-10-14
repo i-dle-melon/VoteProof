@@ -1,3 +1,5 @@
+import { setupUI } from "./ui-system.js";
+import { tierArtwork, renderTierArtwork } from "./tier-artwork.js";
 import { api, putImage, errorMessage, PublicError } from "./api.js";
 import { BatchSubmission, validateBatchImages, queryInformation } from "./submission.js";
 import { Challenge } from "./turnstile.js";
@@ -7,6 +9,7 @@ import { authMessage } from "./member-api.js";
 import { setupPreview } from "./preview.js";
 
 setupPreview();
+setupUI();
 
 const $ = (id) => document.getElementById(id);
 const submitLabel = $("submit-button").textContent.trim();
@@ -48,7 +51,7 @@ put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putI
   $("progress-label").textContent = `圖片 ${state.file}／${state.count} · ${labels[state.phase]}`;
 } });
 let admin;
-const member = memberUI({ campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
+const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
   $("member-mode").disabled = !identity;
   $("member-mode").textContent = identity ? "會員 · " + identity.nickname : "會員 · 請先登入";
   syncOwnership(); admin?.identity(identity); renderBoardPosition();
@@ -186,7 +189,10 @@ async function loadCampaigns({ refreshGate = true } = {}) {
     campaignAvailability = $("submit-availability").textContent;
   } finally {
     campaignLoading = false;
+    $("hero-campaign-name").textContent=campaigns[0]?.name??(campaignLoaded?"等待下一次應援活動":"活動暫時無法載入");
     $("home-campaign-name").textContent = campaigns[0]?.name ?? (campaignLoaded ? "目前沒有開放中的活動" : "活動暫時無法載入");
+    $("home-campaign-period").textContent=campaigns[0]?`${campaignDate(campaigns[0].start_at)} ～ ${campaignDate(campaigns[0].end_at)}`:"";
+    $("home-campaign-scoring").textContent=campaigns[0]?scoringLabel(campaigns[0]):"";
     $("home-campaign-state").textContent = campaigns.length ? "活動進行中" : campaignLoaded ? "尚無開放活動" : "暫時無法確認";
     syncForm();
   }
@@ -201,8 +207,9 @@ document.addEventListener("click", event => {
   location.hash = "submit";
 });
 
-function clearImages() { selectionGeneration++; for (const item of images) URL.revokeObjectURL(item.url); images = []; $("image-list").replaceChildren(); $("proof-images").value = ""; }
+function clearImages() { $("selected-image-count").textContent="已選 0 / 20 張"; selectionGeneration++; for (const item of images) URL.revokeObjectURL(item.url); images = []; $("image-list").replaceChildren(); $("proof-images").value = ""; }
 function renderImages() {
+  $("selected-image-count").textContent=`已選 ${images.length} / 20 張`;
   $("image-list").replaceChildren();
   for (const [index, item] of images.entries()) {
     const card = node("div", undefined, "image-item"), preview = node("img");
@@ -274,7 +281,7 @@ function renderBatch(summary) {
     row.append(node("strong", `${index + 1}. ${item.name}`), node("p", status));
     if (item.result) {
       const details = node("dl", undefined, "credentials");
-      details.append(node("dt", "案件編號"), node("dd", item.result.case_id), node("dt", "查詢碼"), node("dd", item.result.query_key));
+      details.append(node("dt", "案件編號"), node("dd", item.result.case_id), node("dt", "查詢碼"), node("dd", "已隱藏 · 請複製或下載保存"));
       const lookup = node("button", "查詢這個案件", "btn btn-soft"); lookup.type = "button";
       lookup.addEventListener("click", () => {
         $("lookup-id").value = item.result.case_id; $("lookup-key").value = item.result.query_key; location.hash = "lookup";
@@ -285,13 +292,20 @@ function renderBatch(summary) {
   }
   $("batch-copy").disabled = summary.succeeded === 0;
 }
+function downloadReceipts(results) {
+  if(!results.length)return;
+  const url=URL.createObjectURL(new Blob([results.map(queryInformation).join('\n\n')],{type:'text/plain;charset=utf-8'})),link=node('a');
+  link.href=url;link.download='VoteProof-查詢資訊.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$("batch-download").addEventListener('click',()=>downloadReceipts(submission.summary.items.filter(i=>i.result).map(i=>i.result)));
+$("receipt-download").addEventListener('click',()=>downloadReceipts(success?[success]:[]));
 $("batch-copy").addEventListener("click", async () => {
   const results = submission.summary.items.filter(item => item.result);
   if (!results.length) return;
   try {
     await navigator.clipboard.writeText(results.map(item => queryInformation(item.result)).join("\n\n"));
     $("batch-copy-status").textContent = "已複製，請貼至你自己的安全筆記保存。";
-  } catch { $("batch-copy-status").textContent = "瀏覽器未允許複製，請手動保存各案件的查詢資訊。"; }
+  } catch { $("batch-copy-status").textContent = "瀏覽器未允許複製，請下載查詢資訊保存。"; }
 });
 
 $("submission-form").addEventListener("submit", async (event) => {
@@ -323,7 +337,7 @@ $("submission-form").addEventListener("submit", async (event) => {
     if (!batch.complete) throw submission.error ?? new PublicError("BATCH_INCOMPLETE");
     success = batch.items[0].result;
     void member.loadRecentCases();
-    $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = success.query_key;
+    $("success-case-id").textContent = success.case_id; $("success-query-key").textContent = "已隱藏 · 請複製或下載保存";
     $("submission-form").hidden = true; $("submission-success").hidden = false;
     $("success-title").textContent = batch.total > 1 ? `${batch.total} 個案件已送出` : "投稿成功";
     // The existing single receipt controls remain for one image only.
@@ -358,7 +372,7 @@ for (const [id, value] of [["copy-case", () => success?.case_id], ["copy-key", (
   $(id).addEventListener("click", async () => {
     if (!success) return;
     try { await navigator.clipboard.writeText(value()); $("copy-status").textContent = "已複製，請貼至你自己的安全筆記保存。"; }
-    catch { $("copy-status").textContent = "瀏覽器未允許複製，請手動選取上方資訊並保存。"; }
+    catch { $("copy-status").textContent = "瀏覽器未允許複製，請下載查詢資訊保存。"; }
   });
 }
 $("lookup-created").addEventListener("click", () => {
@@ -390,14 +404,31 @@ $("lookup-form").addEventListener("submit", async (event) => {
   finally { lookupBusy = false; $("lookup-button").disabled = false; $("lookup-id").disabled = $("lookup-key").disabled = false; $("lookup-button").textContent = "查詢案件"; $("lookup-form").setAttribute("aria-busy", "false"); }
 });
 
+function renderHomeMember(data,identity,error=false) {
+  if(!$("home-personal"))return;
+  $("home-personal").hidden=!identity;$("home-member-name").textContent=identity?.nickname??'';
+  for(const id of ['home-member-points','home-member-tier','home-member-rank'])$(id).textContent='—';
+  if(!identity)return;
+  $("home-member-status").textContent=error?'摘要暫時無法取得，請至會員中心重新載入。':!data?'正在載入你的應援紀錄…':'點數依已完成的審核與活動規則計算。';
+  if(!data)return;
+  $("home-member-points").textContent=Number(data.total_points).toLocaleString('zh-TW');
+  $("home-member-tier").textContent=tierArtwork(data.tier?.tier_id)?.name??'等級暫時無法取得';renderHomeRank();
+}
+function renderHomeRank(){
+  if(!$("home-member-rank"))return;
+  const identity=member.session.member,own=publicBoards.flatMap(b=>b.rankings??[]).find(r=>r.member_id===identity?.member_id);
+  $("home-member-rank").textContent=own?'#'+own.rank:'尚未上榜';
+}
 function renderHomeBoard(board, message) {
   $("home-board-results").replaceChildren(); $("home-board-table").hidden = true;
   $("home-board-name").textContent = board?.name ?? "";
   $("home-boards-message").textContent = message ?? (!board ? "目前沒有公開排行榜。" : "這個排行榜目前還沒有成績。");
   if (!Array.isArray(board?.rankings) || !board.rankings.length) return;
   for (const row of board.rankings.slice(0, 5)) {
-    const tr = node("tr");
-    for (const field of ["rank", "nickname", "points", "proof_count"]) tr.append(node("td", String(row[field] ?? "—")));
+    const tr=node("tr"),rank=node("td"),name=node("td",undefined,"grow");
+    rank.append(node("span",String(row.rank),"rank-badge"+(Number(row.rank)<=3?" top":"")));
+    name.append(node("strong",row.nickname??"—"),node("span",board.name));
+    tr.append(rank,name,node("td",Number(row.points).toLocaleString("zh-TW")+" 點","points"),node("td",String(row.proof_count??"—"),"board-proof-count"));
     $("home-board-results").append(tr);
   }
   $("home-boards-message").textContent = ""; $("home-board-table").hidden = false;
@@ -422,16 +453,53 @@ function renderBoardPosition() {
     $("board-member-summary").append(line);
   }
 }
+let boardCategory = "history";
+const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo排行"]];
+function categoryOf(board) {
+  if(board.type === "custom") return "custom:" + board.leaderboard_id;
+  if(board.vote_type === "團體") return "group";
+  if(board.vote_type === "Solo") return "solo";
+  return board.type === "campaign" ? "comeback" : "history";
+}
+function boardMatches(board, category) {
+  if(board.type === "custom") return category === "custom:" + board.leaderboard_id;
+  if(category === "comeback") return board.type === "campaign";
+  if(category === "group") return board.vote_type === "團體";
+  if(category === "solo") return board.vote_type === "Solo";
+  return category === "history" && !board.vote_type && board.type !== "campaign";
+}
 function renderBoardTabs() {
+  $("board-categories").replaceChildren();
+  for(const [key,label] of boardCategories){
+    const tab=node("button",label,"tab");tab.type="button";tab.dataset.category=key;
+    tab.classList.toggle("active",key===boardCategory);tab.setAttribute("aria-pressed",String(key===boardCategory));tab.disabled=boardLoading;
+    tab.addEventListener("click",()=>{
+      boardCategory=key;const board=publicBoards.find(b=>boardMatches(b,key));
+      $("board-select").value=board?.leaderboard_id??"";renderBoardTabs();renderBoard(board);
+      if(!board)$("boards-message").textContent="這個分類目前沒有公開排行榜。管理員公布後會顯示在這裡。";
+    });$("board-categories").append(tab);
+  }
+  for(const board of publicBoards.filter(b=>b.type==="custom")){
+    const tab=node("button",board.name,"tab");tab.type="button";tab.dataset.customBoard=board.leaderboard_id;
+    const active=boardCategory==="custom:"+board.leaderboard_id;tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));tab.disabled=boardLoading;
+    tab.addEventListener("click",()=>{$("board-select").value=board.leaderboard_id;void selectBoard();});$("board-categories").append(tab);
+  }
   $("leader-tabs").replaceChildren();
   for (const board of publicBoards) {
     const tab = node("button", board.name, "tab"); tab.type = "button"; tab.dataset.board = board.leaderboard_id;
     tab.classList.toggle("active", board.leaderboard_id === $("board-select").value);
+    tab.hidden = board.type === "custom" || !boardMatches(board, boardCategory);
     tab.setAttribute("aria-pressed", String(board.leaderboard_id === $("board-select").value));
     tab.disabled = boardLoading;
     tab.addEventListener("click", () => { $("board-select").value = board.leaderboard_id; void selectBoard(); });
     $("leader-tabs").append(tab);
   }
+}
+function boardsFrom(data){
+  if(!Array.isArray(data?.leaderboards))throw new Error();
+  const published=data.leaderboards;
+  if(!Array.isArray(data.custom_boards))return published;
+  return [...published.filter(board=>board.type!=="custom"),...data.custom_boards.map(board=>published.find(b=>b.leaderboard_id===board.leaderboard_id)??({...board,generated_at:null,rankings:[]}))];
 }
 function renderBoard(board) {
   currentBoard = board ?? null;
@@ -446,8 +514,12 @@ function renderBoard(board) {
   for (const row of board.rankings) {
     // Keep authoritative snapshot ranks and order, including gaps and ties.
     const tr = node("tr"), rank = node("td"), name = node("td", undefined, "grow");
+    tr.classList.toggle("is-self",row.member_id===member.session.member?.member_id);
     rank.append(node("span", String(row.rank), "rank-badge" + (Number(row.rank) <= 3 ? " top" : "")));
     name.append(node("strong", row.nickname ?? "—"), node("span", board.name));
+    const tier=node("span",undefined,"tier-inline"),art=node("span");
+    if(row.tier?.tier_id){renderTierArtwork(art,row.tier.tier_id);tier.append(art,node("span",tierArtwork(row.tier.tier_id)?.name??"等級未提供"));}else tier.append(node("span","等級未提供"));
+    name.append(tier);
     tr.append(rank, name, node("td", Number(row.points).toLocaleString("zh-TW") + " 點", "points"), node("td", String(row.proof_count ?? "—"), "board-proof-count"));
     $("board-results").append(tr);
   }
@@ -464,25 +536,28 @@ async function loadBoards() {
     const data = await api("/api/leaderboards");
     if (!Array.isArray(data?.leaderboards)) throw new Error();
     if (sequence !== boardSequence) return;
-    publicBoards = data.leaderboards; const previous = $("board-select").value;
+    publicBoards = boardsFrom(data); const previous = $("board-select").value;
     $("board-select").replaceChildren(...publicBoards.map(b => new Option(b.name, b.leaderboard_id)));
     if (publicBoards.some(b => b.leaderboard_id === previous)) $("board-select").value = previous;
     if (!publicBoards.length) $("board-select").append(new Option("沒有公開排行榜", ""));
-    renderBoard(publicBoards.find(b => b.leaderboard_id === $("board-select").value));
+    const selected=publicBoards.find(b => b.leaderboard_id === $("board-select").value);
+    if(selected&&!boardMatches(selected,boardCategory))boardCategory=categoryOf(selected);
+    renderBoard(selected);
     renderHomeBoard(publicBoards[0]);
     boardLoaded = true; $("board-select").disabled = !publicBoards.length;
   } catch {
     boardLoaded = false; publicBoards = []; renderBoard(null); $("boards-message").textContent = "排行榜暫時無法載入，請按重新載入。";
     renderHomeBoard(null, "排行榜暫時無法載入，請前往排行榜重新載入。");
-  } finally { boardLoading = false; $("boards-refresh").disabled = false; renderBoardTabs(); }
+  } finally { boardLoading = false; $("boards-refresh").disabled = false; renderBoardTabs(); renderHomeRank(); }
 }
 async function selectBoard() {
   const id = $("board-select").value, sequence = ++boardSequence;
+  const selected=publicBoards.find(b=>b.leaderboard_id===id);if(selected&&!boardMatches(selected,boardCategory))boardCategory=categoryOf(selected);
   renderBoardTabs(); renderBoard(null); $("boards-message").textContent = "正在載入成績…";
   try {
     const data = await api("/api/leaderboards?id=" + encodeURIComponent(id));
     if (sequence === boardSequence) {
-      const board = data.leaderboards?.find(b => b.leaderboard_id === id);
+      const board = boardsFrom(data).find(b => b.leaderboard_id === id);
       if (board) publicBoards = publicBoards.map(b => b.leaderboard_id === id ? board : b);
       renderBoard(board);
     }
@@ -505,9 +580,10 @@ $("theme-toggle").addEventListener("click", () => {
   try { localStorage.setItem("voteproof-theme", value); } catch { /* Theme still works without storage. */ }
 });
 function navigate(focus = true) {
-  const requested = location.hash.slice(1);
+  const requested = location.hash.slice(1) || (/^\/admin\/?$/.test(location.pathname)?"admin":"home");
   if (requested === "main") { $("main").focus(); return; }
   const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"].includes(requested) ? requested : "home";
+  document.documentElement.dataset.route=view;
   member.enter(view); admin.enter(view);
   for (const section of $("main").querySelectorAll("[data-view-panel]")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-view]")) {
@@ -517,6 +593,8 @@ function navigate(focus = true) {
   if (view === "submit") void loadSubmissionStatus().then(mountChallenge);
   if (view === "leaderboards" && !boardLoaded) void loadBoards();
 }
+document.addEventListener('click',event=>{const link=event.target.closest('a[href^="#"]');if(link&&/^\/admin\/?$/.test(location.pathname)&&link.getAttribute('href')!=='#admin'){event.preventDefault();history.pushState(null,'','/'+link.getAttribute('href'));navigate();}});
+window.addEventListener('popstate',()=>navigate());
 window.addEventListener("hashchange", () => navigate());
 function refreshAvailability() { void loadSubmissionStatus().then(mountChallenge); }
 window.addEventListener("focus", refreshAvailability);

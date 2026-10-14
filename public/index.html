@@ -65,7 +65,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
           >
           <div id="admin-nav-group" hidden>
             <span class="nav-group">管理</span
-            ><a class="nav-btn" href="#admin" data-view="admin"
+            ><a class="nav-btn" href="/admin#admin" data-view="admin"
               ><span aria-hidden="true">⚙</span>管理後台</a
             >
           </div>
@@ -81,7 +81,15 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
           <a class="mobile-brand" href="#home" aria-label="VoteProof 首頁"
             ><span class="brand-mark" aria-hidden="true">i-dle*</span
             ><span class="brand-copy"><strong>VoteProof</strong><span>投票證明中心</span></span></a
-          ><span class="desktop-title">投票證明中心</span>
+          ><span class="desktop-title">投票證明中心</span
+          ><button
+            id="workflow-help"
+            class="pill help-button"
+            type="button"
+            aria-label="投稿流程與隱私說明"
+          >
+            ?
+          </button>
           <div class="account-nav topbar-right">
             <button
               class="pill"
@@ -113,14 +121,14 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
      API 動態容器請保持原狀；不要填入固定活動、分數或身份。
 ========================================================= -->
           <section data-view-panel class="view" id="view-home" aria-labelledby="home-title">
-            <div class="page-head">
+            <div class="page-head home-intro">
               <span class="eyebrow">FOR i-dle · BY NEVERLAND</span>
-              <h1 data-view-title id="home-title" tabindex="-1">每一票，都是應援的力量。</h1>
-              <p class="sub">保存投票證明，追蹤審核進度，一起累積應援成果。</p>
+              <h1 data-view-title id="home-title" tabindex="-1">每一票，都值得被看見。</h1>
+              <p class="sub">投票、提交、累積。讓每一次應援都有自己的紀錄。</p>
             </div>
-            <div class="card hero">
+            <div class="card hero campaign-stage">
               <span class="hero-label">投下支持，留下證明</span>
-              <h2>一起留下每一次支持</h2>
+              <h2 id="hero-campaign-name">正在載入活動…</h2>
               <p>活動開放投稿時，選擇活動並提交證明。案件查詢與排行榜隨時可用。</p>
               <p id="submission-gate-message" class="notice info" role="status" aria-live="polite">
                 正在確認投稿是否開放…
@@ -145,28 +153,51 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 ><strong id="home-campaign-name">正在載入活動…</strong>
               </article>
               <article class="card activity-card">
-                <span class="tiny">活動狀態</span
-                ><strong id="home-campaign-state">正在確認…</strong>
+                <span class="tiny">活動狀態</span><strong id="home-campaign-state">正在確認…</strong
+                ><span class="tiny" id="home-campaign-period"></span>
               </article>
               <article class="card activity-card">
                 <span class="tiny">投稿狀態</span
-                ><strong id="home-submission-state">投稿暫停</strong>
+                ><strong id="home-submission-state">投稿暫停</strong
+                ><span class="tiny" id="home-campaign-scoring"></span>
               </article>
+            </div>
+            <div id="home-personal" class="card personal-strip" hidden aria-label="我的應援摘要">
+              <div>
+                <span class="eyebrow">YOUR SUPPORT</span>
+                <h2 id="home-member-name"></h2>
+                <p id="home-member-status" role="status"></p>
+              </div>
+              <dl>
+                <div>
+                  <dt>累計點數</dt>
+                  <dd id="home-member-points">—</dd>
+                </div>
+                <div>
+                  <dt>目前等級</dt>
+                  <dd id="home-member-tier">—</dd>
+                </div>
+                <div>
+                  <dt>榜單位置</dt>
+                  <dd id="home-member-rank">—</dd>
+                </div>
+              </dl>
+              <a class="btn btn-soft" href="#member">查看會員中心</a>
             </div>
             <div class="section-heading"><h2 class="section-title">快速入口</h2></div>
             <div class="quick-grid">
               <button type="button" class="card quick" data-submission-action disabled>
-                <span class="step-number" aria-hidden="true">＋</span><strong>提交投票證明</strong>
+                <span class="step-number" aria-hidden="true">📸</span><strong>提交投票證明</strong>
                 <p>活動開放投稿時，可在這裡提交投票證明。</p>
                 <span class="quick-state" id="quick-submission-state">投稿暫停</span></button
               ><a class="card quick" href="#lookup"
                 ><span class="step-number" aria-hidden="true">▣</span><strong>案件查詢</strong>
                 <p>使用案件編號與查詢碼追蹤處理進度。</p></a
               ><a class="card quick" href="#leaderboards"
-                ><span class="step-number" aria-hidden="true">♛</span><strong>排行榜</strong>
+                ><span class="step-number" aria-hidden="true">🏆</span><strong>排行榜</strong>
                 <p>查看目前已公開的 VoteProof 排行榜。</p></a
               ><a class="card quick" href="#member"
-                ><span class="step-number" aria-hidden="true">◎</span><strong>會員中心</strong>
+                ><span class="step-number" aria-hidden="true">🔐</span><strong>會員中心</strong>
                 <p>查看你的案件、點數與會員資料。</p></a
               >
             </div>
@@ -183,12 +214,12 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             <div class="card leader-card">
               <h3 id="home-board-name"></h3>
               <p id="home-boards-message" role="status" aria-live="polite">正在載入排行榜…</p>
-              <div class="table-wrap" id="home-board-table" hidden>
+              <div class="table-wrap leaderboard-list" id="home-board-table" hidden>
                 <table>
                   <caption class="sr-only">
                     公開排行榜前五筆成績
                   </caption>
-                  <thead>
+                  <thead class="sr-only">
                     <tr>
                       <th scope="col">名次</th>
                       <th scope="col">暱稱</th>
@@ -199,6 +230,32 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   <tbody id="home-board-results"></tbody>
                 </table>
               </div>
+            </div>
+            <div class="support-guide">
+              <div class="section-heading">
+                <h2>從一張證明開始</h2>
+                <span class="eyebrow">HOW IT WORKS</span>
+              </div>
+              <ol class="workflow-grid">
+                <li>
+                  <span class="workflow-number">01</span>
+                  <h3>完成投票</h3>
+                  <p>確認活動與投票期間，保存清楚的投票證明。</p>
+                </li>
+                <li>
+                  <span class="workflow-number">02</span>
+                  <h3>安全提交</h3>
+                  <p>每批最多 20 張。每張各自建立案件，失敗項目可重試。</p>
+                </li>
+                <li>
+                  <span class="workflow-number">03</span>
+                  <h3>追蹤成果</h3>
+                  <p>人工審核後依活動規則計分。登入即可查看自己的紀錄。</p>
+                </li>
+              </ol>
+              <p class="privacy-line">
+                ◇ 圖片只供授權審核 · 不公開圖片網址 · 案件查詢與登入在暫停投稿期間仍可使用
+              </p>
             </div>
           </section>
 
@@ -294,7 +351,8 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                       <span class="drop-icon" aria-hidden="true">🖼️</span
                       ><strong>點擊選擇圖片，或拖曳到這裡</strong
                       ><span class="tiny" id="image-help"
-                        >JPG / PNG / WEBP，每批最多 20 張，每張上限 5 MiB；每張各自建立案件、獨立審核與計分。</span
+                        >JPG / PNG / WEBP，每批最多 20 張，每張上限 5
+                        MiB；每張各自建立案件、獨立審核與計分。</span
                       ><input
                         type="file"
                         id="proof-images"
@@ -305,6 +363,14 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                       />
                     </div>
                     <p id="image-error" class="error" role="alert"></p>
+                    <p
+                      id="selected-image-count"
+                      class="selection-count"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      已選 0 / 20 張
+                    </p>
                     <div class="image-grid" id="image-list" aria-label="已選圖片"></div>
                   </div>
                   <div class="field full">
@@ -354,8 +420,13 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <h2>批次投稿結果</h2>
               <p id="batch-summary" role="status" aria-live="polite"></p>
               <div id="batch-items" class="list"></div>
-              <p class="tiny">每張圖片各自審核。成功送出仍需等待審核，點數依活動規則計算；請保存每個案件的查詢資訊。</p>
-              <button class="btn btn-white" type="button" id="batch-copy">複製已成功案件的查詢資訊</button>
+              <p class="tiny">
+                每張圖片各自審核。成功送出仍需等待審核，點數依活動規則計算；請保存每個案件的查詢資訊。
+              </p>
+              <button class="btn btn-white" type="button" id="batch-copy">
+                複製已成功案件的查詢資訊
+              </button>
+              <button class="btn btn-soft" id="batch-download" type="button">下載查詢資訊</button>
               <p id="batch-copy-status" role="status" aria-live="polite"></p>
             </section>
             <section
@@ -375,7 +446,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <dd id="success-query-key"></dd>
               </dl>
               <p class="notice warn">
-                查詢碼是日後查看此案件所需的重要資料，請自行保存。不要公開分享查詢碼。
+                查詢碼已隱藏，是查看案件所需的重要資料，請自行保存。可複製或下載到私人筆記，請勿公開分享。
               </p>
               <div class="form-actions">
                 <button class="btn btn-white" type="button" id="copy-case">複製案件編號</button
@@ -384,6 +455,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   複製全部查詢資訊
                 </button>
               </div>
+              <button class="btn btn-soft" id="receipt-download" type="button">下載查詢資訊</button>
               <p id="copy-status" role="status" aria-live="polite"></p>
               <div class="form-actions">
                 <button class="btn btn-soft" type="button" id="lookup-created">查詢這個案件</button
@@ -425,6 +497,26 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             <a class="btn btn-soft" href="#member" id="lookup-member-shortcut" hidden
               >查看我的案件</a
             >
+            <section
+              id="owned-case-center"
+              class="card case-workspace"
+              hidden
+              aria-label="我的案件"
+            >
+              <div class="section-heading">
+                <h2>我的案件</h2>
+                <span class="eyebrow">YOUR RECORDS</span>
+              </div>
+              <p id="owned-cases-status" role="status" aria-live="polite"></p>
+              <div id="owned-cases" class="list"></div>
+              <button id="owned-cases-more" class="btn btn-soft" type="button" hidden>
+                載入更多案件
+              </button>
+              <div id="owned-case-detail" hidden>
+                <h3 tabindex="-1" id="owned-case-detail-title">案件資訊</h3>
+                <dl id="owned-case-fields" class="case-details"></dl>
+              </div>
+            </section>
             <form class="card form-card" id="lookup-form" novalidate>
               <div class="form-grid">
                 <div class="field full">
@@ -483,6 +575,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </div>
               <button class="pill" type="button" id="boards-refresh">重新載入</button>
             </div>
+            <div id="board-categories" class="board-categories" aria-label="排行榜分類"></div>
             <div class="tabs" id="leader-tabs" aria-label="公開排行榜"></div>
             <div class="field board-selector sr-only">
               <label for="board-select">選擇排行榜</label
@@ -1071,6 +1164,29 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <div class="grid grid-2">
                 <form class="card form-card" id="profile-form" novalidate>
                   <h2>會員資料</h2>
+                  <dl class="security-summary" id="member-auth-summary">
+                    <div>
+                      <dt>登入方式</dt>
+                      <dd id="member-auth-method">正在確認…</dd>
+                    </div>
+                    <div>
+                      <dt>Google</dt>
+                      <dd id="member-google-state">正在確認…</dd>
+                    </div>
+                    <div>
+                      <dt>密碼</dt>
+                      <dd id="member-password-state">正在確認…</dd>
+                    </div>
+                    <div>
+                      <dt>Authenticator</dt>
+                      <dd id="member-totp-state">正在確認…</dd>
+                    </div>
+                    <div>
+                      <dt>復原碼</dt>
+                      <dd id="member-recovery-state">正在確認…</dd>
+                    </div>
+                  </dl>
+                  <p id="member-auth-status" role="status"></p>
                   <a class="btn btn-white" href="#security">登入與安全</a>
                   <p class="tiny">會員編號：<span id="member-id"></span></p>
                   <div class="field">
@@ -1206,6 +1322,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             aria-labelledby="security-title"
           >
             <div class="page-head">
+              <span class="eyebrow">ACCOUNT SECURITY</span>
               <h1 data-view-title id="security-title" tabindex="-1">登入與安全</h1>
               <p class="sub">新增登入方式會保留同一會員的資料、點數與案件。</p>
             </div>
@@ -1214,6 +1331,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <p id="security-google"></p>
               <p id="security-password"></p>
               <p id="security-totp"></p>
+              <p id="security-recovery-state" class="tiny"></p>
               <p class="tiny">
                 Google 帳號復原由 Google 管理。VoteProof 密碼復原仍需要 TOTP 與未使用復原碼。
               </p>
@@ -1341,7 +1459,9 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               ><button class="btn btn-soft" type="button" id="security-refresh">重新載入</button>
               <h2>重新驗證身份</h2>
               <p class="tiny">
-                管理員在本次登入完成 Authenticator 驗證後，直到登出或登入到期前無需重複驗證。安全設定變更仍需近期身份驗證；一般 Google 登入不需 Authenticator。
+                管理員在本次登入完成 Authenticator
+                驗證後，直到登出或登入到期前無需重複驗證。安全設定變更仍需近期身份驗證；一般 Google
+                登入不需 Authenticator。
               </p>
               <button class="btn btn-primary" type="button" id="security-google-step" hidden>
                 使用 Google 重新驗證身份
@@ -1417,6 +1537,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             aria-labelledby="admin-title"
           >
             <div class="page-head">
+              <span class="eyebrow">VOTEPROOF / OPERATIONS</span>
               <h1 data-view-title id="admin-title" tabindex="-1">管理後台</h1>
               <p class="sub">查看投票證明，管理應援活動。</p>
             </div>
@@ -1425,7 +1546,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <a class="btn btn-primary" href="#security">重新驗證身份</a
               ><button class="btn btn-white" type="button" id="admin-retry">重新確認權限</button>
             </div>
-            <div id="admin-content" hidden>
+            <div id="admin-content" class="admin-workspace" hidden>
               <nav id="admin-tabs" class="admin-tabs" aria-label="管理功能"></nav>
               <section class="card form-card" id="admin-panel" aria-live="polite"></section>
             </div>
@@ -1656,12 +1777,19 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       <span id="backup-off">尚未啟用</span>
       <span id="backup-unconfigured">尚未設定完成</span>
       <span id="backup-process">手動執行備份</span>
-      <span id="backup-process-confirm">只執行這一張證明的備份？請等待結果，勿重複操作；案件與原始檔案不會變更。</span>
+      <span id="backup-process-confirm"
+        >只執行這一張證明的備份？請等待結果，勿重複操作；案件與原始檔案不會變更。</span
+      >
       <span id="backup-missing">尚未排入備份</span>
       <span id="backup-check">檢查未備份證明</span>
-      <span id="backup-check-summary">本次檢查 {scanned} 張，可排入 {ready} 張；無法讀取 {missing} 張，完整性待確認 {changed} 張。</span>
+      <span id="backup-check-summary"
+        >本次檢查 {scanned} 張，可排入 {ready} 張；無法讀取 {missing} 張，完整性待確認 {changed}
+        張。</span
+      >
       <span id="backup-enqueue">排入本次備份</span>
-      <span id="backup-enqueue-confirm">只將本次最多 25 張證明排入備份，不變更案件、點數或原始檔案。</span>
+      <span id="backup-enqueue-confirm"
+        >只將本次最多 25 張證明排入備份，不變更案件、點數或原始檔案。</span
+      >
       <span id="backup-retry">重試備份</span>
       <span id="backup-retry-confirm">重新排入這張證明的備份？案件與原始檔案不會變更。</span>
       <span id="backup-unavailable">備份狀態暫時無法載入；案件審核仍可使用。</span>
@@ -1684,5 +1812,18 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       <span id="backup-error-INVALID_SOURCE">證明格式待確認</span>
       <span id="backup-error-INTERNAL">備份需重新確認</span>
     </template>
+    <dialog id="workflow-dialog" class="modal-sheet" aria-labelledby="workflow-dialog-title">
+      <div class="dialog-head">
+        <h2 id="workflow-dialog-title">投稿流程與隱私</h2>
+        <button id="workflow-close" class="btn btn-white" type="button" aria-label="關閉說明">
+          關閉
+        </button>
+      </div>
+      <p>選擇活動並提交投票證明。每批最多 20 張，每張各自建立案件，未成功的項目可以重試。</p>
+      <p>
+        審核後依活動規則累積點數。登入會員可直接查看自己的案件；訪客請私人保存案件編號與查詢碼。
+      </p>
+      <p>圖片只供授權審核。查詢碼不會顯示在頁面上，可複製或下載至自己的安全筆記。</p>
+    </dialog>
   </body>
 </html>

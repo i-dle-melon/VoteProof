@@ -35,6 +35,18 @@ test('Definition create, unique ID, actors and audit; no public snapshot before 
   await err(await local.fetch('/api/admin/leaderboards','POST',definition({leaderboard_id:b.leaderboard_id}),h.admin.headers),409,'LEADERBOARD_EXISTS');
   assert.equal((await local.db.prepare("SELECT action FROM admin_audit_logs WHERE target_type='leaderboard' AND target_id=?").bind(b.leaderboard_id).first()).action,'leaderboard_create');
 });
+test('enabled custom button registry exposes safe names before scores; OFF and draft hide it',async()=>{
+  const b=await h.create({type:'custom',name:'生日應援榜',start_date:'2026-01-01',end_date:'2026-12-31'});
+  const read=async()=> (await (await local.fetch('/api/leaderboards?id='+b.leaderboard_id)).json()).data;
+  let data=await read();assert.deepEqual(data.leaderboards,[]);assert.equal(data.generated_at,null);
+  assert.deepEqual(data.custom_boards,[{leaderboard_id:b.leaderboard_id,name:'生日應援榜',type:'custom',campaign_id:null,vote_type:null}]);
+  const off=await h.update(b,{is_public:false});assert.equal(off.status,200);assert.deepEqual((await read()).custom_boards,[]);
+  const offRow=(await off.json()).data;const on=await h.update(offRow,{is_public:true,name:'新的按鈕名稱'});assert.equal(on.status,200);
+  data=await read();assert.equal(data.custom_boards[0].name,'新的按鈕名稱');assert.deepEqual(data.leaderboards,[]);
+  const draft=await h.create({type:'custom',status:'draft',start_date:'2026-01-01',end_date:'2026-12-31'});
+  assert.deepEqual((await (await local.fetch('/api/leaderboards?id='+draft.leaderboard_id)).json()).data.custom_boards,[]);
+  assert.equal((await local.db.prepare('SELECT COUNT(*) n FROM leaderboard_runs WHERE leaderboard_id=?').bind(b.leaderboard_id).first()).n,0);
+});
 for (const [name,change] of [
   ['top zero',{top_n:0}],['top large',{top_n:101}],['top fractional',{top_n:1.5}],['top string',{top_n:'10'}],
   ['bad id',{leaderboard_id:'../bad'}],['long id',{leaderboard_id:'x'.repeat(101)}],['name empty',{name:''}],['name long',{name:'x'.repeat(101)}],
@@ -167,9 +179,9 @@ test('Public reads only current successful active public run and safe B1-compati
   for (const extra of [{is_public:false},{status:'draft'}]) { const b = await h.create(extra); await publish(b); assert.equal(await h.snapshot(b),undefined); assert.ok(await h.snapshot(b,true)); }
   const b = await h.create(); await publish(b); const response = await local.fetch('/api/leaderboards?id='+b.leaderboard_id);
   assert.equal(response.headers.get('cache-control'),'public, max-age=15, must-revalidate'); const json = await response.json();
-  assert.deepEqual(Object.keys(json.data).sort(),['generated_at','leaderboards']); const board = json.data.leaderboards[0];
-  assert.deepEqual(Object.keys(board).sort(),['generated_at','leaderboard_id','name','rankings']);
-  for (const row of board.rankings) assert.deepEqual(Object.keys(row).sort(),['member_id','nickname','points','proof_count','rank','reached_at']);
+  assert.deepEqual(Object.keys(json.data).sort(),['custom_boards','generated_at','leaderboards']); const board = json.data.leaderboards[0];
+  assert.deepEqual(Object.keys(board).sort(),['campaign_id','generated_at','leaderboard_id','name','rankings','type','vote_type']);
+  for (const row of board.rankings) assert.deepEqual(Object.keys(row).sort(),['member_id','nickname','points','proof_count','rank','reached_at','tier','tier_configuration_ready']);
   assert.equal(/email|player_id|token|hash|object_key|run_id|created_by/.test(JSON.stringify(json)),false);
   assert.deepEqual((await (await local.fetch('/api/leaderboards?id=missing')).json()).data.leaderboards,[]);
 });
@@ -177,7 +189,7 @@ test('No Apps Script dependency, empty registry and sanitized D1 failure',async 
   t.mock.method(globalThis,'fetch',()=>assert.fail('must not fetch Google'));
   const db = {prepare(sql) { assert.equal(sql.includes('point_transactions'),false); return {bind(){return {all:async()=>({results:[]})}}};}};
   const r = await worker.fetch(new Request('https://voteproof.example/api/leaderboards'),{DB:db,GOOGLE_PUBLIC_API_URL:'https://example.invalid/unused'});
-  assert.deepEqual(await r.json(),{ok:true,data:{generated_at:null,leaderboards:[]}});
+  assert.deepEqual(await r.json(),{ok:true,data:{generated_at:null,leaderboards:[],custom_boards:[]}});
   await err(await worker.fetch(new Request('https://voteproof.example/api/leaderboards'),{}),503,'DB_NOT_CONFIGURED');
   await err(await worker.fetch(new Request('https://voteproof.example/api/leaderboards'),{DB:{prepare(){throw Error('sensitive metadata')}}}),503,'LEADERBOARD_SERVICE_UNAVAILABLE');
 });

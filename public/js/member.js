@@ -15,12 +15,12 @@ const memberDate = value => { const d = new Date(value); return Number.isFinite(
 const statuses = { pending: "待審核", approved: "已通過", completed: "已完成", rejected: "未通過", duplicate: "重複投稿", revoked: "已撤銷" };
 const authViews = ["register", "login", "recover", "google", "security"];
 
-export function memberUI({ changed = () => {}, campaignName = () => "活動資訊目前無法取得" } = {}) {
+export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignName = () => "活動資訊目前無法取得" } = {}) {
   let view = "", epoch = 0, busy = false, controller = new AbortController();
   let registration = "email", challengeId = "", transactionId = "", deadline = 0, cooldown = 0;
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
-  let profileSnapshot = null, recentSequence = 0;
+  let profileSnapshot = null, recentSequence = 0, dashboardSequence=0, pendingCaseId=null;
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
   let loginSessionChecked = false, linkPurpose = "connect", setupKind = "enroll", setupTx = "", setupDeadline = 0, recoveryLogout = false;
   const session = new MemberSession({ changed: member => {
@@ -31,6 +31,8 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     }
     wasLoggedIn = Boolean(member);
     $("lookup-member-shortcut").hidden = !member;
+    $("owned-case-center").hidden=!member;
+    if(!member){pendingCaseId=null;$("owned-cases").replaceChildren();$("owned-case-fields").replaceChildren();$("owned-case-detail").hidden=true;}
     $("top-avatar").textContent = member ? [...(member.nickname || "")][0] || "◎" : "G";
     $("top-avatar").href = member ? "#member" : "#login";
     $("top-avatar").setAttribute("aria-label", member ? "會員中心" : "會員登入");
@@ -41,10 +43,15 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       $("member-id").textContent = member.member_id;
       $("member-avatar").textContent = [...(member.nickname || "")][0] || "◎"; $("member-profile-name").textContent = member.nickname; $("member-profile-player").textContent = member.player_id ? "玩家 ID · " + member.player_id : "尚未設定玩家 ID";
       const newOwner = profileSnapshot?.member_id !== member.member_id;
-      if (newOwner) $("member-record-total").textContent = "—";
+      if (newOwner) {
+        $("member-record-total").textContent = "—";pendingCaseId=null;casesCursor=null;
+        for(const id of ["member-cases","owned-cases","member-case-fields","owned-case-fields"])$(id).replaceChildren();
+        $("member-case-detail").hidden=$("owned-case-detail").hidden=true;
+      }
       for (const [id, key] of [["profile-nickname", "nickname"], ["profile-player", "player_id"]]) {
         if (newOwner || $(id).value === (profileSnapshot?.[key] ?? "")) $(id).value = member[key] ?? "";
       }
+      if(view==="lookup")void loadCases(false,++memberEpoch);
       profileSnapshot = { member_id: member.member_id, nickname: member.nickname, player_id: member.player_id };
     } else {
       recentSequence++; $("recent-cases").replaceChildren(); $("recent-cases-member").hidden = true;
@@ -59,10 +66,16 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       $("tier-next").hidden = true; $("tier-progress").value = 0;
     }
     syncLogin();
-    changed(member);
+    changed(member); if(view==="home")void loadHomeSummary(member);else if(!member)summaryChanged(null,null);
     if (view === "submit" && member) void loadRecentCases();
   } });
   const challenge = new Challenge($("register-challenge"), text => { $("register-challenge-status").textContent = text; });
+  async function loadHomeSummary(identity){
+    const sequence=++dashboardSequence;summaryChanged(null,identity);
+    if(!identity)return;
+    try{const data=await session.request('/api/me/points');if(sequence===dashboardSequence&&session.member?.member_id===identity.member_id)summaryChanged(data,identity);}
+    catch{if(sequence===dashboardSequence&&session.member?.member_id===identity.member_id)summaryChanged(null,identity,true);}
+  }
   function syncLogin() {
     $("login-session-status").hidden = loginSessionChecked || Boolean(session.member);
     $("login-content").hidden = !loginSessionChecked || Boolean(session.member);
@@ -212,6 +225,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       $("security-google").textContent = data.google.connected ? "Google · 已連結 · " + data.google.email : "Google · 尚未連結";
       $("security-password").textContent = data.password.configured ? "信箱與密碼 · 已設定" : "信箱與密碼 · 尚未設定";
       $("security-totp").textContent = data.authenticator.configured ? (data.password.configured ? "VoteProof Authenticator · 已設定，用於密碼登入與管理員安全驗證" : "VoteProof Authenticator · 已設定，用於額外安全驗證；一般 Google 登入不需要") : "VoteProof Authenticator · 一般 Google 登入不需要；新增密碼或管理員存取時必須設定";
+      $("security-recovery-state").textContent=Number.isInteger(data.recovery?.remaining)?`未使用復原碼：${data.recovery.remaining} 組`:"復原碼狀態暫時無法取得";
       $("security-connect").hidden = data.google.connected; $("security-reauth").hidden = !data.google.connected;
       $("security-add").hidden = data.password.configured; $("security-change").hidden = !data.password.configured;
       $("security-manage").hidden = !data.authenticator.configured;
@@ -459,11 +473,13 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     if (view !== "register") challenge.clear();
   }
   function caseRow(row) {
-    const card = element("div", "", "row member-case legacy-case-row"), text = element("div", "", "grow");
+    const card = element("button", "", "row member-case legacy-case-row"), text = element("span", "", "grow");
+    card.type = "button"; card.setAttribute("aria-label", "查看案件 " + row.case_id);
     text.append(element("strong", row.case_id + " · " + (session.member?.nickname ?? "")),
       element("span", [campaignName(row.campaign_id), row.vote_type, row.vote_date].filter(Boolean).join("｜")));
     const status = element("span", statuses[row.status] ?? "狀態更新中", "status");
     if (Object.hasOwn(statuses, row.status)) status.classList.add(row.status);
+    text.append(element("span", `${memberDate(row.created_at)} · ${row.points_awarded==null?"點數待確認":Number(row.points_awarded).toLocaleString("zh-TW")+" 點"}`, "case-meta"));
     card.append(text, status); return card;
   }
   async function loadRecentCases() {
@@ -477,44 +493,57 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       if (!sameOwner()) return;
       for (const row of data.cases) {
         const card = caseRow(row), icon = element("span", "▣", "case-icon"); icon.setAttribute("aria-hidden", "true");
-        card.prepend(icon); $("recent-cases").append(card);
+        card.prepend(icon); card.addEventListener("click",()=>{ pendingCaseId=row.case_id; location.hash="lookup"; }); $("recent-cases").append(card);
       }
       $("recent-cases-status").textContent = data.cases.length ? "" : "目前沒有案件紀錄。";
       $("recent-cases-member").hidden = false;
     } catch (error) { if (sameOwner()) $("recent-cases-status").textContent = authMessage(error); }
   }
-  const sameMember = (owner, sequence) => view === "member" && memberEpoch === sequence && session.member?.member_id === owner;
+  const sameMember = (owner, sequence) => ["member","lookup"].includes(view) && memberEpoch === sequence && session.member?.member_id === owner;
   async function loadCases(append = false, sequence = memberEpoch) {
     if (!session.member || casesBusy === sequence || append && !casesCursor) return;
-    const owner = session.member.member_id; casesBusy = sequence; $("member-cases-more").disabled = true;
-    $("member-cases-status").textContent = "正在載入案件…";
+    const owner = session.member.member_id; casesBusy = sequence; $("member-cases-more").disabled = $("owned-cases-more").disabled = true;
+    $("owned-cases-status").textContent = $("member-cases-status").textContent = "正在載入案件…";
     try {
       const data = await session.request("/api/me/cases?limit=10" + (append ? "&cursor=" + encodeURIComponent(casesCursor) : ""));
       if (!sameMember(owner, sequence)) return;
-      if (!append) $("member-cases").replaceChildren();
-      for (const row of data.cases) {
-        const card = caseRow(row), button = element("button", "▣", "case-icon"); button.type = "button";
-        button.setAttribute("aria-label", "查看案件 " + row.case_id);
-        card.prepend(button);
+      if (!append) {$("member-cases").replaceChildren();$("owned-cases").replaceChildren();}
+      for (const row of data.cases) for(const target of ["member-cases","owned-cases"]) {
+        const card = caseRow(row), button = card, icon = element("span", "▣", "case-icon"); icon.setAttribute("aria-hidden","true");
+        card.prepend(icon);
         button.addEventListener("click", async () => {
           if (!sameMember(owner, sequence) || button.disabled) return;
           button.disabled = true;
           try {
             const detail = await session.request("/api/me/cases/" + encodeURIComponent(row.case_id));
             if (!sameMember(owner, sequence)) return;
-            $("member-case-fields").replaceChildren();
+            for(const fields of ["member-case-fields","owned-case-fields"]){$(fields).replaceChildren();
             for (const [name, value] of [["案件編號", detail.case_id], ["活動", campaignName(detail.campaign_id)], ["投稿時間", memberDate(detail.created_at)], ["已給點數", detail.points_awarded ?? "—"], ["投票日期", detail.vote_date],
-              ["類型", detail.vote_type], ["狀態", statuses[detail.status] ?? "狀態更新中"]]) $("member-case-fields").append(element("dt", name), element("dd", value));
+              ["類型", detail.vote_type], ["狀態", statuses[detail.status] ?? "狀態更新中"], ["審核結果",detail.status==="pending"?"等待人工審核":statuses[detail.status]??"更新中"], ["退件原因",detail.rejection_reason??"—"], ["證明附件",Array.isArray(detail.files)?detail.files.map(f=>`${f.content_type} · ${(f.size/1024).toFixed(1)} KB`).join("；")||"附件資訊暫時無法取得":"附件資訊暫時無法取得"]]) $(fields).append(element("dt", name), element("dd", value));}
+            $("owned-case-detail").hidden=false;
+            if(view==="lookup")$("owned-case-detail-title").focus();
             $("member-case-detail").hidden = false;
-          } catch (error) { if (sameMember(owner, sequence)) $("member-cases-status").textContent = error.status === 404 ? "無法查詢此案件。" : authMessage(error); }
+          } catch (error) { if (sameMember(owner, sequence)) $("owned-cases-status").textContent = $("member-cases-status").textContent = error.status === 404 ? "無法查詢此案件。" : authMessage(error); }
           finally { button.disabled = false; }
         });
-        $("member-cases").append(card);
+        $(target).append(card);
+        if(target==="owned-cases"&&pendingCaseId===row.case_id){pendingCaseId=null;card.click();}
       }
-      casesCursor = data.next_cursor; $("member-cases-more").hidden = !casesCursor;
-      $("member-cases-status").textContent = $("member-cases").children.length ? "" : "目前沒有案件紀錄。";
-    } catch (error) { if (sameMember(owner, sequence)) $("member-cases-status").textContent = authMessage(error); }
-    finally { if (casesBusy === sequence) { casesBusy = null; $("member-cases-more").disabled = false; } }
+      casesCursor = data.next_cursor; $("member-cases-more").hidden = $("owned-cases-more").hidden = !casesCursor;
+      $("owned-cases-status").textContent = $("member-cases-status").textContent = $("member-cases").children.length ? "" : "目前沒有案件紀錄。";
+    } catch (error) { if (sameMember(owner, sequence)) $("owned-cases-status").textContent = $("member-cases-status").textContent = authMessage(error); }
+    finally { if (casesBusy === sequence) { casesBusy = null; $("member-cases-more").disabled = $("owned-cases-more").disabled = false; } }
+  }
+  async function loadMemberMethods(owner,sequence){
+    $("member-auth-status").textContent='正在確認登入方式…';
+    try{const data=await session.request('/api/auth/login-security');if(!sameMember(owner,sequence))return;
+      $("member-auth-method").textContent=data.current_method==='google'?'Google':data.current_method==='password'?'信箱 / 密碼':'已登入';
+      $("member-google-state").textContent=data.google.connected?'已連結':'未連結';
+      $("member-password-state").textContent=data.password.configured?'已設定':'未設定';
+      $("member-totp-state").textContent=data.authenticator.configured?'已設定':'尚未設定';
+      $("member-recovery-state").textContent=Number.isInteger(data.recovery?.remaining)?'尚有 '+data.recovery.remaining+' 組':'可至安全性設定管理';
+      $("member-auth-status").textContent='Google 一般登入不需 TOTP；管理權限一律需近期 MFA。';
+    }catch{if(sameMember(owner,sequence))$("member-auth-status").textContent='登入方式暫時無法取得，請至安全性設定重新載入。';}
   }
   async function loadMember() {
     const sequence = ++memberEpoch;
@@ -527,11 +556,13 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     $("points-content").hidden = true; $("points-status").textContent = "正在載入點數…"; $("member-refresh").disabled = true;
     casesCursor = null; $("member-case-detail").hidden = true;
     const cases = loadCases(false, sequence);
+    void loadMemberMethods(owner,sequence);
     try {
       const data = await session.request("/api/me/points");
       if (!sameMember(owner, sequence)) return;
       $("member-record-total").textContent = Number(data.total_points).toLocaleString("zh-TW");
       $("member-points").textContent = String(data.total_points);
+      summaryChanged(data,session.member);
       const art = tierArtwork(data.tier?.tier_id);
       $("member-tier").textContent = art ? art.name : "暫時無法取得";
       renderTierArtwork($("member-tier-artwork"), art ? data.tier.tier_id : null);
@@ -546,6 +577,7 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
     finally { await cases; $("member-refresh").disabled = false; }
   }
   $("member-refresh").addEventListener("click", () => { if (!$("member-refresh").disabled) void loadMember(); });
+  $("owned-cases-more").addEventListener("click",()=>void loadCases(true));
   $("member-cases-more").addEventListener("click", () => { void loadCases(true); });
   $("profile-form").addEventListener("submit", async event => {
     event.preventDefault(); const button = $("profile-save"); if (button.disabled || !session.member) return;
@@ -580,8 +612,10 @@ export function memberUI({ changed = () => {}, campaignName = () => "活動資�
       syncLogin();
     }
     if (authViews.includes(view)) ticker = setInterval(syncCooldown, 1000);
+    if(view==="home")void loadHomeSummary(session.member);
     if (view === "register") void mountRegistration();
     if (view === "member") void loadMember();
+    if (view === "lookup"&&session.member)void loadCases(false,memberEpoch);
     if (view === "submit") void loadRecentCases();
     if (view === "google") void loadGoogle();
     if (view === "security") void loadSecurity();

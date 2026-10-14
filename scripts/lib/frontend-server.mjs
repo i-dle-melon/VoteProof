@@ -20,7 +20,7 @@ export async function frontendServer({ backend, port = 0 } = {}) {
         response.writeHead(result.status, Object.fromEntries(result.headers));
         response.end(Buffer.from(await result.arrayBuffer())); return;
       }
-      const file = resolve(root, "." + decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname));
+      const file = resolve(root, "." + decodeURIComponent(["/","/admin","/admin/"].includes(url.pathname) ? "/index.html" : url.pathname));
       const path = relative(root, file);
       if (path.startsWith("..") || path === "_headers" || !mime[extname(file)]) { response.writeHead(404).end(); return; }
       response.writeHead(200, { ...policy, "Content-Type": mime[extname(file)] }); response.end(await readFile(file));

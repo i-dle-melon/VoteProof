@@ -161,12 +161,15 @@ test('Stellar member has no administrative authorization; normal admin remains a
   assert.equal((await local.fetch('/api/admin/member-tiers','GET',undefined,m.headers)).status,403);
   assert.equal((await points(admin)).tier.tier_id,'normal');assert.equal((await local.fetch('/api/admin/member-tiers','GET',undefined,admin.headers)).status,200);
 });
-test('Leaderboard ranking/snapshots remain byte-equivalent after tier config changes; no badge N+1',async()=>{
+test('Leaderboard snapshot ranks stay unchanged while current tier follows configuration',async()=>{
   const body=definition(),created=await local.fetch('/api/admin/leaderboards','POST',body,admin.headers);assert.equal(created.status,201);
   assert.equal((await local.fetch('/api/admin/leaderboards/'+body.leaderboard_id+'/rebuild','POST',{expected_version:0},admin.headers)).status,200);
-  const before=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).text();
+  const before=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).json();
   assert.equal((await edit(await row('bronze'),{min_points:101})).status,200);
-  assert.equal(await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).text(),before);
+  const after=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).json();
+  const snapshot=data=>({...data,data:{...data.data,leaderboards:data.data.leaderboards.map(b=>({...b,rankings:b.rankings.map(({tier,tier_configuration_ready,...rank})=>rank)}))}});
+  assert.deepEqual(snapshot(after),snapshot(before));
+  assert.ok(after.data.leaderboards[0].rankings.some((r,i)=>r.tier.tier_id!==before.data.leaderboards[0].rankings[i].tier.tier_id));
   assert.equal((await edit(await row('bronze'),{min_points:100})).status,200);
 });
 test('0007 preserves existing B5C audit/run while adding only identity seeds',async()=>{

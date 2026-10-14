@@ -60,6 +60,10 @@ test("client supplied member_id cannot bind or impersonate another member", asyn
 test("owner-only case queries deny other member, absent id and Guest cases uniformly", async () => {
   const a = await login(local), b = await login(local), created = await memberCase(a, await local.upload());
   assert.equal((await local.fetch(`/api/me/cases/${created.data.case_id}`, "GET", undefined, a.headers)).status, 200);
+  await local.db.prepare("UPDATE cases SET status_reason='僅供本人查看' WHERE case_id=?").bind(created.data.case_id).run();
+  assert.equal((await (await local.fetch(`/api/me/cases/${created.data.case_id}`, "GET", undefined, a.headers)).json()).data.rejection_reason, null);
+  await local.db.prepare("UPDATE cases SET status='rejected' WHERE case_id=?").bind(created.data.case_id).run();
+  assert.equal((await (await local.fetch(`/api/me/cases/${created.data.case_id}`, "GET", undefined, a.headers)).json()).data.rejection_reason, '僅供本人查看');
   const denied = await expectError(await local.fetch(`/api/me/cases/${created.data.case_id}`, "GET", undefined, b.headers), 404, "CASE_NOT_FOUND");
   const absent = created.data.case_id.slice(0, 12) + "A".repeat(16);
   assert.deepEqual(await expectError(await local.fetch(`/api/me/cases/${absent}`, "GET", undefined, b.headers), 404, "CASE_NOT_FOUND"), denied);

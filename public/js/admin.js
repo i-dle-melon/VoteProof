@@ -34,7 +34,7 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { cases: copy("admin-copy-017"), campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022") };
+const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022") };
 
 export function adminUI(session) {
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
@@ -97,7 +97,7 @@ export function adminUI(session) {
     return dl;
   }
   async function paged(path, key, render, filters = new URLSearchParams()) {
-    const list = node("div", "", "grid grid-2"), more = button(copy("admin-copy-028"), () => void run(async current => { await page(cursor, current); }));
+    const list = node("div", "", path === "cases" ? "admin-case-list" : "grid grid-2"), more = button(copy("admin-copy-028"), () => void run(async current => { await page(cursor, current); }));
     let cursor = null; const born = sequence;
     const page = async (after, current = () => sequence === born && visible) => {
       const params = new URLSearchParams(filters); params.set("limit", "20"); if (after) params.set("cursor", after);
@@ -117,18 +117,34 @@ export function adminUI(session) {
     const status = field(filters, "filter-status", copy("admin-copy-033"), "select", "", { choices: [["", copy("admin-copy-034")], ...["pending", "approved", "completed", "rejected", "duplicate", "revoked"].map(k => [k, statusNames[k]])] });
     const campaign = field(filters, "filter-campaign", copy("admin-copy-035"), "text", "", { maxLength: 100 });
     const vote = field(filters, "filter-vote", copy("admin-copy-036"), "select", "", { choices: [["", copy("admin-copy-034")], ["Solo", "Solo"], ["團體", "團體"]] });
+    const search=field(filters,"filter-search","搜尋已載入案件 / 暱稱 / 玩家 ID","search","",{maxLength:100});
+    const matches=row=>[row.case_id,row.nickname,row.player_id].filter(Boolean).join(" ").toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase());
+    search.addEventListener("input",()=>{for(const card of $("admin-panel").querySelectorAll(".admin-case-row"))card.hidden=!card.dataset.search.includes(search.value.trim().toLocaleLowerCase());});
     submitButton(filters, copy("admin-copy-037")); $("admin-panel").append(filters);
+    const statusTabs=node("div","","tabs admin-status-tabs");statusTabs.setAttribute("aria-label","案件狀態篩選");$("admin-panel").append(statusTabs);
     const area = node("section"); $("admin-panel").append(area);
     const render = row => {
-      const card = node("article", "", "member-case"); card.append(node("strong", row.case_id), node("p", row.nickname), node("span", statusNames[row.status] ?? copy("admin-copy-038"), "status"), node("p", stamp(row.created_at)), button(copy("admin-copy-039"), () => void caseDetail(row.case_id))); return card;
+      const card=node("article","","member-case admin-case-row"),summary=node("div","","case-summary"),player=node("div","","review-person"),actions=node("div","","review-actions");
+      const image=button("🖼️",()=>void caseDetail(row.case_id),"case-icon case-preview");image.setAttribute("aria-label","查看證明與審核 "+row.case_id);
+      summary.append(node("strong",row.case_id+" · "+(row.nickname??"—")),node("p",[row.campaign_name??row.campaign_id,row.vote_type,stamp(row.created_at)].filter(Boolean).join("｜")));
+      player.append(node("strong",row.player_id??"未提供"),node("p","玩家 ID"));
+      const state=node("span",statusNames[row.status]??copy("admin-copy-038"),"status");if(Object.hasOwn(statusNames,row.status))state.classList.add(row.status);
+      const allowed=reviewActions(row.status,access.actor.role);
+      for(const [action,label] of [["approve","通過"],["reject","駁回"]])if(allowed.includes(action))actions.append(button(label,()=>void caseDetail(row.case_id,action)));
+      actions.append(button(copy("admin-copy-039"),()=>void caseDetail(row.case_id)));
+      card.dataset.search=[row.case_id,row.nickname,row.player_id].filter(Boolean).join(" ").toLocaleLowerCase();card.hidden=!matches(row);
+      card.append(image,summary,player,state,actions);return card;
     };
     const loadFiltered = async () => {
       // Lists are attached to the panel; remove only the prior list/page button.
       while (area.nextSibling) area.nextSibling.remove();
       await paged("cases", "cases", render, params);
     };
+    const syncTabs=()=>{for(const tab of statusTabs.children){const active=tab.dataset.status===status.value;tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));}};
+    for(const key of ["","pending","duplicate","approved","completed","rejected","revoked"]){const tab=button(key?statusNames[key]:"全部",()=>{if(busy)return;status.value=key;filters.requestSubmit();},"tab");tab.dataset.status=key;statusTabs.append(tab);}syncTabs();
     filters.addEventListener("submit", event => { event.preventDefault(); if (busy) return; params.delete("status"); params.delete("campaign_id"); params.delete("vote_type");
       if (status.value) params.set("status", status.value); if (campaign.value.trim()) params.set("campaign_id", campaign.value.trim()); if (vote.value) params.set("vote_type", vote.value);
+      syncTabs();
       void run(loadFiltered);
     }); await loadFiltered();
   }
@@ -158,7 +174,7 @@ export function adminUI(session) {
       box.append(node('p', copy('backup-unavailable'), 'tiny'));
     }
   }
-  async function caseDetail(id) {
+  async function caseDetail(id, preferredAction = null) {
     if (busy) return; clearPanel();
     await run(async current => {
       const data = await request("cases/" + encodeURIComponent(id)); if (!current()) return;
@@ -207,7 +223,7 @@ export function adminUI(session) {
       }
       const choices = reviewActions(data.status, access.actor.role); if (!choices.length) { $("admin-panel").append(node("p", copy("admin-copy-054"))); return; }
       const form = formCard(copy("admin-copy-055"));
-      const action = field(form, "action", copy("admin-copy-056"), "select", choices[0], { choices: choices.map(key => [key, reviewNames[key]]) });
+      const action = field(form, "action", copy("admin-copy-056"), "select", choices.includes(preferredAction) ? preferredAction : choices[0], { choices: choices.map(key => [key, reviewNames[key]]) });
       const reason = field(form, "reason", copy("admin-copy-049"), "textarea", "", { maxLength: 500 });
       const duplicate = field(form, "duplicate", copy("admin-copy-057"), "text", "", { maxLength: 28 });
       const sync = () => { reason.required = ["reject", "mark_duplicate", "revoke"].includes(action.value); duplicate.disabled = action.value !== "mark_duplicate"; duplicate.required = !duplicate.disabled; };
@@ -262,7 +278,7 @@ export function adminUI(session) {
   function boardEditor(row) {
     if (busy) return; clearPanel(); heading(copy("admin-copy-019")); const f = formCard(row ? copy("admin-copy-098") : copy("admin-copy-085"));
     if (!row) field(f, "leaderboard_id", copy("admin-copy-099"), "text", "", { required: true, maxLength: 100, pattern: "[A-Za-z0-9][A-Za-z0-9_-]{0,99}" });
-    field(f, "name", copy("admin-copy-100"), "text", row?.name, { required: true, maxLength: 100 });
+    field(f, "name", copy("admin-copy-100") + " / 按鈕顯示名稱", "text", row?.name, { required: true, maxLength: 100 });
     const type = field(f, "type", copy("admin-copy-101"), "select", row?.type ?? "all_time", { choices: [["all_time", copy("admin-copy-102")], ["campaign", copy("admin-copy-103")], ["custom", copy("admin-copy-104")]] });
     const campaign = field(f, "campaign_id", copy("admin-copy-105"), "text", row?.campaign_id, { maxLength: 100 });
     const start = field(f, "start_date", copy("admin-copy-106"), "date", row?.start_date), end = field(f, "end_date", copy("admin-copy-107"), "date", row?.end_date);
@@ -270,8 +286,13 @@ export function adminUI(session) {
     type.addEventListener("change", sync); sync();
     field(f, "vote_type", copy("admin-copy-036"), "select", row?.vote_type ?? "", { choices: [["", copy("admin-copy-034")], ["Solo", "Solo"], ["團體", "團體"]] });
     field(f, "top_n", copy("admin-copy-108"), "number", row?.top_n ?? "", { required: true, min: 1, max: 100, step: 1 });
-    field(f, "is_public", copy("admin-copy-109"), "select", row?.is_public ? "true" : "false", { choices: [["false", copy("admin-copy-087")], ["true", copy("admin-copy-086")]] });
-    field(f, "status", copy("admin-copy-110"), "select", row?.status ?? "draft", { choices: (row?.status === "archived" ? ["archived"] : row?.status === "active" ? ["active", "archived"] : ["draft", "active", ...(row ? ["archived"] : [])]).map(k => [k, statusNames[k]]) });
+    const visibility=field(f, "is_public", copy("admin-copy-109"), "select", row?.is_public ? "true" : "false", { choices: [["false", copy("admin-copy-087")], ["true", copy("admin-copy-086")]] });
+    const lifecycle=field(f, "status", copy("admin-copy-110"), "select", row?.status ?? "draft", { choices: (row?.status === "archived" ? ["archived"] : row?.status === "active" ? ["active", "archived"] : ["draft", "active", ...(row ? ["archived"] : [])]).map(k => [k, statusNames[k]]) });
+    const display=field(f,"display_button","開啟顯示該排行按鈕","checkbox");display.setAttribute("role","switch");display.classList.add("display-switch");
+    const syncDisplay=()=>{display.checked=visibility.value==="true"&&lifecycle.value==="active";display.setAttribute("aria-checked",String(display.checked));};
+    display.addEventListener("change",()=>{visibility.value=display.checked?"true":"false";if(display.checked)lifecycle.value="active";syncDisplay();});
+    visibility.addEventListener("change",syncDisplay);lifecycle.addEventListener("change",syncDisplay);syncDisplay();
+    f.append(node("p","自訂類型會使用上方名稱顯示第 5、6、7… 顆按鈕。開關啟用後保存設定即可顯示；成績仍需使用原有重建功能公布。","tiny"));
     if (row?.status === "archived") { for (const el of f.elements) el.disabled = true; f.append(node("p", copy("admin-copy-111"))); }
     else { submitButton(f, copy("admin-copy-112")); bindForm(f, () => mutate(row ? "leaderboards/" + row.leaderboard_id + "/update" : "leaderboards", {
       ...(row ? { expected_version: row.version } : { leaderboard_id: value(f, "leaderboard_id") }), name: value(f, "name"), type: type.value,
@@ -315,14 +336,23 @@ export function adminUI(session) {
       const c = node("article", "", "member-case"); c.append(node("h3", labels[row.action] ?? copy("admin-copy-140")), node("p", stamp(row.created_at)), detailFields(row, [[copy("admin-copy-141"), row.admin_member_id], [copy("admin-copy-142"), row.target_id], [copy("admin-copy-143"), row.reason]])); return c;
     });
   }
-  const loaders = { cases, campaigns, leaderboards: boards, tiers, submissions, audit };
+  async function overview(){
+    heading('工作總覽','以下摘要來自本次載入的案件資料，並非全站即時總數。');
+    const data=await request('cases?limit=20'),grid=node('div','','grid grid-3');
+    for(const [state,label] of [['pending','待審核'],['approved','已通過'],['rejected','未通過']]){
+      const card=node('article','','activity-card');card.append(node('span',label,'tiny'),node('strong',String(data.cases.filter(c=>c.status===state).length)));grid.append(card);
+    }
+    $('admin-panel').append(grid,button('前往案件審核',()=>{tab='cases';void load();},'btn btn-primary'));
+    if(management(access.actor)){const gate=await request('submissions');$('admin-panel').append(node('p',gate.submissions_enabled?'收件：開放投稿':'收件：目前暫停投稿','notice info'));await backupOverview();}
+  }
+  const loaders = { overview, cases, campaigns, leaderboards: boards, tiers, submissions, audit };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;
     await run(async current => {
       const actor = await access.check(controller.signal); if (!current()) return;
-      if (!management(actor)) tab = "cases";
+      if (!management(actor)&&!["cases","overview"].includes(tab)) tab = "cases";
       $("admin-tabs").replaceChildren();
-      for (const [key, label] of Object.entries(tabs)) if (key === "cases" || management(actor)) {
+      for (const [key, label] of Object.entries(tabs)) if (["cases","overview"].includes(key) || management(actor)) {
         const b = button(label, () => { if (!busy) { tab = key; void load(); } }, "btn " + (tab === key ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(tab === key)); $("admin-tabs").append(b);
       }
       $("admin-panel").append(button(copy("admin-copy-144"), () => void load())); await loaders[tab]();

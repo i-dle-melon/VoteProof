@@ -155,7 +155,8 @@ export const loginSecurity = authHandler(async (env, _url, request) => {
   const identity = await db.prepare("SELECT * FROM auth_identities WHERE member_id=?").bind(member.member_id).first();
   const credentials = await db.prepare("SELECT member_id FROM member_credentials WHERE member_id=?").bind(member.member_id).first();
   if (!identity) throw invalidVerification();
+  const recovery=await db.prepare('SELECT COUNT(*) remaining FROM recovery_codes WHERE member_id=? AND used_at IS NULL').bind(member.member_id).first();
   return jsonSuccess({ google: { connected: Boolean(identity.google_identity_id), ...(identity.google_identity_id ? { email: await decryptEmail(env, identity, identity.provider_subject) } : {}) },
     password: { configured: Boolean(identity.password_enabled) }, authenticator: { configured: Boolean(credentials), required_for_password: true, required_for_admin: true },
-    current_method: member.auth_method, unlink_supported: false, google_assisted_password_reset_supported: false });
+    recovery: { remaining: recovery.remaining },current_method: member.auth_method, unlink_supported: false, google_assisted_password_reset_supported: false });
 });

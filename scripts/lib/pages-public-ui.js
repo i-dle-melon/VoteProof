@@ -22,3 +22,6 @@ export function memberUI({ changed = () => {} } = {}) {
   });
   return { session, ready, enter() {}, loadRecentCases() {} };
 }
+
+export const tierArtwork=()=>null;
+export const renderTierArtwork=host=>host.replaceChildren();

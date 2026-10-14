@@ -57,7 +57,8 @@ export const listMemberCases = authHandler(async (env, url, request) => {
 export const getMemberCase = authHandler(async (env, url, request) => {
   const member = await memberSession(request, env), caseId = url.pathname.split("/").at(-1);
   if (!CASE_ID_PATTERN.test(caseId)) throw notFound();
-  const row = await authDatabase(env).prepare(`SELECT ${columns} FROM cases WHERE case_id = ? AND member_id = ?`).bind(caseId, member.member_id).first();
+  const row = await authDatabase(env).prepare(`SELECT ${columns},CASE WHEN status='rejected' THEN status_reason ELSE NULL END AS rejection_reason
+    FROM cases WHERE case_id = ? AND member_id = ?`).bind(caseId, member.member_id).first();
   if (!row) throw notFound();
   const { id, ...data } = row;
   return jsonSuccess({ ...data, files: await guestFiles(authDatabase(env), id) });

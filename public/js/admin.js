@@ -3,6 +3,7 @@ import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
 import { backupText, backupLink } from "./admin-backup.js";
 import { renderDuplicateEvidence } from './admin-duplicate.js';
+import { renderImageExports } from './admin-export.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -35,7 +36,7 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022") };
+const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022") };
 
 export function adminUI(session) {
   let reviewMode="album",selectedReviews=new Map(),albumUrls=new Map(),albumObservers=new Set();
@@ -429,7 +430,7 @@ export function adminUI(session) {
     $('admin-panel').append(grid,button('前往案件審核',()=>{tab='cases';void load();},'btn btn-primary'));
     if(management(access.actor)){const gate=await request('submissions');$('admin-panel').append(node('p',gate.submissions_enabled?'收件：開放投稿':'收件：目前暫停投稿','notice info'));await backupOverview();}
   }
-  const loaders = { overview, cases, campaigns, leaderboards: boards, tiers, submissions, audit };
+  const loaders = { overview, cases, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, submissions, audit };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;
     await run(async current => {

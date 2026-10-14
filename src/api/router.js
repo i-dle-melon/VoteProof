@@ -9,6 +9,7 @@ import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel,
 import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
 import { checkNickname, updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
+import { imageExportRoute } from './admin-image-exports.js';
 import { backupAdminRoute } from "./admin-backups.js";
 import { internalBackupRoute } from "./internal-drive-backups.js";
 import { internalDuplicateRoute } from './internal-proof-duplicates.js';
@@ -103,6 +104,7 @@ export async function routeApi(request, env, url) {
     internalDuplicateRoute(url.pathname) ??
     backupAdminRoute(url.pathname) ??
     adminRoute(url.pathname) ??
+    imageExportRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??
     pointRoute(url.pathname) ??
     leaderboardRoute(url.pathname, request.method) ??

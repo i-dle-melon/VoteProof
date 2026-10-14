@@ -35,7 +35,17 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   assert.match(html, /form-action 'none'/);
   assert.doesNotMatch(html, /turnstile-site-key/);
   assert.doesNotMatch(before, /ui-preview-banner|data-preview-control|voteproof-preview/);
-  for (const file of ["member.js", "admin.js", "admin-api.js", "ui-system.js", "tier-artwork.js"])
+  for (const file of [
+    "member.js",
+    "admin.js",
+    "admin-api.js",
+    "ui-system.js",
+    "tier-artwork.js",
+    "admin-export.js",
+    "export-format.js",
+    "export-worker.js",
+    "zip-store.js",
+  ])
     assert.equal(
       await readFile(resolve(out, "js", file), "utf8"),
       await readFile(resolve("public/js", file), "utf8"),
@@ -59,6 +69,14 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   assert.match(fixture, /PREVIEW-MEMBER/);
   assert.match(fixture, /method\s*!==\s*['"]GET['"]/);
   assert.match(await readFile("public/js/preview.js", "utf8"), /PREVIEW = false/);
+  assert.doesNotMatch(
+    await readFile("public/js/member-api.js", "utf8"),
+    /exportSample|previewPicture/,
+  );
+  assert.match(await readFile(resolve(out, "js/member-api.js"), "utf8"), /exportSample/);
+  const exports = await readFile(resolve(out, "js/preview-exports.js"), "utf8");
+  assert.match(exports, /BUILD-ONLY/);
+  assert.doesNotMatch(exports, /fetch\(|object_key|csrf_token|query_key|credentials|PROOFS_BUCKET/);
   await assert.rejects(readFile("public/js/preview-fixtures.js"));
   assert.equal(await readFile("public/index.html", "utf8"), before);
 });

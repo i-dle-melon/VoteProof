@@ -120,6 +120,7 @@ export function adminPath(path) {
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;
+  if(query===undefined && /^\/api\/admin\/image-exports(?:\/(?:query|jobs)|\/jobs\/[a-f0-9-]{36}(?:\/packages\/[1-9]\d{0,4}(?:\/(?:start|state)|\/attempts\/[a-f0-9-]{36}\/files\/[a-f0-9-]{36}))?)?$/.test(pathname)) return true;
   if (/^\/api\/admin\/(?:backups(?:\/backfill|\/[a-f0-9-]{36}\/(?:retry|process))?|cases\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}\/backups)$/.test(pathname)) return true;
   return /^\/api\/admin\/(?:me|audit-logs|cases(?:\/VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}(?:\/review|\/files\/[a-f0-9-]{36})?)?|campaigns(?:\/[A-Za-z0-9_-]{1,100}(?:\/update)?)?|leaderboards(?:\/[A-Za-z0-9_-]{1,100}(?:\/(?:update|rebuild|results))?)?|member-tiers(?:\/[a-z]+\/update)?|submissions(?:\/update)?)$/.test(pathname);
 }

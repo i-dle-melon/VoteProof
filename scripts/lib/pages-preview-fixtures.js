@@ -1,6 +1,7 @@
 // BUILD-ONLY synthetic DTOs. No real identities, credentials, query keys or proof.
 import { PREVIEW } from "./preview.js";
 import { previewState as state } from "./pages-preview-state.js";
+import { exportFixture } from './preview-exports.js';
 export const identity = {
   member_id: "PREVIEW-MEMBER-001",
   nickname: "葉子",
@@ -123,6 +124,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply("UI_PREVIEW_ONLY", 403);
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
+  if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
   if(method!=="GET") {
     if(method==="POST" && p==="/api/admin/cases/batch-approve" && state.identity==="admin"){
       const input=typeof body==="string"?JSON.parse(body):body;

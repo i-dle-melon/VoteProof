@@ -54,6 +54,10 @@ export class MemberSession {
       throw new PublicError("UI_PREVIEW_ONLY", 403);
     return previewPicture();
   }
+  async exportSample() {
+    if(!PREVIEW || previewState.identity!=='admin')throw new PublicError('UI_PREVIEW_ONLY',403);
+    return new Uint8Array(await (await previewPicture()).arrayBuffer());
+  }
   caseSender() {
     const blocked = async () => {
       throw new PublicError("UI_PREVIEW_ONLY", 403);

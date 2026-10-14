@@ -49,8 +49,11 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
   const file = await authDatabase(env).prepare(`SELECT f.object_key, f.content_type, f.size, f.etag FROM case_files f
     JOIN cases c ON c.id = f.case_id WHERE c.case_id = ? AND f.id = ?`).bind(caseId, fileId).first();
   if (!file) throw missing();
+  return privateProofResponse(env,file);
+});
+export async function privateProofResponse(env,file) {
   const object = await env.PROOFS_BUCKET.get(file.object_key);
-  if (!object) throw missing();
+  if (!object) throw new AdminError(404, 'PROOF_NOT_FOUND', 'Proof not found');
   if (!allowedMime(file.content_type) || object.httpMetadata?.contentType !== file.content_type ||
       object.size !== file.size || object.etag !== file.etag || object.size > UPLOAD_LIMITS.maxFileBytes || object.size <= 0) {
     await object.body.cancel();
@@ -61,7 +64,7 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
     "Content-Disposition": "inline", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     "Cross-Origin-Resource-Policy": "same-origin", "Content-Security-Policy": "default-src 'none'; sandbox",
     "Referrer-Policy": "no-referrer" } });
-});
+}
 export const listAdminAudit = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env, ELEVATED_ROLES);
   return jsonSuccess(await auditLogs(authDatabase(env), adminPage(url, true)));

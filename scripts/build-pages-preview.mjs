@@ -59,6 +59,7 @@ export async function buildPagesPreview(output) {
     "js/admin-api.js",
     "js/admin-backup.js",
     "js/admin-duplicate.js",
+    "js/admin-export.js", "js/export-format.js", "js/zip-store.js", "js/export-worker.js",
     "js/member-tier-progress.js",
     "js/qr.js",
     "js/vendor/qrcode.js",
@@ -98,6 +99,7 @@ export async function buildPagesPreview(output) {
     "pages-preview-challenge.js": "turnstile.js",
     "pages-preview-submission.js": "pages-preview-submission.js",
     "pages-preview-batch.js": "submission.js",
+    "pages-preview-exports.js": "preview-exports.js",
   };
   for (const [from, to] of Object.entries(adapters))
     await cp(resolve("scripts/lib", from), resolve(allowed, "js", to));

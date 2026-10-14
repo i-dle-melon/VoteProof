@@ -15,7 +15,7 @@ test("admin/security use external scripts/styles and generate no script CSP viol
     globalThis.__adminScriptCsp = [];
     document.addEventListener("securitypolicyviolation", e => { if (e.effectiveDirective.startsWith("script-src")) globalThis.__adminScriptCsp.push(e.effectiveDirective); });
   });
-  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(7);
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(8);
   for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿設定"]) {
     await page.locator("#admin-tabs").getByRole("button", { name: label, exact: true }).click(); await expect(panel(page).locator("h2")).toHaveText(label);
     expect(await panel(page).evaluate(n => [...n.querySelectorAll("*")].every(el => [...el.attributes].every(a => a.name !== "style" && !/^on/i.test(a.name))))).toBe(true);
@@ -44,7 +44,7 @@ test("session-bound admin MFA remains available beyond one hour and revocation s
   const now = Date.now(), state = await adminFixture(page);
   state.elevationUntil = now / 1000 + 7 * 86400;
   await page.clock.setFixedTime(now);
-  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(7);
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(8);
   await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
   await page.clock.setFixedTime(now + 2 * 3600000);
   const checks = state.calls.filter(c => c.path === "/api/admin/me").length;

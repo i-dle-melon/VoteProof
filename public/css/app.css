@@ -2657,3 +2657,20 @@ button.legacy-case-row:hover {
   .batch-review-controls > p:first-child { grid-column:1/-1; }
   .batch-review-controls > button { padding:10px 6px;font-size:11px; }
 }
+/* Private Admin export: independent bounded packages and cancellable progress. */
+.image-export { grid-column:1/-1; min-width:0; width:100%; }
+.image-export > .notice:empty { display:none; }
+.export-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.export-filters label:not(.export-check),.export-history label { display:grid; gap:8px; min-width:0; }
+.export-filters input,.export-filters select,.export-history select { max-width:100%; min-width:0; box-sizing:border-box; }
+.export-filters fieldset { border:1px solid var(--line); border-radius:14px; min-width:0; padding:12px; display:flex; flex-wrap:wrap; gap:12px; }
+.export-check { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
+.export-check input { width:20px; height:20px; accent-color:var(--primary); }
+.export-summary { display:flex; flex-wrap:wrap; gap:16px; margin:24px 0; }
+.export-packages { display:grid; gap:12px; margin-bottom:16px; }
+.export-package { display:flex; align-items:center; flex-wrap:wrap; gap:16px; border:1px solid var(--line); border-radius:16px; padding:16px; min-width:0; }
+.export-package > div { flex:1; min-width:100px; }
+.export-package p { margin:8px 0 0; }
+.export-results,.export-history { margin-top:16px; }
+#export-progress { overflow-wrap:anywhere; }
+@media(max-width:640px) { .export-filters { grid-template-columns:minmax(0,1fr); } .export-package { gap:10px; padding:12px; } }

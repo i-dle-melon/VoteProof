@@ -15,6 +15,7 @@ test('0011 to 0012 is additive, preserves old rows/R2/gate, leaves old hashes un
    const sql=await readFile(new URL('../migrations/0012_proof_exact_hashes.sql',import.meta.url),'utf8');
    await local.db.batch(unstable_splitSqlQuery(sql).map(s=>local.db.prepare(s)));
    assert.deepEqual(await snapshot(),before);assert.deepEqual((await local.bucket.list()).objects.map(x=>[x.key,x.etag]),r2);
+   await local.db.batch(unstable_splitSqlQuery(await readFile(new URL('../migrations/0013_async_proof_duplicates.sql',import.meta.url),'utf8')).map(s=>local.db.prepare(s)));
    assert.equal((await adminExactEvidence(local.db,proof.id)).hash_state,'not_verified');
    assert.equal((await backfillExactHashes({db:local.db,bucket:local.bucket},{dryRun:true})).written,0);
    assert.equal((await backfillExactHashes({db:local.db,bucket:local.bucket},{dryRun:false})).written,1);

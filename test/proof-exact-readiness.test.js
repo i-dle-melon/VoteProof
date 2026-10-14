@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
 import {localCaseRuntime,guestBody} from '../scripts/lib/local-case-runtime.mjs';
 import {exactProofCorpus,syntheticProofBytes} from './fixtures/exact-proof-corpus.js';
-import {backfillExactHashes,adminExactEvidence,EXACT_EVIDENCE_SQL,verifiedProofObject} from '../src/lib/proof-exact-hash.js';
+import {backfillExactHashes,adminExactEvidence,verifiedProofObject} from '../src/lib/proof-exact-hash.js';
 import {build} from 'esbuild';
+import {CANONICAL_SQL} from '../src/lib/proof-duplicate-processor.js';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 const corpus=exactProofCorpus(),digest=b=>createHash('sha256').update(b).digest('hex');let local;
 before(async()=>{local=await localCaseRuntime();});after(async()=>await local?.runtime.dispose());
@@ -36,7 +37,7 @@ test('20 unique valid PNG files have 20 independent hashes/cases; successful bat
 });
 test('20 mixed files distinguish renamed exact bytes, equal-size differences, one byte and re-encoding',async()=>{
  const files=[corpus.original.bytes,corpus.renamed.bytes,corpus.equal_size_different.bytes,corpus.one_byte.bytes,corpus.reencoded_visual_equivalent.bytes,...Array.from({length:15},(_,i)=>syntheticProofBytes(1024,i+80))];
- const rows=await verifyTwenty(files),e=await adminExactEvidence(local.db,rows[1].row.id);assert.ok(e.matches.some(x=>x.previous_case_id===rows[0].response.case_id));
+ const rows=await verifyTwenty(files),e=await adminExactEvidence(local.db,rows[1].row.id);assert.equal(e.matches.length,0);assert.equal(e.analyses[0].state,'not_applicable'); // Guest proofs have no V1 member scope.
  assert.equal(rows[0].row.sha256,rows[1].row.sha256);for(let i=2;i<5;i++)assert.notEqual(rows[i].row.sha256,rows[0].row.sha256);
  assert.equal(new Set(rows.map(x=>x.row.sha256)).size,19);
 });
@@ -66,10 +67,10 @@ test('hash D1 failure rolls back case and hash; retry of same session/key create
 });
 test('Admin exact lookup uses a historical index range and limits candidates before joining/sorting',async()=>{
  const row=await submitted(syntheticProofBytes(1024,230));
- const plan=(await local.db.prepare('EXPLAIN QUERY PLAN '+EXACT_EVIDENCE_SQL).bind(row.row.id).all()).results.map(x=>x.detail).join('\n');
- assert.match(plan,/SEARCH prior USING COVERING INDEX idx_proof_exact_hash_lookup/);assert.doesNotMatch(plan,/SCAN prior/);
- const indexes=(await local.db.prepare("PRAGMA index_info('idx_proof_exact_hash_lookup')").all()).results;
- assert.deepEqual(indexes.map(x=>x.name),['sha256','case_created_at','case_internal_id','file_id']);
+ const plan=(await local.db.prepare('EXPLAIN QUERY PLAN '+CANONICAL_SQL).bind('M-SYNTHETIC','LOCAL-TEST',row.row.sha256).all()).results.map(x=>x.detail).join('\n');
+ assert.match(plan,/SEARCH proof_duplicate_jobs USING COVERING INDEX idx_duplicate_scope/);assert.doesNotMatch(plan,/SCAN proof_duplicate_jobs/);
+ const indexes=(await local.db.prepare("PRAGMA index_info('idx_duplicate_scope')").all()).results;
+ assert.deepEqual(indexes.map(x=>x.name),['member_id','campaign_id','sha256','case_created_at','case_internal_id','file_id']);
  assert.deepEqual((await local.db.prepare('PRAGMA foreign_key_check').all()).results,[]);assert.equal((await local.db.prepare('PRAGMA quick_check').first()).quick_check,'ok');
 });
 test('native Workers object read rejects truncated and excessive bytes before providing a verified digest',async()=>{

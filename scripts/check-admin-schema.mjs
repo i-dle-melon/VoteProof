@@ -28,6 +28,7 @@ function query(sql) {
 }
 assert.deepEqual(query("SELECT name FROM sqlite_master WHERE type = 'table'"), []);
 run(["d1", "migrations", "apply", "voteproof-cases"]);
+run(["d1", "migrations", "apply", "voteproof-cases"]); // Registry replay must be a no-op.
 const schemaQueries = [
   "SELECT name FROM d1_migrations ORDER BY id",
   "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
@@ -50,7 +51,7 @@ assert.equal(results.length, schemaQueries.length);
 assert.ok(results.every(result => result.success));
 const rows = results.map(result => result.results);
 const applied = rows[0].map(row => row.name);
-assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql", "0010_google_drive_backups.sql", "0011_drive_backup_relay_lease_index.sql", "0012_proof_exact_hashes.sql"]);
+assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql", "0010_google_drive_backups.sql", "0011_drive_backup_relay_lease_index.sql", "0012_proof_exact_hashes.sql", "0013_async_proof_duplicates.sql"]);
 const tables = rows[1].map(row => row.name);
 for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "member_credentials", "auth_transactions", "trusted_devices", "recovery_codes", "auth_atomic_guards", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
 const indexes = rows[2].map(row => row.name);
@@ -59,10 +60,13 @@ const triggers = rows[3].map(row => row.name);
 assert.deepEqual(triggers, ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "campaigns_immutable_id", "campaigns_no_delete", "campaigns_no_replace", "campaigns_update_policy", "cases_duplicate_insert", "cases_duplicate_update", "cases_guest_points_insert", "cases_guest_points_update", "points_case_binding", "points_exact_reversal", "points_no_delete", "points_no_replace", "points_no_update",
   "leaderboards_no_replace", "leaderboards_no_delete", "leaderboards_policy", "leaderboards_publish", "leaderboard_runs_no_replace", "leaderboard_runs_no_delete", "leaderboard_runs_update", "leaderboard_results_no_update", "leaderboard_results_no_delete", "leaderboard_results_insert",
   "member_tiers_identity", "member_tiers_no_delete", "member_tiers_no_replace", "member_tiers_order_insert", "member_tiers_order_update", "identity_events_no_update", "identity_events_no_delete", "identity_events_no_replace", "identity_mapping_immutable", "identity_mapping_no_replace", "submission_audit_no_update", "submission_audit_no_delete", "submission_audit_no_replace", "submissions_cases_insert", "submissions_uploads_insert", "submissions_upload_files_insert",
-  "backup_audit_no_update", "backup_audit_no_delete", "backup_audit_no_replace", "proof_exact_hash_source", "proof_exact_hash_no_update", "proof_upload_checksum_source", "proof_upload_checksum_no_update"].sort());
+  "backup_audit_no_update", "backup_audit_no_delete", "backup_audit_no_replace", "proof_exact_hash_source", "proof_exact_hash_no_update", "proof_upload_checksum_source", "proof_upload_checksum_no_update", "duplicate_source_insert", "duplicate_source_immutable", "duplicate_canonical_scope", "duplicate_enqueue"].sort());
 for (const name of ['proof_backups','drive_backup_folders','backup_processor_lock','backup_admin_audit','proof_exact_hashes','proof_upload_checksums']) assert.ok(tables.includes(name));
 assert.ok(indexes.includes('idx_proof_backups_relay_lease_token'));
-assert.ok(indexes.includes('idx_proof_exact_hash_lookup'));
+assert.ok(indexes.includes('idx_duplicate_scope'));
+assert.ok(!indexes.includes('idx_proof_exact_hash_lookup'));
+assert.ok(tables.includes('proof_duplicate_jobs'));
+assert.ok(tables.includes('proof_duplicate_requests'));
 const caseColumns = rows[4].map(row => row.name);
 for (const name of ["version", "status_reason", "status_updated_at", "status_updated_by", "duplicate_of_case_id", "reviewed_at", "reviewer_id", "last_review_id"]) assert.ok(caseColumns.includes(name));
 const membershipFks = rows[5];

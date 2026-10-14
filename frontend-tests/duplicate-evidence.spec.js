@@ -1,32 +1,11 @@
 import {test,expect} from '@playwright/test';
 import {adminFixture} from './admin-fixture.mjs';
-test('Admin exact evidence displays relationship, prior status/time and never changes review automatically',async({page})=>{
- const state=await adminFixture(page);
- state.cases[0].duplicate_evidence={hash_state:'verified',exact_match_detected:true,policy:'review_evidence_only',matches:[
-   {relationship:'cross_member_exact',previous_case_id:'VP-20261001-AAAAAAAAAAAAAAAA',previous_status:'approved',previous_submitted_at:'2026-10-01T00:00:00.000Z'},
-   {relationship:'same_member_other_campaign',previous_case_id:'VP-20260901-BBBBBBBBBBBBBBBB',previous_status:'rejected',previous_submitted_at:'2026-09-01T00:00:00.000Z'},
- ]};
- await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();
- const evidence=page.getByRole('region',{name:'檔案比對提示'});
- await expect(evidence).toContainText('此檔案可能已提交過');await expect(evidence).toContainText('不同會員／相同檔案');
- await expect(evidence).toContainText('同一會員／不同活動');await expect(evidence).toContainText('VP-20261001-AAAAAAAAAAAAAAAA');
- await expect(evidence).toContainText('已通過');await expect(evidence).toContainText('2026-10-01');
- await expect(evidence).toContainText('不會自動拒絕案件');expect(state.calls.filter(c=>c.path.endsWith('/review'))).toHaveLength(0);
- await expect(evidence).not.toContainText(/email|sha256|proofs\/|@/);expect(state.cases[0].status).toBe('pending');
+async function open(page,evidence){const state=await adminFixture(page);state.cases[0].duplicate_evidence=evidence;await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();return {state,box:page.getByRole('region',{name:'檔案比對提示'})};}
+test('V1 canonical evidence is member/Campaign scoped and never mutates review',async({page})=>{
+ const {state,box}=await open(page,{hash_state:'verified',analyses:[{state:'exact_duplicate',canonical_case_id:'VP-20261001-AAAAAAAAAAAAAAAA',canonical_file_id:'synthetic-proof'}]});
+ await expect(box).toContainText('發現同會員同活動相同檔案');await expect(box).toContainText('VP-20261001-AAAAAAAAAAAAAAAA');await expect(box).toContainText('synthetic-proof');
+ await expect(box).not.toContainText(/不同會員|不同活動|proofs\/|@/);expect(state.calls.filter(c=>c.path.endsWith('/review'))).toHaveLength(0);expect(state.cases[0].status).toBe('pending');
 });
-test('Unverified legacy proof displays honest missing hash state',async({page})=>{
- const state=await adminFixture(page);state.cases[0].duplicate_evidence={hash_state:'not_verified',exact_match_detected:false,matches:[]};
- await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();
- await expect(page.getByRole('region',{name:'檔案比對提示'})).toContainText('尚未完成檔案比對');
-});
-test('Verified no-match evidence is neutral and does not submit an automatic review',async({page})=>{
- const state=await adminFixture(page);state.cases[0].duplicate_evidence={hash_state:'verified',exact_match_detected:false,matches:[],policy:'review_evidence_only'};
- await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();
- const box=page.getByRole('region',{name:'檔案比對提示'});await expect(box).toContainText('目前未找到相同檔案');
- await expect(box).not.toContainText('此檔案可能已提交過');expect(state.calls.filter(c=>c.path.endsWith('/review'))).toHaveLength(0);expect(state.cases[0].status).toBe('pending');
-});
-test('Evidence uses text nodes and handles partial/truncated state',async({page})=>{
- const state=await adminFixture(page);state.cases[0].duplicate_evidence={hash_state:'partial',exact_match_detected:true,truncated:true,matches:[{relationship:'guest_exact_unknown',previous_case_id:'<img src=x onerror=alert(1)>',previous_status:'pending',previous_submitted_at:'2026-01-01'}]};
- await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();
- const box=page.getByRole('region',{name:'檔案比對提示'});await expect(box).toContainText('部分證明');await expect(box).toContainText('僅顯示最近 100 筆');await expect(box.locator('img')).toHaveCount(0);await expect(box).toContainText('<img');
-});
+test('Unverified proof honestly remains unknown',async({page})=>{const {box}=await open(page,{hash_state:'not_verified',analyses:[]});await expect(box).toContainText('尚未完成檔案比對');await expect(box).not.toContainText('未發現相同檔案');});
+for(const [state,label] of [['pending','尚未分析'],['processing','分析中'],['clear','未發現相同檔案'],['failed','分析失敗／待重試']])test('V1 Admin analysis state '+state,async({page})=>{const {state:fixture,box}=await open(page,{hash_state:'verified',analyses:[{state}]});await expect(box).toContainText(label);if(state!=='clear')await expect(box).not.toContainText('未發現相同檔案');expect(fixture.calls.filter(c=>c.path.endsWith('/review'))).toHaveLength(0);});
+test('Canonical evidence uses text nodes and cannot render markup',async({page})=>{const {box}=await open(page,{hash_state:'partial',analyses:[{state:'exact_duplicate',canonical_case_id:'<img src=x onerror=alert(1)>',canonical_file_id:'synthetic-proof'},{state:'pending'}]});await expect(box).toContainText('部分證明');await expect(box.locator('img')).toHaveCount(0);await expect(box).toContainText('<img');});

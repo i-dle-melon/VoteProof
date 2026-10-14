@@ -11,6 +11,7 @@ import { updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
 import { backupAdminRoute } from "./admin-backups.js";
 import { internalBackupRoute } from "./internal-drive-backups.js";
+import { internalDuplicateRoute } from './internal-proof-duplicates.js';
 import { campaignRoute } from "./admin-campaigns.js";
 import { pointRoute } from "./points.js";
 import { leaderboardRoute } from "./admin-leaderboards.js";
@@ -98,6 +99,7 @@ export async function routeApi(request, env, url) {
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??
     internalBackupRoute(url.pathname) ??
+    internalDuplicateRoute(url.pathname) ??
     backupAdminRoute(url.pathname) ??
     adminRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??

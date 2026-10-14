@@ -8,7 +8,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService, resourcePersistencePath } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService, resourcePersistencePath, duplicateProcessorSecret } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
@@ -19,6 +19,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     d1Databases: ["DB"], r2Buckets: ["PROOFS_BUCKET"],
     bindings: {
       ...provider.config,
+      ...(duplicateProcessorSecret ? {DUPLICATE_PROCESSOR_SECRET:duplicateProcessorSecret,DUPLICATE_PROCESSOR_ENABLED:'true'} : {}),
       R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "local-case-test",
       R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
       TURNSTILE_SECRET_KEY: randomBytes(32).toString("hex"),

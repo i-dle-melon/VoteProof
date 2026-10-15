@@ -148,9 +148,8 @@ export async function snapshotExport(db, actor, id, scope) {
         `WITH RECURSIVE ordered AS MATERIALIZED (
       SELECT ROW_NUMBER() OVER (ORDER BY c.created_at,c.id,f.id) ordinal, f.id file_id,c.case_id,c.created_at,c.campaign_id,COALESCE(cam.name,c.campaign_id) campaign_name,
         c.vote_type,CASE WHEN c.member_id IS NULL THEN 'guest' ELSE 'member' END source,c.status review_status,c.review_stage,
-        f.content_type,f.size file_size,COALESCE(f.etag,'') etag,h.sha256
+        f.content_type,f.size file_size,COALESCE(f.etag,'') etag,NULL sha256
       FROM cases c JOIN case_files f ON f.case_id=c.id LEFT JOIN campaigns cam ON cam.campaign_id=c.campaign_id
-      LEFT JOIN proof_exact_hashes h ON h.file_id=f.id AND h.source_etag=f.etag AND h.source_size=f.size
       WHERE ${where.sql} AND EXISTS(SELECT 1 FROM export_jobs WHERE id=?) ORDER BY c.created_at,c.id,f.id LIMIT ${EXPORT_LIMITS.maxJobFiles + 1}
     ), packed(ordinal,package_no,n,bytes) AS (
       SELECT ordinal,1,1,file_size FROM ordered WHERE ordinal=1

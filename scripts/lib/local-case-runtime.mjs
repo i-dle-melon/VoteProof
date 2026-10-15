@@ -8,7 +8,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService, resourcePersistencePath, duplicateProcessorSecret } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
@@ -19,6 +19,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     d1Databases: ["DB"], r2Buckets: ["PROOFS_BUCKET"],
     bindings: {
       ...provider.config,
+      ...(directIntent ? {DIRECT_INTENT_CASE_ENABLED:'true'} : {}),
       ...(duplicateProcessorSecret ? {DUPLICATE_PROCESSOR_SECRET:duplicateProcessorSecret,DUPLICATE_PROCESSOR_ENABLED:'true'} : {}),
       R2_ACCOUNT_ID: randomBytes(16).toString("hex"), R2_BUCKET_NAME: "local-case-test",
       R2_ACCESS_KEY_ID: randomBytes(16).toString("hex"), R2_SECRET_ACCESS_KEY: randomBytes(32).toString("hex"),
@@ -62,10 +63,11 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     async function campaign({ campaign_id = "LOCAL-TEST", name = "Local fixture", category = "Solo", solo_target = category === "Solo" ? "local-solo" : null, start_at = "2000-01-01T00:00:00.000Z",
       end_at = "2100-01-01T00:00:00.000Z", campaign_timezone = "UTC", vote_start_date = "2000-01-01", vote_end_date = "2099-12-31",
       points_per_proof = 0, daily_limit = 0, status = "active" } = {}) {
-      await db.prepare(`INSERT INTO campaigns (campaign_id, name, category, solo_target, start_at, end_at, campaign_timezone,
+      const legacyCampaignSchema=migrationThrough && migrationThrough<'0014_fan_campaign_rules.sql';
+      await db.prepare(`INSERT INTO campaigns (campaign_id, name, category, ${legacyCampaignSchema?'':'solo_target,'} start_at, end_at, campaign_timezone,
         vote_start_date, vote_end_date, points_per_proof, daily_limit, status, created_at, updated_at)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM campaigns WHERE campaign_id = ?)`)
-        .bind(campaign_id, name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
+        SELECT ?, ?, ?, ${legacyCampaignSchema?'':'?,'} ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM campaigns WHERE campaign_id = ?)`)
+        .bind(campaign_id, name, category, ...(legacyCampaignSchema?[]:[solo_target]), start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
           points_per_proof, daily_limit, status, new Date().toISOString(), new Date().toISOString(), campaign_id).run();
       return campaign_id;
     }

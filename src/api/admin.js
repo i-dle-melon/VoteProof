@@ -31,8 +31,8 @@ export const listAdminCases = adminHandler(async (env, url, request) => {
 });
 export const getAdminCase = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
-  const db = authDatabase(env), { id, ...row } = await requireCase(db, url);
-  return jsonSuccess({ ...row, files: await adminFiles(db, id), duplicate_evidence:await adminExactEvidence(db,id) });
+  const db = authDatabase(env), { id, upload_intent_id, ...row } = await requireCase(db, url);
+  return jsonSuccess({ ...row, files: await adminFiles(db, id), duplicate_evidence:upload_intent_id?null:await adminExactEvidence(db,id) });
 });
 export const reviewAdminCase = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env);

@@ -269,7 +269,8 @@ export function adminUI(session) {
         if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
         backupBox.append(node('p', copy('backup-proof-unavailable')));
       }
-      panel.append(node("p",data.source==="guest"?"匿名投稿：審核不產生會員積分。":"通過後才依活動規則發點；駁回不計分，撤銷以正式 ledger 沖回。","notice info"),renderDuplicateEvidence(data.duplicate_evidence));
+      panel.append(node("p",data.source==="guest"?"匿名投稿：審核不產生會員積分。":"通過後才依活動規則發點；駁回不計分，撤銷以正式 ledger 沖回。","notice info"));
+      if(data.duplicate_evidence!==null)panel.append(renderDuplicateEvidence(data.duplicate_evidence));
       const preview = node("div", "", "admin-proof-grid"); panel.append(preview);
       for (const [index,file] of data.files.entries()) {
         const imageCard=node("article","正在載入證明…","member-case");preview.append(imageCard);

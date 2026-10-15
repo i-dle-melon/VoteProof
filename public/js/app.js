@@ -1,7 +1,7 @@
 import { setupUI } from "./ui-system.js";
 import { tierArtwork, renderTierArtwork } from "./tier-artwork.js";
 import { api, putImage, errorMessage, PublicError } from "./api.js";
-import { BatchSubmission, validateBatchImages, queryInformation } from "./submission.js";
+import { BatchSubmission, validateBatchImages, queryInformation, directIntentPocEnabled } from "./submission.js";
 import { Challenge } from "./turnstile.js";
 import { adminUI } from "./admin.js";
 import { memberUI } from "./member.js";
@@ -34,7 +34,7 @@ let campaignAvailability = "正在載入活動…";
 let submissionIdentityCheck = async () => {};
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
-const submission = new BatchSubmission({ gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
+const submission = new BatchSubmission({ directIntent:directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
 changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
   await gateRequest;

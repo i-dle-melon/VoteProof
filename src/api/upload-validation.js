@@ -97,9 +97,11 @@ export function validatePrepare(body) {
     throw new UploadError(400, "FILE_TOO_LARGE", "The batch exceeds the size limit");
   }
   if(body.storage_version!==undefined && body.storage_version!==2) invalid('Invalid upload storage version');
+  if(body.completion_mode!==undefined && body.completion_mode!=='direct') invalid('Invalid completion mode');
+  if(body.completion_mode==='direct' && body.storage_version!==2) invalid('Direct completion requires an immutable proof');
   if(body.storage_version===2) {
     if(files.length!==1 || typeof body.campaign_id!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(body.campaign_id)) invalid('One proof and a Campaign are required');
-    return {token:body.turnstile_token.trim(),files,storageVersion:2,campaignId:body.campaign_id};
+    return {token:body.turnstile_token.trim(),files,storageVersion:2,campaignId:body.campaign_id,completionMode:body.completion_mode??'legacy'};
   }
   return { token: body.turnstile_token.trim(), files };
 }

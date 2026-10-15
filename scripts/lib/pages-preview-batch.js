@@ -1,7 +1,7 @@
 import { BatchSubmission as RealBatchSubmission } from "./submission-core.js";
 import { previewState } from "./pages-preview-state.js";
 import { submissionFixture } from "./pages-preview-submission.js";
-export { validateBatchImages, queryInformation } from "./submission-core.js";
+export { validateBatchImages, queryInformation, directIntentPocEnabled } from "./submission-core.js";
 export class BatchSubmission extends RealBatchSubmission {
   #active = false;
   activatePreview() {

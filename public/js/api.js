@@ -30,8 +30,8 @@ export function putImage(upload, file, onProgress) {
       if (xhr.status >= 200 && xhr.status < 300) { onProgress(1); resolve(); }
       else {
         let code;try{code=JSON.parse(xhr.responseText)?.error?.code;}catch{/* Sanitized fallback. */}
-        // Create-only replay does not attest to the retried body. Complete
-        // verifies the original native R2 checksum before any Case is sent.
+        // Create-only replay does not attest to the retried body. Legacy
+        // Complete or direct Case HEAD verifies the original provider checksum.
         if(xhr.status===409&&code==='UPLOAD_ALREADY_UPLOADED'){onProgress(1);resolve();}
         else reject(new PublicError(code==='UPLOAD_REPREPARE_REQUIRED'?code:'PUT_FAILED',xhr.status));
       }

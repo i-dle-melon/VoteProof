@@ -11,17 +11,26 @@ import { memberSession, memberCsrf, requestOrigin } from "../lib/auth-session.js
 import {uploadCapabilityHash,linkFinalProof,finalReference} from '../lib/immutable-uploads.js';
 import { SubmissionError } from "../lib/submission-gate.js";
 import { ensureCaseBackups } from "../lib/proof-backup-store.js";
+import { directCasePreflight, directProofFile, insertDirectCase } from '../lib/direct-intent-case.js';
 
 const errorResponse = error => error instanceof CaseError || error instanceof AuthError || error instanceof SubmissionError
   ? jsonError(error.status, error.code, error.message)
   : jsonError(500, "DATABASE_ERROR", "Case service is unavailable");
 const notFound = () => jsonError(404, "CASE_NOT_FOUND", "Case not found");
 
-export async function createCase(env, _url, request) {
+export const createDirectCase = (env, url, request) => createCase(env, url, request, { direct: true });
+
+export async function createCase(env, _url, request, { direct = false } = {}) {
   const cleanupKeys = [];
   let db, input, id, identity, committed = false;
   try {
     input = validateCase(await readCaseJson(request));
+    if (direct) {
+      requestOrigin(request, env);
+      if (!finalReference(input.keys)) throw new CaseError(400, 'INVALID_UPLOAD_REFERENCE', 'A final proof is required');
+      input.directIntent = true;
+      input.guestCapabilityHash = input.capability ? await uploadCapabilityHash(input.capability) : null;
+    }
     const member = await memberSession(request, env, false);
     if (member) {
       await memberCsrf(request, env, member);
@@ -29,15 +38,16 @@ export async function createCase(env, _url, request) {
       input.sessionHash = member.tokenHash;
     }
     identity = await requestIdempotency(request, input, env);
+    if (direct && !identity) throw new CaseError(400, 'INVALID_IDEMPOTENCY_KEY', 'Idempotency-Key is required');
     db = caseDatabase(env);
     const replay = await replayCase(db, identity);
     if (replay) return jsonSuccess(replay, "no-store", 201);
     if (member) { input.nickname = member.nickname; input.playerId = member.player_id ?? "尚未設定"; } else {input.nickname="匿名投稿";input.playerId="匿名投稿";}
-    if(finalReference(input.keys)) {
+    if(!direct && finalReference(input.keys)) {
       requestOrigin(request,env);
       input.guestCapabilityHash=input.capability?await uploadCapabilityHash(input.capability):null;
     }
-    const preflight = await casePreflight(db,input);
+    const preflight = await (direct ? directCasePreflight : casePreflight)(db,input);
     input.campaignVersion = preflight.campaign.version;
     const completed = preflight.completed;
     id = crypto.randomUUID();
@@ -46,13 +56,15 @@ export async function createCase(env, _url, request) {
     const seed = identity ? newQuerySeed() : null;
     const queryKey = identity ? await reconstructQueryKey(identity, id, seed) : newQueryKey();
     const queryHash = await sha256(queryKey);
-    const files = completed.intent ? await linkFinalProof(env.PROOFS_BUCKET,completed)
+    const files = direct ? [await directProofFile(env.PROOFS_BUCKET, preflight.intent)] : completed.intent ? await linkFinalProof(env.PROOFS_BUCKET,completed)
       : await archiveCaseFiles(env.PROOFS_BUCKET, id, completed.files, cleanupKeys);
-    await insertCase(db, input, { id, caseId, now: new Date().toISOString(), queryHash,
-      idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null }, files, completed.hash);
+    const record = { id, caseId, now: new Date().toISOString(), queryHash,
+      idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null };
+    if (direct) await insertDirectCase(db, input, record, files[0]);
+    else await insertCase(db, input, record, files, completed.hash);
     committed = true;
     await ensureCaseBackups(env, id, files);
-    if(!completed.intent)await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
+    if(!direct && !completed.intent)await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {
     if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);
@@ -71,7 +83,9 @@ export async function createCase(env, _url, request) {
     // use the same conflict response even if its staging object is now missing.
     if (db && input && !error?.preserveArchives) {
       try {
-        const state = await uploadState(db, input.sessionId);
+        const state = direct
+          ? await db.prepare('SELECT consumed_case_id FROM proof_upload_intents WHERE session_id=?').bind(input.sessionId).first()
+          : await uploadState(db, input.sessionId);
         if (state?.consumed_case_id && state.consumed_case_id !== id) {
           return errorResponse(new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used"));
         }

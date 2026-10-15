@@ -18,6 +18,10 @@ export async function requestIdempotency(request, input, env) {
   // Guest hashes remain byte-compatible with B3. Member retries are scoped to
   // the authenticated identity, independent of its current session or profile.
   if (input.memberId) normalized.memberId = input.memberId;
+  if (input.directIntent) {
+    normalized.completionMode = 'direct';
+    if (!input.memberId) normalized.guestCapabilityHash = input.guestCapabilityHash;
+  }
   const secret = env.CASE_QUERY_KEY_SECRET;
   // A dedicated, randomly generated 256-bit hex Secret; never reuse other keys.
   if (typeof secret !== "string" || !/^[0-9a-fA-F]{64}$/.test(secret)) throw unavailable();

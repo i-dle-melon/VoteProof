@@ -13,6 +13,8 @@ import {prepareFinalUpload,putFinalUpload,sealFinalUpload,finalReference} from '
 export async function prepareUpload(env, _url, request) {
   try {
     const input = validatePrepare(await readUploadJson(request));
+    if(input.completionMode==='direct' && env.DIRECT_INTENT_CASE_ENABLED!=='true')
+      throw new UploadError(503,'DIRECT_INTENT_DISABLED','Experimental direct uploads are not enabled');
     const {token,files}=input;
     const config = await uploadGrantConfig(env);
     await verifyTurnstile(request, env, token);

@@ -1,6 +1,8 @@
 import {test,expect} from '@playwright/test';
 import {adminFixture} from './admin-fixture.mjs';
-async function open(page,evidence){const state=await adminFixture(page);state.cases[0].duplicate_evidence=evidence;await page.goto('/#admin');await page.locator('#admin-panel').getByRole('button',{name:'查看與審核',exact:true}).click();return {state,box:page.getByRole('region',{name:'檔案比對提示'})};}
+async function open(page,evidence){const state=await adminFixture(page);state.cases[0].duplicate_evidence=evidence;await page.goto('/#admin');await page.locator('#admin-panel .case-preview').first().click({position:{x:12,y:12}});return {state,box:page.getByRole('region',{name:'檔案比對提示'})};}
+
+test('direct intent cases omit cloud duplicate panel while private proof remains visible',async({page})=>{const {box}=await open(page,null);await expect(page.locator('.inline-review img')).toBeVisible();await expect(box).toHaveCount(0);});
 test('V1 canonical evidence is member/Campaign scoped and never mutates review',async({page})=>{
  const {state,box}=await open(page,{hash_state:'verified',analyses:[{state:'exact_duplicate',canonical_case_id:'VP-20261001-AAAAAAAAAAAAAAAA',canonical_file_id:'synthetic-proof'}]});
  await expect(box).toContainText('發現同會員同活動相同檔案');await expect(box).toContainText('VP-20261001-AAAAAAAAAAAAAAAA');await expect(box).toContainText('synthetic-proof');

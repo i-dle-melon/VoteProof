@@ -3,7 +3,7 @@ import { getCampaigns } from "./campaigns.js";
 import { getLeaderboards } from "./leaderboards.js";
 import { jsonError } from "./response.js";
 import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
-import { createCase, getCase } from "./cases.js";
+import { createCase, createDirectCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
 import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
 import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
@@ -53,6 +53,7 @@ const routes = new Map([
   ["/api/uploads/prepare", { method: "POST", handler: prepareUpload }],
   ["/api/uploads/complete", { method: "POST", handler: completeUpload }],
   ["/api/cases", { method: "POST", handler: createCase }],
+  ["/api/cases/direct", { method: "POST", handler: createDirectCase }],
   ["/api/auth/registration-status", { method: "GET", handler: registrationStatus }],
   ["/api/auth/google/callback", { method: "GET", handler: googleCallback }],
   ["/api/auth/google/result", { method: "GET", handler: googleResult }],

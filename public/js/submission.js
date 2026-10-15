@@ -3,6 +3,11 @@ import { PublicError } from "./api.js";
 export const FILE_LIMITS = Object.freeze({ count: 5, bytes: 5 * 1024 * 1024, batch: 25 * 1024 * 1024 });
 export const IMAGE_TYPES = Object.freeze({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" });
 export const BATCH_LIMIT = 20;
+// Explicit local-only POC selector. Server issuance must independently opt in.
+export function directIntentPocEnabled(location = globalThis.location) {
+  return ['localhost','127.0.0.1','[::1]','voteproof.example'].includes(location?.hostname) &&
+    new URLSearchParams(location.search).get('upload-flow') === 'direct';
+}
 export function validateBatchImages(files) {
   if (!files.length) throw new PublicError("IMAGES_REQUIRED");
   if (files.length > BATCH_LIMIT) throw new PublicError("BATCH_TOO_MANY_FILES");
@@ -57,14 +62,16 @@ export function queryInformation(result) {
 export class Submission {
   #context = null;
   #running = null;
-  constructor({ api, put, token, progress = () => {}, now = () => Date.now() }) {
+  constructor({ api, put, token, progress = () => {}, now = () => Date.now(), directIntent = false }) {
     this.api = api; this.put = put; this.token = token; this.progress = progress; this.now = now;
+    this.directIntent = directIntent;
   }
   get pending() { return this.#context !== null; }
   get busy() { return this.#running !== null; }
   start(metadata, files, { caseApi } = {}) {
     if (this.pending) throw new PublicError("SUBMISSION_PENDING");
     validateImages(files);
+    if(this.directIntent && files.length!==1)throw new PublicError('INVALID_UPLOAD_REFERENCE');
     this.#context = { metadata: normalizedMetadata(metadata), files: [...files], idempotency: newIdempotencyKey(),
       prepared: null, digests:null, uploaded: new Set(), completed: false, payload: null, caseApi };
   }
@@ -97,9 +104,11 @@ export class Submission {
       const started = this.now();
       c.prepared = checkedPrepare(await (c.caseApi??this.api)("/api/uploads/prepare", { method: "POST", body: {
         ...(c.files.length===1?{storage_version:2,campaign_id:c.metadata.campaign_id}:{}),
+        ...(this.directIntent?{completion_mode:'direct'}:{}),
         turnstile_token: token, files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);
       c.expiresAt = started + c.prepared.expires_in * 1000;
     }
+    if(this.directIntent && c.prepared.completion_mode!=='direct')throw new PublicError('SERVICE_UNAVAILABLE');
     for (let i = 0; i < c.files.length && !c.completed; i++) {
       if (c.uploaded.has(i)) continue;
       const update = (fraction) => this.progress({ phase: "put", file: i + 1, count: c.files.length,
@@ -107,6 +116,11 @@ export class Submission {
       update(0);
       try {await this.put(c.prepared.uploads[i], c.files[i], update);}
       catch(error) {
+        // An ambiguous PUT is resolved by the authoritative Case HEAD. Never
+        // invent success from the browser flag or allocate a second intent.
+        if(this.directIntent && ['PUT_FAILED','NETWORK_ERROR','UPLOAD_REPREPARE_REQUIRED'].includes(error.code)) {
+          c.uploaded.add(i); continue;
+        }
         if(error.code==='UPLOAD_REPREPARE_REQUIRED'&&!c.payload){c.prepared=null;c.uploaded.clear();}
         throw error;
       }
@@ -114,17 +128,24 @@ export class Submission {
     }
     const reference = { session_id: c.prepared.session_id, keys: c.prepared.uploads.map((u) => u.key),
       ...(c.prepared.capability?{capability:c.prepared.capability}:{}) };
-    if (!c.completed) {
+    if (!c.completed && !this.directIntent) {
       this.progress({ phase: "complete", fraction: 1 });
       try { await (c.caseApi??this.api)("/api/uploads/complete", { method: "POST", body: reference }); }
       catch (e) { if (e.code === "UPLOAD_INCOMPLETE") c.uploaded.clear(); throw e; }
       c.completed = true;
     }
+    if(this.directIntent)c.completed=true;
     // Store the serialized body ONCE before POST. Lost success responses must
     // replay this exact body/key, even if the upload is already consumed.
     c.payload ??= JSON.stringify({ ...c.metadata, upload_session: reference });
     this.progress({ phase: "case", fraction: 1 });
-    const result = await (c.caseApi ?? this.api)("/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
+    let result;
+    try {
+      result = await (c.caseApi ?? this.api)(this.directIntent?"/api/cases/direct":"/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
+    } catch(error) {
+      if(this.directIntent && error.code==='UPLOAD_INCOMPLETE'){c.completed=false;c.uploaded.clear();}
+      throw error;
+    }
     if (!/^VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}$/.test(result?.case_id ?? "") ||
         !/^[A-Za-z0-9_-]{43}$/.test(result?.query_key ?? "")) throw new PublicError("SERVICE_UNAVAILABLE");
     this.#context = null;
@@ -138,8 +159,8 @@ export class BatchSubmission {
   #items = [];
   #running = null;
   #error = null;
-  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now }) {
-    this.dependencies = { api, put, token, now };
+  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now, directIntent = false }) {
+    this.dependencies = { api, put, token, now, directIntent };
     this.progress = progress; this.changed = changed;
     this.gate = gate ?? (async () => {
       const status = await api("/api/submissions/status");

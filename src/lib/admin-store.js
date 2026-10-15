@@ -22,7 +22,7 @@ export async function adminCases(db, page) {
     next_cursor: rows.length > page.limit ? encodeCursor([page.scope, last.priority, last.created_at, last.id]) : null };
 }
 export async function adminCase(db, caseId) {
-  return db.prepare(`SELECT ${SUMMARY_COLUMNS}, c.id, c.member_id, c.note, c.status_reason,
+  return db.prepare(`SELECT ${SUMMARY_COLUMNS}, c.id, c.upload_intent_id, c.member_id, c.note, c.status_reason,
     c.status_updated_at, c.status_updated_by, c.reviewed_at, c.reviewer_id, c.point_status, c.point_transaction_id, d.case_id AS duplicate_of_case_id
     FROM cases c LEFT JOIN cases d ON d.id = c.duplicate_of_case_id WHERE c.case_id = ?`).bind(caseId).first();
 }

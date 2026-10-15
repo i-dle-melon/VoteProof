@@ -73,8 +73,10 @@ before(async () => {
   otherAdmin = await h.identity({ role: "admin" });
   await local.campaign({
     campaign_id: "EXPORT-SOLO",
-    start_at: "2026-10-13T16:00:00.000Z",
-    end_at: "2026-10-14T16:00:00.000Z",
+    // Seed through the real create policy while open, then restore the fixed
+    // historical export interval. The fixture must work after 2026-10-14 too.
+    start_at: "2000-01-01T00:00:00.000Z",
+    end_at: "2100-01-01T00:00:00.000Z",
   });
   await local.campaign({ campaign_id: "EXPORT-GROUP", category: "團體" });
   for (let i = 0; i < 8; i++) {
@@ -112,6 +114,14 @@ before(async () => {
       duplicate_of_case_id: cases[1].case_id,
     }),
   );
+  // Backdate this disposable historical fixture only. Restore the exact guard
+  // in the same transaction; production/domain policy remains unchanged.
+  const policy=await local.db.prepare("SELECT sql FROM sqlite_schema WHERE name='campaigns_update_policy'").first();
+  await local.db.batch([
+    local.db.prepare('DROP TRIGGER campaigns_update_policy'),
+    local.db.prepare("UPDATE campaigns SET start_at='2026-10-13T16:00:00.000Z',end_at='2026-10-14T16:00:00.000Z' WHERE campaign_id='EXPORT-SOLO'"),
+    local.db.prepare(policy.sql),
+  ]);
 });
 after(async () => {
   await local?.runtime.dispose();

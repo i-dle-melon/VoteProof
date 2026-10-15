@@ -25,13 +25,14 @@ export async function prepareFinalUpload(env,request,config,input) {
   const expires=Math.floor(now.valueOf()/1000)+UPLOAD_LIMITS.expiresSeconds;
   const objectKey=`proofs/final/${sessionId}/${proofId}.${MIME_EXTENSIONS[file.type]}`;
   await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
-    content_type,size,expected_sha256,created_at,expires_at,grant_expires)
-    SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)`)
+    content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
+    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)`)
     .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
-      now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires).run().then(r=>{if(r.meta.changes!==1)fail('SUBMISSIONS_DISABLED',503);});
+      now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy').run().then(r=>{if(r.meta.changes!==1)fail('SUBMISSIONS_DISABLED',503);});
   const upload=await issueUploadGrant(config,`/api/uploads/put/${sessionId}/${proofId}`,objectKey,file,
     {sessionId,proofId,campaignId:input.campaignId,memberId:member?.member_id??null,guestCapabilityHash,expires});
-  return {storage_version:2,session_id:sessionId,proof_id:proofId,expires_in:UPLOAD_LIMITS.expiresSeconds,uploads:[upload],...(capability?{capability}:{})};
+  return {storage_version:2,session_id:sessionId,proof_id:proofId,expires_in:UPLOAD_LIMITS.expiresSeconds,uploads:[upload],...(capability?{capability}:{}),
+    ...(input.completionMode==='direct'?{completion_mode:'direct'}:{})};
 }
 
 async function ownIntent(env,request,intent,capability,{csrf=true}={}) {
@@ -80,8 +81,9 @@ export async function putFinalUpload(env,request,grant) {
     // timeouts must never allow cleanup to race an unacknowledged PUT.
     fail('UPLOAD_REPREPARE_REQUIRED',502);
   }
-  await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,uploaded_at=coalesce(uploaded_at,?),
-    state=CASE WHEN state='prepared' THEN 'uploaded' ELSE state END WHERE session_id=? AND write_token=?`)
+  await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,
+    uploaded_at=CASE WHEN completion_mode='legacy' THEN coalesce(uploaded_at,?) ELSE uploaded_at END,
+    state=CASE WHEN state='prepared' AND completion_mode='legacy' THEN 'uploaded' ELSE state END WHERE session_id=? AND write_token=?`)
     .bind(new Date().toISOString(),intent.session_id,token).run();
   // Do not attest to bytes of a replay body that R2 did not consume. The client
   // can use complete's authoritative checksum verification to recover safely.
@@ -93,6 +95,7 @@ export async function sealFinalUpload(env,request,reference) {
   const intent=await intentRow(env.DB,reference.sessionId);
   if(!intent || reference.keys.length!==1 || reference.keys[0]!==intent.object_key)fail();
   await ownIntent(env,request,intent,reference.capability);
+  if(intent.completion_mode==='direct')fail('UPLOAD_COMPLETE_NOT_REQUIRED');
   if(['deleting','deleted'].includes(intent.state)||intent.expires_at<=new Date().toISOString())fail('UPLOAD_SESSION_EXPIRED');
   const object=await env.PROOFS_BUCKET.head(intent.object_key);
   if(!object)fail('UPLOAD_INCOMPLETE',400);
@@ -127,14 +130,15 @@ export async function cleanupFinalUploads(env,{limit=10,now=new Date().toISOStri
   for(const intent of pinned) {
     const object=await env.PROOFS_BUCKET.head(intent.object_key);
     if(matches(intent,object)&&object.customMetadata?.voteproof_upload===intent.session_id&&object.customMetadata?.voteproof_write===intent.write_token)
-      await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,uploaded_at=coalesce(uploaded_at,?),
-        state=CASE WHEN state='prepared' THEN 'uploaded' ELSE state END WHERE session_id=? AND write_token=?`)
+      await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,
+        uploaded_at=CASE WHEN completion_mode='legacy' THEN coalesce(uploaded_at,?) ELSE uploaded_at END,
+        state=CASE WHEN state='prepared' AND completion_mode='legacy' THEN 'uploaded' ELSE state END WHERE session_id=? AND write_token=?`)
         .bind(now,intent.session_id,intent.write_token).run();
   }
   const rows=(await env.DB.prepare(`UPDATE proof_upload_intents SET state='deleting' WHERE session_id IN (
     SELECT i.session_id FROM proof_upload_intents i WHERE i.state IN ('prepared','uploaded','sealed','deleting')
       AND i.expires_at<=? AND i.write_token IS NULL AND i.consumed_case_id IS NULL
-      AND NOT EXISTS(SELECT 1 FROM cases c WHERE c.upload_session_id=i.session_id)
+      AND NOT EXISTS(SELECT 1 FROM cases c WHERE c.upload_session_id=i.session_id OR c.upload_intent_id=i.session_id)
       AND NOT EXISTS(SELECT 1 FROM case_files f WHERE f.object_key=i.object_key) ORDER BY i.expires_at,i.session_id LIMIT ?)
     RETURNING session_id,object_key`).bind(now,limit).all()).results;
   let deleted=0;

@@ -229,9 +229,9 @@ BEGIN
  UPDATE proof_upload_intents SET state='consumed',consumed_case_id=NEW.id,consumed_at=NEW.created_at
  WHERE (session_id=NEW.upload_session_id AND completion_mode='legacy' AND state='sealed')
  OR (session_id=NEW.upload_intent_id AND completion_mode='direct' AND state='prepared');
- SELECT CASE WHEN NEW.upload_intent_id IS NOT NULL AND NOT EXISTS(
+ SELECT (CASE WHEN NEW.upload_intent_id IS NOT NULL AND NOT EXISTS(
   SELECT 1 FROM proof_upload_intents WHERE session_id=NEW.upload_intent_id AND state='consumed' AND consumed_case_id=NEW.id)
- THEN RAISE(ABORT,'Direct intent consumption failed') END;
+ THEN RAISE(ABORT,'Direct intent consumption failed') END);
 END;
 CREATE TRIGGER final_case_file_guard BEFORE INSERT ON case_files
 WHEN (NEW.object_key LIKE 'proofs/final/%' OR NEW.upload_intent_id IS NOT NULL) AND NOT EXISTS(

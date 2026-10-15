@@ -34,7 +34,8 @@ test("same-email confirmation truthfully states provider already linked", async 
   const state = await memberFixture(page, { googleResult: "GOOGLE_CONFIRM_REQUIRED" }); await page.goto("/#google");
   await expect(page.locator("#google-message")).toContainText("Google 已連結至既有帳號"); await expect(page.locator("#google-message")).toContainText("取消只停止");
   await expect(page.locator("#google-email")).toHaveText("google@local.example"); await expect(page.locator("#google-profile")).toBeHidden();
-  await submit(page, "google-confirm-form"); await expect(page.locator("#member-id")).toHaveText(state.member.member_id);
+  await submit(page, "google-confirm-form"); await expect(page.locator("#member-id")).toHaveText(state.member.player_id);
+  await expect(page.locator("#member-id")).not.toContainText(state.member.member_id);
 });
 test("cancel does not claim provider unlink or create a VoteProof session", async ({ page }) => {
   const state = await memberFixture(page, { googleResult: "GOOGLE_CONFIRM_REQUIRED" }); await page.goto("/#google"); await expect(page.locator("#google-confirm-form")).toBeVisible();

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile,readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { unstable_splitSqlQuery } from 'wrangler';
 import { localCaseRuntime } from '../scripts/lib/local-case-runtime.mjs';
@@ -27,7 +27,7 @@ async function identity(h,{totp=true,mfa=true,status='active'}={}) {
   return id;
 }
 const admin=id=>adminBootstrapPlan({member_id:id,role:'super_admin',reason:'operator ticket / disposable local test'});
-const campaign=id=>({actor_member_id:id,reason:'disposable fixture only',campaign:{campaign_id:'LOCAL-RELEASE-FIXTURE',name:'Local fixture',category:'local',start_at:'2000-01-01T00:00:00.000Z',end_at:'2100-01-01T00:00:00.000Z',campaign_timezone:'Asia/Taipei',points_per_proof:1,daily_limit:1,status:'active',note:null}});
+const campaign=id=>({actor_member_id:id,reason:'disposable fixture only',campaign:{campaign_id:'LOCAL-RELEASE-FIXTURE',name:'Local fixture',category:'Solo',solo_target:'local-release-solo',start_at:'2000-01-01T00:00:00.000Z',end_at:'2100-01-01T00:00:00.000Z',campaign_timezone:'Asia/Taipei',points_per_proof:1,daily_limit:1,status:'active',note:null}});
 
 test('release admin rejects nonexistent member atomically',()=>isolated(async h=>{
   await assert.rejects(run(h,admin('M-'+randomUUID()).sql));assert.equal(await count(h,'admin_memberships'),0);assert.equal(await count(h,'admin_audit_logs'),0);
@@ -64,6 +64,8 @@ test('release plan rejects placeholders, invalid role and SQL-shaped member id',
 test('release campaign uses accepted validation, active MFA actor and atomic audit',()=>isolated(async h=>{
   const id=await identity(h);await run(h,admin(id).sql);const input=campaign(id);await run(h,campaignBootstrapPlan(input).sql);
   const row=await h.db.prepare('SELECT * FROM campaigns').first();assert.equal(row.campaign_timezone,'Asia/Taipei');assert.equal(row.created_by,id);
+  assert.equal(row.solo_target,'local-release-solo');
+  assert.equal(JSON.parse((await h.db.prepare("SELECT after_json FROM admin_audit_logs WHERE action='campaign_create'").first()).after_json).solo_target,row.solo_target);
   assert.equal(row.vote_start_date,'2000-01-01');assert.equal(await count(h,'admin_audit_logs'),2);
   await assert.rejects(run(h,campaignBootstrapPlan(input).sql));assert.equal(await count(h,'campaigns'),1);assert.equal(await count(h,'admin_audit_logs'),2);
 }));
@@ -93,7 +95,7 @@ async function legacy(h) {
   const id=randomUUID(),case_id=newCaseId(),session=randomUUID(),file=randomUUID(),source=randomUUID();
   const stamp=new Date().toISOString(), query=randomBytes(32).toString('base64url');
   const key=`proofs/cases/${id}/${file}.png`,stage=`proofs/staging/2026/10/10/${session}/${source}.png`;
-  // These are precisely B3 columns/SQL, after expanded migrations; no Campaign.
+  // Seed B3 before the later Campaign/type insert policy, then migrate it.
   await h.db.prepare('INSERT INTO completed_uploads(session_id,manifest_hash,completed_at,expires_at) VALUES(?,?,?,?)').bind(session,hex(32),stamp,'2100-01-01T00:00:00.000Z').run();
   await h.db.prepare("INSERT INTO completed_upload_files(session_id,object_key,content_type,size,etag) VALUES(?,?,'image/png',8,'local-fixture')").bind(session,stage).run();
   await h.db.prepare(`INSERT INTO cases(id,case_id,created_at,updated_at,nickname,player_id,campaign_id,vote_type,vote_date,query_key_hash,upload_session_id)
@@ -103,24 +105,30 @@ async function legacy(h) {
   return {query,input:{id,case_id,recorded_case_id:case_id,upload_session_id:session,campaign_id:'B3-PRODUCTION-ACCEPTANCE',status:'pending',member_id:null,points_awarded:0,total_cases:1,
     acceptance_release:'de6e15f25cf94c66df92d7d179bda589f2f848af',files:[{id:file,case_id:id,object_key:key,upload_object_key:stage,size:8,etag:'local-fixture',content_type:'image/png'}],upload_files:[{session_id:session,object_key:stage}]}};
 }
-test('release expanded schema preserves old B3 insert/query; unregistered approval fails closed',()=>isolated(async h=>{
-  const {query,input}=await legacy(h);const response=await h.fetch(`/api/cases/${input.case_id}?key=${query}`);assert.equal(response.status,200);
+async function legacyIsolated(fn){
+  const h=await localCaseRuntime({seedCampaign:false,migrationThrough:'0013_async_proof_duplicates.sql'});
+  try{const c=await legacy(h);for(const name of (await readdir(new URL('../migrations/',import.meta.url))).filter(n=>/^\d+_.+\.sql$/.test(n)&&n>'0013_async_proof_duplicates.sql').sort())await run(h,await readFile(new URL('../migrations/'+name,import.meta.url),'utf8'));await fn(h,c);}
+  finally{await h.runtime.dispose();}
+}
+test('release expanded schema preserves migrated B3 query; new unregistered inserts fail closed',()=>legacyIsolated(async(h,{query,input})=>{
+  const response=await h.fetch(`/api/cases/${input.case_id}?key=${query}`);assert.equal(response.status,200);
+  await assert.rejects(legacy(h),/CAMPAIGN_TYPE_MISMATCH/);
   await assert.rejects(reviewCampaign(h.db,await h.db.prepare('SELECT * FROM cases').first()),e=>e.code==='CAMPAIGN_NOT_REVIEWABLE');
   assert.equal(await count(h,'point_transactions'),0);
 }));
-test('release exact acceptance cleanup clears FK cycle and only lists exact R2 keys',()=>isolated(async h=>{
-  const {input}=await legacy(h),plan=legacyCleanupPlan(input);assert.deepEqual(plan.r2_keys,[input.files[0].object_key,input.upload_files[0].object_key]);
+test('release exact acceptance cleanup clears FK cycle and only lists exact R2 keys',()=>legacyIsolated(async(h,{input})=>{
+  const plan=legacyCleanupPlan(input);assert.deepEqual(plan.r2_keys,[input.files[0].object_key,input.upload_files[0].object_key]);
   assert.ok(input.files[0].object_key.startsWith(`proofs/cases/${input.id}/`));
   assert.throws(()=>legacyCleanupPlan({...input,files:[{...input.files[0],object_key:`proofs/cases/${input.case_id}/${input.files[0].id}.png`}]}));
   await run(h,plan.sql);for(const table of ['cases','case_files','case_idempotency','completed_uploads','completed_upload_files'])assert.equal(await count(h,table),0);
   assert.deepEqual((await h.db.prepare('PRAGMA foreign_key_check').all()).results,[]);await assert.rejects(run(h,plan.sql));
 }));
-test('release cleanup refuses changed row and leaves all rows intact',()=>isolated(async h=>{
-  const {input}=await legacy(h),plan=legacyCleanupPlan(input);await h.db.prepare("UPDATE cases SET status='rejected'").run();
+test('release cleanup refuses changed row and leaves all rows intact',()=>legacyIsolated(async(h,{input})=>{
+  const plan=legacyCleanupPlan(input);await h.db.prepare("UPDATE cases SET status='rejected'").run();
   await assert.rejects(run(h,plan.sql));assert.equal(await count(h,'cases'),1);assert.equal(await count(h,'case_files'),1);
 }));
-test('release cleanup rejects unproven identities, nonzero points and traversal',()=>isolated(async h=>{
-  const {input}=await legacy(h);assert.throws(()=>legacyCleanupPlan({...input,recorded_case_id:newCaseId()}));
+test('release cleanup rejects unproven identities, nonzero points and traversal',()=>legacyIsolated(async(h,{input})=>{
+  assert.throws(()=>legacyCleanupPlan({...input,recorded_case_id:newCaseId()}));
   assert.throws(()=>legacyCleanupPlan({...input,points_awarded:1}));assert.throws(()=>legacyCleanupPlan({...input,files:[{...input.files[0],object_key:'../other'}]}));
 }));
 test('release schema verification reports no missing objects on clean 0001-0007',()=>isolated(async h=>{

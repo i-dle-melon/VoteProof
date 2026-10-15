@@ -5,6 +5,7 @@
     "campaign_id": null,
     "name": null,
     "category": null,
+    "solo_target": null,
     "start_at": null,
     "end_at": null,
     "campaign_timezone": null,

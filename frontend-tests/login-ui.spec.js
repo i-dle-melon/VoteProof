@@ -47,7 +47,8 @@ test("disclosure supports keyboard and links to existing registration/recovery",
 
 test("authenticated login visits show member center, including a repeated login route", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); await page.goto("/#login");
-  await expect(page).toHaveURL(/#member$/); await expect(page.locator("#member-id")).toHaveText(state.member.member_id);
+  await expect(page).toHaveURL(/#member$/); await expect(page.locator("#member-id")).toHaveText(state.member.player_id);
+  await expect(page.locator("#member-id")).not.toContainText(state.member.member_id);
   await expect(page.locator("#login-content")).toBeHidden();
   await page.evaluate(() => { location.hash = "login"; });
   await expect(page).toHaveURL(/#member$/); await expect(page.locator("#login-form")).toBeHidden();
@@ -110,11 +111,11 @@ test("login adds no inline scripts/styles or new CSP violations", async ({ page,
   await expect(page.locator("script:not([src])")).toHaveCount(0); await expect(page.locator("#login-google img")).toHaveCount(0);
   const reported = await page.evaluate(() => globalThis.__loginCsp ?? []);
   // WebKit reports its generated native select styles against style-src-attr.
-  // These four existing controls are outside Login. Never allow script CSP
+  // These existing controls are outside Login. Never allow script CSP
   // violations or broadly ignore style violations introduced by this view.
   const nativeSelectLines = (await response.text()).split(/\r?\n/).flatMap((line, index) =>
-    /<select id="(?:submission-mode|campaign|vote-type|board-select)"/.test(line) ? [index + 1] : []);
+    /<select id="(?:submission-mode|campaign|vote-type|board-select|solo-target-filter)"/.test(line) ? [index + 1] : []);
   const existingSelectReport = item => browserName === "webkit" && item.directive === "style-src-attr" && item.blocked === "inline" && nativeSelectLines.includes(item.line);
   expect(reported.filter(item => !existingSelectReport(item))).toEqual([]);
-  expect(reported.filter(existingSelectReport).length).toBeLessThanOrEqual(4); expect(violations).toEqual([]);
+  expect(reported.filter(existingSelectReport).length).toBeLessThanOrEqual(nativeSelectLines.length); expect(violations).toEqual([]);
 });

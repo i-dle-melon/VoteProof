@@ -7,6 +7,7 @@ import { putUpload } from "../src/api/uploads.js";
 import { cleanupFinalUploads } from "../src/lib/immutable-uploads.js";
 import { manifestCSV, entryFilename } from "../public/js/export-format.js";
 import { ZipStore } from "../public/js/zip-store.js";
+import worker from "../src/index.js";
 
 crypto.subtle.timingSafeEqual ??= (a, b) => timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const origin = "https://voteproof.example",
@@ -830,4 +831,55 @@ test("deferred Case-to-file constraint prevents a standalone partial Case/consum
       .run(),
   );
   await untouched(p);
+});
+
+test("direct proof survives Apps Script claim, private stream, verified completion and lost ACK", async () => {
+  const p = await uploaded(member), c = await data(await create(p, member), 201);
+  // Only this proof is eligible; earlier tests may have left pending local jobs.
+  await l.db.prepare("DELETE FROM proof_backups WHERE file_id!=?").bind(p.proof_id).run();
+  const relay = (action, payload, job, extra = {}) => worker.fetch(new Request(
+    origin + "/api/internal/drive-backup/" + (job ? job.backup_id + "/" : "") + action,
+    {
+      method: action === "content" ? "GET" : "POST",
+      headers: {
+        Authorization: "Bearer " + l.authConfig.DRIVE_BACKUP_RELAY_SECRET,
+        ...(payload ? { "Content-Type": "application/json" } : {}), ...extra,
+      },
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    },
+  ), env());
+  const job = (await data(await relay("claim", { request_id: randomUUID(), root_folder_id: "integration_root" }))).job;
+  assert.equal(job.case_id, c.case_id);
+  assert.equal(job.proof_id, p.proof_id);
+  assert.equal(/object_key|https?:/.test(JSON.stringify(job)), false);
+  const proof = await relay("content", undefined, job, {
+    "X-VoteProof-Backup-Lease": job.lease_token,
+    "X-VoteProof-Backup-Attempt": String(job.attempt),
+  });
+  assert.equal(proof.status, 200);
+  assert.equal(proof.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(new Uint8Array(await proof.arrayBuffer()), bytes);
+  const receipt = { lease_token: job.lease_token, attempt: job.attempt };
+  const ids = await data(await relay("identity", {
+    ...receipt, drive_file_id: "integration_file", campaign_folder_id: "integration_campaign",
+    date_folder_id: "integration_date",
+  }, job));
+  const completion = {
+    ...receipt, drive_file_id: ids.drive_file_id, drive_folder_id: ids.drive_folder_id,
+    verification: {
+      name: job.filename, size: job.size, mime: job.mime, parents: [ids.drive_folder_id],
+      appProperties: { source: "voteproof", storage_source: "r2", voteproof_case_id: c.case_id, voteproof_proof_id: p.proof_id },
+    },
+  };
+  assert.equal((await data(await relay("complete", completion, job))).state, "confirmed");
+  const snapshot = await l.db.prepare("SELECT * FROM proof_backups WHERE id=?").bind(job.backup_id).first();
+  assert.equal((await data(await relay("complete", completion, job))).state, "already_confirmed");
+  assert.deepEqual(await l.db.prepare("SELECT * FROM proof_backups WHERE id=?").bind(job.backup_id).first(), snapshot);
+  assert.ok(await l.bucket.head(p.uploads[0].key));
+  const detail = await data(await l.fetch("/api/admin/cases/" + c.case_id, "GET", undefined, admin.headers));
+  const backups = await data(await l.fetch("/api/admin/cases/" + c.case_id + "/backups", "GET", undefined, admin.headers));
+  assert.equal(backups.backups.find(b => b.file_id === p.proof_id).status, "confirmed");
+  assert.equal(detail.points_awarded, 0);
+  const rows = await cleanRows(p);
+  for (const key of ["completed", "snapshots", "checksums", "hashes", "jobs", "requests", "groups"]) assert.equal(rows[key], 0, key);
 });

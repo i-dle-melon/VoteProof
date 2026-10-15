@@ -29,12 +29,13 @@ const dateLabel = (value) => {
 };
 let campaigns = [], campaignLoaded = false, campaignLoading = false, campaignRequest = null, images = [], success = null;
 let submissionsEnabled = false, submissionsMessage = "正在確認投稿是否開放…", gateRequest = null, gateChecking = false, submissionStarting = false;
+let submissionFlow = 'legacy';
 let selectionWasReady = false, selectionQueue = Promise.resolve(), selectionPending = 0, selectionGeneration = 0;
 let campaignAvailability = "正在載入活動…";
 let submissionIdentityCheck = async () => {};
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
-const submission = new BatchSubmission({ directIntent:directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
+const submission = new BatchSubmission({ directIntent:()=>submissionFlow==='direct'||directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
 changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
   await gateRequest;
@@ -129,9 +130,11 @@ function loadSubmissionStatus() {
   gateChecking = true; submissionsEnabled = false; syncForm();
   gateRequest = (async () => { try {
     const data = await api("/api/submissions/status");
+    if(data?.upload_flow!==undefined && !['direct','legacy'].includes(data.upload_flow))throw new Error();
     if (typeof data?.submissions_enabled !== "boolean" || data.submissions_message !== null &&
         (typeof data.submissions_message !== "string" || [...data.submissions_message].length > 500 || /[\u0000-\u001f\u007f]/.test(data.submissions_message))) throw new Error();
     submissionsEnabled = data.submissions_enabled;
+    submissionFlow = data.upload_flow??'legacy';
     submissionsMessage = data.submissions_message || (submissionsEnabled ? "" : "投稿暫停開放，請稍後再試。");
   } catch { submissionsEnabled = false; submissionsMessage = "投稿服務暫時無法使用，請稍後再試。"; }
   finally { gateChecking = false; syncForm(); }

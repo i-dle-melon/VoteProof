@@ -192,7 +192,9 @@ test("0018 preserves populated V1/V2 data, indexes, trigger policies and private
     const items = (await db.prepare("SELECT case_id,file_id,sha256 FROM export_job_items").all())
       .results;
     assert.deepEqual(items.map((x) => x.case_id).sort(), [v1.case_id, v2.case_id].sort());
-    assert.ok(items.every((x) => x.sha256 === null));
+    // Mainline authoritative legacy checksum metadata remains available; direct
+    // cases remain outside this legacy evidence store and are covered separately.
+    assert.ok(items.every((x) => x.sha256 === sha));
     assert.deepEqual((await db.prepare("PRAGMA foreign_key_check").all()).results, []);
   } finally {
     await l.runtime.dispose();

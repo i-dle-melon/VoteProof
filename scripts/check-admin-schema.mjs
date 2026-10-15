@@ -51,7 +51,7 @@ assert.equal(results.length, schemaQueries.length);
 assert.ok(results.every(result => result.success));
 const rows = results.map(result => result.results);
 const applied = rows[0].map(row => row.name);
-assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql", "0010_google_drive_backups.sql", "0011_drive_backup_relay_lease_index.sql", "0012_proof_exact_hashes.sql", "0013_async_proof_duplicates.sql"]);
+assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql", "0010_google_drive_backups.sql", "0011_drive_backup_relay_lease_index.sql", "0012_proof_exact_hashes.sql", "0013_async_proof_duplicates.sql", "0014_fan_campaign_rules.sql", "0015_admin_review_workflow.sql", "0016_admin_image_exports.sql", "0017_immutable_final_uploads.sql", "0018_direct_intent_cases.sql"]);
 const tables = rows[1].map(row => row.name);
 for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "member_credentials", "auth_transactions", "trusted_devices", "recovery_codes", "auth_atomic_guards", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
 const indexes = rows[2].map(row => row.name);
@@ -60,7 +60,10 @@ const triggers = rows[3].map(row => row.name);
 assert.deepEqual(triggers, ["admin_audit_no_delete", "admin_audit_no_replace", "admin_audit_no_update", "campaigns_immutable_id", "campaigns_no_delete", "campaigns_no_replace", "campaigns_update_policy", "cases_duplicate_insert", "cases_duplicate_update", "cases_guest_points_insert", "cases_guest_points_update", "points_case_binding", "points_exact_reversal", "points_no_delete", "points_no_replace", "points_no_update",
   "leaderboards_no_replace", "leaderboards_no_delete", "leaderboards_policy", "leaderboards_publish", "leaderboard_runs_no_replace", "leaderboard_runs_no_delete", "leaderboard_runs_update", "leaderboard_results_no_update", "leaderboard_results_no_delete", "leaderboard_results_insert",
   "member_tiers_identity", "member_tiers_no_delete", "member_tiers_no_replace", "member_tiers_order_insert", "member_tiers_order_update", "identity_events_no_update", "identity_events_no_delete", "identity_events_no_replace", "identity_mapping_immutable", "identity_mapping_no_replace", "submission_audit_no_update", "submission_audit_no_delete", "submission_audit_no_replace", "submissions_cases_insert", "submissions_uploads_insert", "submissions_upload_files_insert",
-  "backup_audit_no_update", "backup_audit_no_delete", "backup_audit_no_replace", "proof_exact_hash_source", "proof_exact_hash_no_update", "proof_upload_checksum_source", "proof_upload_checksum_no_update", "duplicate_source_insert", "duplicate_source_immutable", "duplicate_canonical_scope", "duplicate_enqueue"].sort());
+  "backup_audit_no_update", "backup_audit_no_delete", "backup_audit_no_replace", "proof_exact_hash_source", "proof_exact_hash_no_update", "proof_upload_checksum_source", "proof_upload_checksum_no_update", "duplicate_source_insert", "duplicate_source_immutable", "duplicate_canonical_scope", "duplicate_enqueue",
+  "members_fan_id_no_replace", "members_fan_id_immutable", "members_no_replace_identity", "campaigns_fixed_type_insert", "campaigns_fixed_type_update", "cases_campaign_type_insert", "cases_fixed_identity_type", "boards_fixed_no_update", "boards_fixed_no_insert", "boards_fixed_no_run", "cases_review_stage_policy",
+  "export_items_no_update", "export_items_no_delete", "export_items_no_replace", "export_jobs_binding", "export_packages_binding", "export_items_sealed", "export_packages_sealed", "export_jobs_sealed", "export_jobs_no_replace",
+  "final_intent_identity", "final_intent_no_replace", "final_intent_no_delete", "final_intent_state", "final_case_guard", "final_case_consume", "final_case_file_guard", "final_intent_mode_identity", "final_intent_direct_insert", "cases_upload_binding", "direct_file_binding"].sort());
 for (const name of ['proof_backups','drive_backup_folders','backup_processor_lock','backup_admin_audit','proof_exact_hashes','proof_upload_checksums']) assert.ok(tables.includes(name));
 assert.ok(indexes.includes('idx_proof_backups_relay_lease_token'));
 assert.ok(indexes.includes('idx_duplicate_scope'));
@@ -113,5 +116,21 @@ const gate = query('SELECT submissions_enabled,version FROM submission_settings 
 assert.equal(gate.submissions_enabled,0); assert.equal(gate.version,0);
 assert.equal(query('SELECT COUNT(*) n FROM submission_settings_audit')[0].n,0);
 assert.equal(query('PRAGMA table_info(campaigns)').find(row=>row.name==='daily_limit').notnull,0);
+for (const name of ['export_jobs','export_job_items','export_packages','proof_upload_intents']) assert.ok(tables.includes(name));
+assert.ok(indexes.includes('members_fan_id_unique'));
+assert.ok(indexes.includes('idx_cases_review_queue'));
+for (const name of ['upload_intent_id','review_stage','review_risk_reason']) assert.ok(caseColumns.includes(name));
+assert.equal(rows[4].find(row=>row.name==='upload_session_id').notnull,0);
+for (const table of ['proof_upload_intents','case_files']) assert.ok(caseFks.some(row=>row.from==='upload_intent_id' && row.table===table));
+const fileColumns=query('PRAGMA table_info(case_files)'), fileFks=query('PRAGMA foreign_key_list(case_files)');
+assert.equal(fileColumns.find(row=>row.name==='upload_object_key').notnull,0);
+assert.ok(fileFks.some(row=>row.from==='upload_intent_id' && row.table==='proof_upload_intents'));
+assert.ok(query('PRAGMA table_info(proof_upload_intents)').some(row=>row.name==='completion_mode' && row.dflt_value==="'legacy'"));
+for (const [table,legacy] of [['cases','upload_session_id'],['case_files','upload_object_key']]) {
+  const sql=query("SELECT sql FROM sqlite_master WHERE type='table' AND name='"+table+"'")[0].sql.replace(/\s+/g,'');
+  assert.ok(sql.includes('CHECK(('+legacy+'ISNOTNULL)!=(upload_intent_idISNOTNULL))'),table+' source exclusivity');
+}
+assert.equal(query('SELECT COUNT(*) n FROM proof_upload_intents')[0].n,0);
+assert.deepEqual(query('PRAGMA foreign_key_check'),[]);
 console.log(JSON.stringify({ auth_schema:'Supabase/Gmail/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
   fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

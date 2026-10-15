@@ -42,6 +42,7 @@ export function putImage(upload, file, onProgress) {
 }
 
 const messages = {
+  DIRECT_INTENT_DISABLED: "投稿服務尚未完成啟用，請稍後重試；已送出的案件不會重複建立。",
   UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認，請按重試以重新準備安全上傳。",
   SUBMISSIONS_IMMUTABLE_DISABLED: "安全上傳目前暫停開放，請稍後重試。",
   UI_PREVIEW_ONLY: "這是 UI 預覽，無法登入、投稿或保存變更。",

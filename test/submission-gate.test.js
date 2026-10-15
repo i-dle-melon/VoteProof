@@ -12,9 +12,9 @@ const error=async(response,code,status=503)=>{assert.equal(response.status,statu
 const isolated=async(fn)=>{const local=await localCaseRuntime({submissionsEnabled:false});try{await fn(local);}finally{await local.runtime.dispose();}};
 const adminIsolated=async(fn)=>{const h=await localAdminRuntime();try{await fn(h);}finally{await h.local.runtime.dispose();}};
 
-test('submission migration defaults OFF; public response exposes only two safe fields',()=>isolated(async local=>{
+test('submission migration defaults OFF; public response exposes only safe gate and protocol fields',()=>isolated(async local=>{
   const r=await local.fetch('/api/submissions/status');assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store');
-  assert.deepEqual((await r.json()).data,{submissions_enabled:false,submissions_message:'投稿暫停開放，請稍後再試。'});
+  assert.deepEqual((await r.json()).data,{submissions_enabled:false,submissions_message:'投稿暫停開放，請稍後再試。',upload_flow:'direct'});
   await error(await local.fetch('/api/cases','POST',guestBody({session_id:randomUUID(),keys:[`proofs/staging/2026/10/10/${randomUUID()}/${randomUUID()}.png`]})),'INVALID_UPLOAD_REFERENCE',400);
 }));
 test('OFF blocks prepare and complete with no upload rows or signed URLs',()=>isolated(async local=>{
@@ -86,7 +86,7 @@ test('admin toggle is versioned and audited atomically; message is plaintext and
   const actor=await h.identity({role:'super_admin'}),message='<img src=x onerror=alert(1)> 暫停';
   const update={submissions_enabled:false,submissions_message:message,expected_version:0};
   const response=await h.local.fetch('/api/admin/submissions/update','POST',update,actor.headers);assert.equal(response.status,200);assert.equal((await response.json()).data.version,1);
-  assert.deepEqual((await (await h.local.fetch('/api/submissions/status')).json()).data,{submissions_enabled:false,submissions_message:message});
+  assert.deepEqual((await (await h.local.fetch('/api/submissions/status')).json()).data,{submissions_enabled:false,submissions_message:message,upload_flow:'direct'});
   await error(await h.local.fetch('/api/admin/submissions/update','POST',update,actor.headers),'SUBMISSION_SETTINGS_CONFLICT',409);
   for(const bad of [{submissions_message:'x'.repeat(501)},{submissions_message:'bad\nmessage'},{submissions_enabled:1},{extra:'private'}])await error(await h.local.fetch('/api/admin/submissions/update','POST',{...update,expected_version:1,...bad},actor.headers),'INVALID_SUBMISSION_SETTINGS',400);
   assert.equal((await h.local.db.prepare('SELECT COUNT(*) n FROM submission_settings_audit').first()).n,1);

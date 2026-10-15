@@ -51,7 +51,7 @@ export function campaignBootstrapPlan(input) {
     daily_limit:input.campaign.daily_limit==='unlimited'?null:input.campaign.daily_limit };
   let c; try { c=campaignInput(campaign); } catch { fail(); }
   const guard=randomUUID(), marker=randomUUID();
-  const columns=['campaign_id','name','category','start_at','end_at','campaign_timezone','vote_start_date','vote_end_date','points_per_proof','daily_limit','status','note'];
+  const columns=['campaign_id','name','category','solo_target','start_at','end_at','campaign_timezone','vote_start_date','vote_end_date','points_per_proof','daily_limit','status','note'];
   const sql=[
     guardSql(guard, `${activeMfa(id)} AND EXISTS(SELECT 1 FROM admin_memberships WHERE member_id=${literal(id)} AND status='active' AND role IN('admin','super_admin'))
  AND NOT EXISTS(SELECT 1 FROM campaigns WHERE campaign_id=${literal(c.campaign_id)})`),
@@ -59,7 +59,7 @@ export function campaignBootstrapPlan(input) {
  VALUES(${columns.map(k=>literal(c[k])).join(',')},${timestamp},${timestamp},${literal(id)},${literal(id)},${literal(marker)});`,
     `INSERT INTO admin_audit_logs(id,created_at,admin_member_id,admin_role,action,target_type,target_id,target_version,before_json,after_json,reason)
  SELECT ${literal(marker)},${timestamp},${literal(id)},a.role,'campaign_create','campaign',c.campaign_id,c.version,'{}',
- json_object('campaign_id',c.campaign_id,'name',c.name,'category',c.category,'start_at',c.start_at,'end_at',c.end_at,
+ json_object('campaign_id',c.campaign_id,'name',c.name,'category',c.category,'solo_target',c.solo_target,'start_at',c.start_at,'end_at',c.end_at,
  'campaign_timezone',c.campaign_timezone,'points_per_proof',c.points_per_proof,'daily_limit',c.daily_limit,'status',c.status,'version',c.version),${literal(why)}
  FROM campaigns c JOIN admin_memberships a ON a.member_id=${literal(id)} WHERE c.last_mutation_id=${literal(marker)};`,
     `DELETE FROM auth_atomic_guards WHERE id=${literal(guard)};`,

@@ -64,7 +64,9 @@ export class Submission {
   #running = null;
   constructor({ api, put, token, progress = () => {}, now = () => Date.now(), directIntent = false }) {
     this.api = api; this.put = put; this.token = token; this.progress = progress; this.now = now;
-    this.directIntent = directIntent;
+    // Snapshot the server-advertised mode for this logical item. A later gate
+    // refresh must never change the payload/endpoint of an in-flight retry.
+    this.directIntent = typeof directIntent==='function'?Boolean(directIntent()):Boolean(directIntent);
   }
   get pending() { return this.#context !== null; }
   get busy() { return this.#running !== null; }
@@ -214,7 +216,7 @@ export class BatchSubmission {
       } catch (error) {
         item.error = error; item.status = "failed"; this.#error = error;
         // Global auth, campaign, gate or challenge failures pause the queue.
-        if (/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_)/.test(error.code ?? "")) {
+        if (/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|DIRECT_INTENT_)/.test(error.code ?? "")) {
           this.changed(this.summary); break;
         }
       }

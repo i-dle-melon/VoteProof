@@ -6,7 +6,9 @@ import { readReviewJson } from "./admin-validation.js";
 import { submissionSettings, publicSubmissionSettings, safeSubmissionMessage, SubmissionError } from "../lib/submission-gate.js";
 
 export async function getSubmissionStatus(env) {
-  try { return jsonSuccess(publicSubmissionSettings(await submissionSettings(env.DB))); }
+  // Advertise the integrated protocol independently of the submission gate.
+  // Issuance still requires DIRECT_INTENT_CASE_ENABLED and the persisted gate.
+  try { return jsonSuccess({...publicSubmissionSettings(await submissionSettings(env.DB)),upload_flow:'direct'}); }
   catch (e) { return jsonError(503, e instanceof SubmissionError ? e.code : "SUBMISSIONS_UNAVAILABLE", "Submission service is unavailable"); }
 }
 export const readAdminSubmissionSettings = adminHandler(async (env, _url, request) => {

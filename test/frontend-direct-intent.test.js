@@ -95,6 +95,13 @@ test("legacy remains default and calls Complete", async () => {
   );
   assert.equal(h.calls[0].body.completion_mode, undefined);
 });
+test('server-selected direct flow is frozen across a lost-response retry',async()=>{
+  const h=harness({failCase:true});h.flow.abandon();let selected=true;
+  const flow=new Submission({...h.deps,directIntent:()=>selected});flow.start(metadata,[file()]);
+  await assert.rejects(flow.attempt(),{code:'NETWORK_ERROR'});selected=false;
+  await flow.attempt();assert.equal(h.calls.filter(c=>c.path==='/api/cases/direct').length,2);
+  assert.equal(h.calls.some(c=>c.path.endsWith('/complete')),false);
+});
 test("ambiguous PUT continues to authoritative Case HEAD using same intent", async () => {
   const h = harness({ failPut: true });
   await h.flow.attempt();

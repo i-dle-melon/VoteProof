@@ -108,7 +108,10 @@ test('configured upgrade progress appears on refresh without rendering the next 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await expect(page.locator('#tier-next')).toBeVisible();
   }
-  expect(state.calls.some(call => call.method !== 'GET')).toBe(false);
+  const mutations = state.calls.filter(call => call.method !== 'GET');
+  // Rendering the editable profile performs a read-only duplicate-nickname
+  // check via POST. It must not update the profile or any points/tier data.
+  expect(mutations.every(call => call.path === '/api/auth/profile-warning' && call.method === 'POST' && Object.keys(call.body).join() === 'nickname')).toBe(true);
 });
 
 test('highest configured enabled tier has an honest message without a progress bar', async ({ page }) => {

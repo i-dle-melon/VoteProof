@@ -59,6 +59,12 @@ try {
         const response = await context.request.get(server.base + url.pathname);
         return route.fulfill({ response });
       }
+      // Test the unmodified production page URL. Legacy response emulation is
+      // restricted to this local harness; the integrated server advertises direct.
+      if(url.pathname==='/api/submissions/status' && page.url().includes('legacy-fixture=1')){
+        const response=await l.runtime.dispatchFetch(request.url());const json=await response.json();
+        delete json.data.upload_flow;return route.fulfill({status:response.status,contentType:'application/json',body:JSON.stringify(json)});
+      }
       const response = await l.runtime.dispatchFetch(request.url(), {
         method: request.method(),
         headers: request.headers(),
@@ -94,7 +100,7 @@ try {
   async function submit(actor, direct, failures = {}) {
     const s = await surface(actor, failures),
       { page, requests } = s;
-    await page.goto(origin + "/" + (direct ? "?upload-flow=direct" : "") + "#submit");
+    await page.goto(origin + "/" + (direct ? "" : "?legacy-fixture=1") + "#submit");
     await expect(page.locator("#submission-fields")).toBeEnabled();
     if (actor) await expect(page.locator("#submission-mode")).toHaveValue("member");
     await page

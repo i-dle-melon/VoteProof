@@ -42,7 +42,6 @@ test("four default categories append configured custom buttons and preserve hone
   await expect(page.locator("#board-name")).toHaveText("公開 comeback");
   await page.locator("[data-category=solo]").click();
   await expect(page.locator("#leader-tabs button:visible")).toHaveText([
-    "公開 comeback",
     "公開 solo",
   ]);
   await page.locator("[data-custom-board=custom-b]").click();
@@ -157,12 +156,14 @@ test("admin quick review preselects action and waits for the existing confirmati
   const state = await adminFixture(page);
   await page.goto("/admin");
   await expect(page.locator("#admin-case-list")).toHaveCount(0);
+  await page.getByRole("button", { name: "全部案件", exact: true }).click();
+  await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
   await page.locator(".admin-case-row").getByRole("button", { name: "駁回", exact: true }).click();
   await expect(page.locator("#admin-panel select[name=action]")).toHaveValue("reject");
   expect(state.calls.filter((c) => c.method === "POST")).toHaveLength(0);
   await page
     .locator("#admin-panel")
-    .getByRole("button", { name: "返回案件列表", exact: true })
+    .getByRole("button", { name: "收合", exact: true })
     .click();
   await page
     .locator(".admin-status-tabs")
@@ -188,6 +189,8 @@ test("receipt download preserves RAM credentials without visible DOM, URL or sto
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
   await page.locator("#submit-button").click();
   await expect(page.locator("#submission-success")).toBeVisible();
+  await page.locator("#success-query-info > summary").click();
+  await expect(page.locator("#receipt-download")).toBeVisible();
   const downloading = page.waitForEvent("download");
   await page.locator("#receipt-download").click();
   const download = await downloading;

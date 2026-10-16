@@ -77,7 +77,7 @@ after(() => {
   mock.restoreAll();
 });
 
-test("registry seeds five stable IDs, zero-point artists and authenticated Admin read", async () => {
+test("registry seeds five stable metadata IDs and authenticated Admin read", async () => {
   const registry = await data(
     await h.fetch("/api/admin/solo-targets", "GET", undefined, admin.headers),
   );
@@ -86,12 +86,6 @@ test("registry seeds five stable IDs, zero-point artists and authenticated Admin
     targets,
   );
   assert.ok(registry.targets.every((t) => t.active));
-  const rankings = await data(await h.fetch("/api/leaderboards/solo-targets"));
-  assert.deepEqual(
-    rankings.targets.map((t) => t.target_id),
-    targets,
-  );
-  assert.ok(rankings.targets.every((t) => t.points === 0 && t.proof_count === 0));
   await error(await h.fetch("/api/admin/solo-targets"), 401, "AUTH_REQUIRED");
 });
 test("Admin creates Solo with yuqi and group with null; public API omits target, Admin retains it", async () => {
@@ -314,62 +308,73 @@ test("fresh Gate OFF blocks Case without consuming intent", async () => {
     await h.db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
   }
 });
-test("review/batch approval, historical/Solo/group ranks and exact reversal preserve stable target", async () => {
-  const solo = await createCase("CAT-YUQI"),
-    group = await createCase("CAT-GROUP");
+test("Solo total combines miyeon 10 + minnie 20 + yuqi 30; reversal and Group stay correct", async () => {
+  const solos = [];
+  for (const [solo_target, points] of [
+    ["miyeon", 10],
+    ["minnie", 20],
+    ["yuqi", 30],
+  ]) {
+    const campaign_id = "TOTAL-" + solo_target;
+    await data(await createCampaign({ campaign_id, solo_target, points_per_proof: points }), 201);
+    solos.push(await createCase(campaign_id));
+  }
+  const group = await createCase("CAT-GROUP");
   const batch = await data(
     await h.fetch(
       "/api/admin/cases/batch-approve",
       "POST",
-      { cases: [solo, group].map((c) => ({ case_id: c.case_id, expected_version: 0 })) },
+      { cases: [...solos, group].map((c) => ({ case_id: c.case_id, expected_version: 0 })) },
       admin.headers,
     ),
   );
-  assert.equal(batch.succeeded, 2);
+  assert.equal(batch.succeeded, 4);
   assert.equal(batch.failed, 0);
-  const boards = (await data(await h.fetch("/api/leaderboards"))).leaderboards;
+  const readBoard = async (id) =>
+    (await data(await h.fetch("/api/leaderboards?id=" + id))).leaderboards[0];
+  const solo = await readBoard("system-solo"),
+    rows = solo.rankings.filter((r) => r.member_id === member.memberId);
+  assert.equal(solo.name, "Solo 總排行");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].points, 60);
+  assert.equal(rows[0].proof_count, 3);
+  assert.equal("solo_target" in solo, false);
+  assert.equal("target_id" in rows[0], false);
   assert.equal(
-    boards
-      .find((b) => b.leaderboard_id === "system-history")
-      .rankings.find((r) => r.member_id === member.memberId).points,
-    20,
-  );
-  assert.equal(
-    boards
-      .find((b) => b.leaderboard_id === "system-group")
-      .rankings.find((r) => r.member_id === member.memberId).points,
+    (await readBoard("system-group")).rankings.find((r) => r.member_id === member.memberId).points,
     10,
   );
   assert.equal(
-    boards
-      .find((b) => b.leaderboard_id === "system-solo")
-      .rankings.find((r) => r.member_id === member.memberId).points,
+    (await readBoard("system-history")).rankings.find((r) => r.member_id === member.memberId)
+      .points,
+    70,
+  );
+  await data(await review(solos[1], "revoke", 1));
+  const after = (await readBoard("system-solo")).rankings.find(
+    (r) => r.member_id === member.memberId,
+  );
+  assert.equal(after.points, 40);
+  assert.equal(after.proof_count, 2);
+  assert.equal(
+    (await readBoard("system-group")).rankings.find((r) => r.member_id === member.memberId).points,
     10,
   );
-  const artists = (await data(await h.fetch("/api/leaderboards/solo-targets"))).targets;
-  assert.equal(artists.length, 5);
-  assert.equal(artists.find((t) => t.target_id === "yuqi").points, 10);
-  assert.equal(artists.find((t) => t.target_id === "shuhua").points, 0);
-  const individual = await data(await h.fetch("/api/leaderboards?id=system-solo&solo_target=yuqi"));
-  assert.equal(individual.leaderboards[0].rankings[0].points, 10);
-  await data(await review(solo, "revoke", 1));
   assert.equal(
-    (await data(await h.fetch("/api/leaderboards/solo-targets"))).targets.find(
-      (t) => t.target_id === "yuqi",
-    ).points,
-    0,
+    (await readBoard("system-history")).rankings.find((r) => r.member_id === member.memberId)
+      .points,
+    50,
   );
   const ledger = (
     await h.db
       .prepare(
         "SELECT * FROM point_transactions WHERE case_id=(SELECT id FROM cases WHERE case_id=?)",
       )
-      .bind(solo.case_id)
+      .bind(solos[1].case_id)
       .all()
   ).results;
   assert.equal(ledger.length, 2);
   assert.equal(ledger[1].metadata_json, ledger[0].metadata_json);
-  assert.equal(JSON.parse(ledger[0].metadata_json).solo_target, "yuqi");
+  assert.equal(JSON.parse(ledger[0].metadata_json).solo_target, "minnie");
   for (const id of ["system-history", "system-group", "system-solo"])
     await error(
       await h.fetch(
@@ -382,27 +387,41 @@ test("review/batch approval, historical/Solo/group ranks and exact reversal pres
       "SYSTEM_LEADERBOARD_FIXED",
     );
 });
+test("public artist ranking route is removed and artist filters cannot split system-solo", async () => {
+  await error(await h.fetch("/api/leaderboards/solo-targets"), 404, "NOT_FOUND");
+  for (const target of [...targets, "legacy_unknown", ""])
+    await error(
+      await h.fetch("/api/leaderboards?id=system-solo&solo_target=" + target),
+      400,
+      "INVALID_LEADERBOARD_QUERY",
+    );
+  const solo = (await data(await h.fetch("/api/leaderboards?id=system-solo"))).leaderboards[0];
+  assert.equal(solo.rankings.find((r) => r.member_id === member.memberId).points, 40);
+});
+
 test("display name changes keep target identity; registry expansion needs no Campaign/Case/ledger schema change", async () => {
-  const before = (await data(await h.fetch("/api/leaderboards/solo-targets"))).targets.find(
-    (t) => t.target_id === "yuqi",
-  );
+  const before = (
+    await data(await h.fetch("/api/admin/solo-targets", "GET", undefined, admin.headers))
+  ).targets.find((t) => t.target_id === "yuqi");
   await h.db
     .prepare("UPDATE solo_targets SET display_name='YUQI renamed' WHERE target_id='yuqi'")
     .run();
-  const after = (await data(await h.fetch("/api/leaderboards/solo-targets"))).targets.filter(
-    (t) => t.target_id === "yuqi",
-  );
+  const after = (
+    await data(await h.fetch("/api/admin/solo-targets", "GET", undefined, admin.headers))
+  ).targets.filter((t) => t.target_id === "yuqi");
   assert.equal(after.length, 1);
-  assert.equal(after[0].points, before.points);
+  assert.equal(after[0].target_id, before.target_id);
   assert.equal(after[0].display_name, "YUQI renamed");
   await assert.rejects(
     h.db.prepare("UPDATE solo_targets SET target_id='renamed' WHERE target_id='yuqi'").run(),
     /SOLO_TARGET_IMMUTABLE/,
   );
   await h.db.prepare("INSERT INTO solo_targets VALUES('future_artist','Future artist',1,6)").run();
-  const all = (await data(await h.fetch("/api/leaderboards/solo-targets"))).targets;
+  const all = (
+    await data(await h.fetch("/api/admin/solo-targets", "GET", undefined, admin.headers))
+  ).targets;
   assert.equal(all.length, 6);
-  assert.equal(all.find((t) => t.target_id === "future_artist").points, 0);
+  assert.equal(all.find((t) => t.target_id === "future_artist").active, true);
   await data(await createCampaign({ solo_target: "future_artist" }), 201);
 });
 for (const storageVersion of [1, 2])
@@ -414,7 +433,7 @@ for (const storageVersion of [1, 2])
     assert.equal(read.vote_type, "Solo");
     assert.equal(read.files.length, 1);
   });
-test("unknown historical target remains readable and explicit target reads never guess a display name", async () => {
+test("unknown historical Campaign target remains readable as metadata", async () => {
   const now = new Date().toISOString();
   await h.db
     .prepare(
@@ -423,11 +442,6 @@ test("unknown historical target remains readable and explicit target reads never
     .bind(now, now)
     .run();
   assert.equal((await getAdminCampaign(h.db, "UNKNOWN")).solo_target, "legacy_unknown");
-  assert.equal(
-    (await data(await h.fetch("/api/leaderboards?id=system-solo&solo_target=legacy_unknown")))
-      .leaderboards[0].rankings.length,
-    0,
-  );
   assert.equal(
     (await h.db.prepare("SELECT solo_target FROM campaigns WHERE campaign_id='UNKNOWN'").first())
       .solo_target,
@@ -501,8 +515,8 @@ test("0019 is additive and preserves preexisting unknown Campaign and ledger row
       "Solo",
     );
     assert.equal(
-      (await data(await isolated.fetch("/api/leaderboards?id=system-solo&solo_target=old_unknown")))
-        .leaderboards[0].rankings[0].points,
+      (await data(await isolated.fetch("/api/leaderboards?id=system-solo"))).leaderboards[0]
+        .rankings[0].points,
       10,
     );
     assert.deepEqual((await db.prepare("PRAGMA foreign_key_check").all()).results, []);

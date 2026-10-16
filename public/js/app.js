@@ -470,33 +470,7 @@ function renderBoardPosition() {
   }
 }
 let boardCategory = "history";
-let soloArtistsLoaded=false,soloArtistsLoading=false;
-async function loadSoloArtists() {
-  if(soloArtistsLoaded || soloArtistsLoading)return;soloArtistsLoading=true;
-  $('solo-artists-message').textContent='正在載入藝人排行…';
-  try {
-    const data=await api('/api/leaderboards/solo-targets');if(!Array.isArray(data.targets))throw new Error();
-    $('solo-artists-results').replaceChildren();
-    for(const target of data.targets){
-      const row=node('div',undefined,'solo-artist-row'),label=node('span',target.rank+'. '+target.display_name),score=node('strong',Number(target.points).toLocaleString('zh-TW')+' 點');
-      row.dataset.targetId=target.target_id;
-      const detail=node('button','查看粉絲排行','btn btn-soft');detail.type='button';
-      detail.setAttribute('aria-label','查看 '+target.display_name+' 的粉絲排行');
-      detail.addEventListener('click',()=>void selectSoloArtist(target));row.append(label,score,detail);$('solo-artists-results').append(row);
-    }
-    $('solo-artists-message').textContent=data.targets.length?'尚無積分的藝人也會顯示；點數依正式歷史記錄累積。':'目前尚無藝人資料。';soloArtistsLoaded=true;
-  } catch { $('solo-artists-message').textContent='藝人排行暫時無法載入，請重新整理排行榜。'; }
-  finally {soloArtistsLoading=false;}
-}
-async function selectSoloArtist(target) {
-  const sequence=++boardSequence;
-  try {
-    const data=await api('/api/leaderboards?id=system-solo&solo_target='+encodeURIComponent(target.target_id));
-    if(sequence!==boardSequence || boardCategory!=='solo')return;
-    const board=boardsFrom(data)[0];renderBoard(board?{...board,name:target.display_name+' Solo排行'}:null);
-  } catch {if(sequence===boardSequence && boardCategory==='solo')$('boards-message').textContent='此藝人的粉絲排行暫時無法載入。';}
-}
-const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo排行"]];
+const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo 總排行"]];
 function categoryOf(board) {
   if(board.type === "custom") return "custom:" + board.leaderboard_id;
   if(board.type === "campaign")return "comeback";
@@ -546,12 +520,10 @@ function boardsFrom(data){
   return [...published.filter(board=>board.type!=="custom"),...data.custom_boards.map(board=>published.find(b=>b.leaderboard_id===board.leaderboard_id)??({...board,generated_at:null,rankings:[]}))];
 }
 function renderBoard(board) {
-  $('solo-artists').hidden=boardCategory!=='solo';if(boardCategory==='solo')void loadSoloArtists();
   currentBoard = board ?? null;
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
   $("board-rule-status").textContent=board?.system_fixed?(board.rule??"系統固定榜：由正式歷史積分即時統計。"):"";
-  $("solo-target-wrap").hidden=true;$("solo-target-filter").replaceChildren();
   $("board-generated").textContent = board?.generated_at ? `更新時間：${dateLabel(board.generated_at)}` : "";
   $("board-progress").value = board ? 100 : 0;
   renderBoardPosition();
@@ -574,7 +546,6 @@ function renderBoard(board) {
 }
 async function loadBoards() {
   if (boardLoading) return;
-  soloArtistsLoaded=false;
   boardLoading = true; const sequence = ++boardSequence;
   $("board-select").disabled = true; $("boards-refresh").disabled = true;
   publicBoards = []; renderBoardTabs(); renderBoard(null);

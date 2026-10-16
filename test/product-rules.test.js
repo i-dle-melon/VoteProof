@@ -102,6 +102,22 @@ test('Solo history includes valid legacy ledger with no target key or target met
  }});
  try{const boards=(await data(await sandbox.fetch('/api/leaderboards?id=system-solo'))).leaderboards;assert.equal(boards.length,1);assert.equal(boards[0].rankings[0].points,10);assert.equal(boards[0].rankings[0].proof_count,1);}finally{await sandbox.runtime.dispose();}
 });
+test('Solo total aggregates miyeon 10 plus minnie 20 plus yuqi 30 without artist dimensions',async()=>{
+ const m=await h.identity(),proofs=[];
+ for(const [target,points]of [['miyeon',10],['minnie',20],['yuqi',30]]){
+  const campaign_id='TOTAL-'+target;
+  await local.campaign({campaign_id,category:'Solo',solo_target:target,points_per_proof:points,daily_limit:null});
+  const c=await h.makeCase({member:m,metadata:{campaign_id,vote_type:'Solo'}});proofs.push(c);
+  await data(await h.review(admin,c.case_id,'approve'));
+  await local.db.prepare("UPDATE campaigns SET status='closed',version=version+1 WHERE campaign_id=?").bind(campaign_id).run();
+ }
+ const rankings=async()=>(await data(await local.fetch('/api/leaderboards?id=system-solo'))).leaderboards[0].rankings;
+ const rows=(await rankings()).filter(r=>r.member_id===m.memberId);assert.equal(rows.length,1);assert.equal(rows[0].points,60);assert.equal(rows[0].proof_count,3);
+ await data(await h.review(admin,proofs[1].case_id,'revoke',1,{reason:'Total board reversal'}));
+ const after=(await rankings()).find(r=>r.member_id===m.memberId);assert.equal(after.points,40);assert.equal(after.proof_count,2);
+ await error(await local.fetch('/api/leaderboards/solo-targets'),404,'NOT_FOUND');
+ for(const target of ['miyeon','minnie','yuqi'])await error(await local.fetch('/api/leaderboards?id=system-solo&solo_target='+target),400,'INVALID_LEADERBOARD_QUERY');
+});
 test('campaign/custom publication remains functional alongside immutable system boards',async()=>{
  for(const type of ['campaign','custom']){
  const body={leaderboard_id:'RULE-'+type,name:type,type,campaign_id:'RULE-A',start_date:type==='custom'?'2000-01-01':null,end_date:type==='custom'?'2099-12-31':null,vote_type:null,top_n:100,is_public:true,status:'active'};

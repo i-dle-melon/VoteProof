@@ -562,11 +562,6 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <button class="pill" type="button" id="boards-refresh">重新載入</button>
             </div>
             <div id="board-categories" class="board-categories" aria-label="排行榜分類"></div>
-            <article class="card" id="solo-artists" hidden aria-labelledby="solo-artists-title">
-              <h2 id="solo-artists-title">所有藝人 Solo 排行</h2>
-              <p class="tiny" id="solo-artists-message" role="status"></p>
-              <div id="solo-artists-results" class="leaderboard-list"></div>
-            </article>
             <div class="tabs" id="leader-tabs" aria-label="公開排行榜"></div>
             <div class="field board-selector sr-only">
               <label for="board-select">選擇排行榜</label
@@ -576,7 +571,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             </div>
             <div class="grid grid-2 leaderboard-grid">
               <article class="card leader-card">
-                <label id="solo-target-wrap" hidden>Solo 對象<select id="solo-target-filter"></select></label><h2 class="board-caption" id="board-name"></h2><p id="board-rule-status" class="tiny" role="status" hidden></p>
+                <h2 class="board-caption" id="board-name"></h2><p id="board-rule-status" class="tiny" role="status" hidden></p>
                 <progress
                   class="board-progress"
                   id="board-progress"

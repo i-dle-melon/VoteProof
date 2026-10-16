@@ -58,7 +58,7 @@ test("normal member fixture fills shared Home, seven board buttons, own Cases an
     "歷史累計",
     "本次回歸",
     "團體排行",
-    "Solo排行",
+    "Solo 總排行",
     "展示生日應援榜",
     "展示週末衝刺榜",
     "展示特別活動榜",

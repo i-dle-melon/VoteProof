@@ -34,7 +34,7 @@ test("four default categories append configured custom buttons and preserve hone
     "歷史累計",
     "本次回歸",
     "團體排行",
-    "Solo排行",
+    "Solo 總排行",
     "公開 custom-a",
     "公開 custom-b",
   ]);
@@ -59,7 +59,7 @@ test("four default categories append configured custom buttons and preserve hone
     "歷史累計",
     "本次回歸",
     "團體排行",
-    "Solo排行",
+    "Solo 總排行",
   ]);
 });
 

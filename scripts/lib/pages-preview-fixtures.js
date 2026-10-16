@@ -61,7 +61,7 @@ export const boards = [
   ["history", "歷史累計", "all_time", null],
   ["comeback", "本次回歸", "campaign", null],
   ["group", "團體排行", "all_time", "團體"],
-  ["solo", "Solo排行", "all_time", "Solo"],
+  ["solo", "Solo 總排行", "all_time", "Solo"],
   ["custom-one", "展示生日應援榜", "custom", null],
   ["custom-two", "展示週末衝刺榜", "custom", null],
   ["custom-three", "展示特別活動榜", "custom", null],
@@ -206,9 +206,9 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   if (state.data === "error") return reply("SERVICE_UNAVAILABLE", 503);
   if (p === "/api/campaigns") return reply(paged("campaigns", previewCampaigns.filter(c=>c.status==='active'&&Date.parse(c.start_at)<=Date.now()&&Date.parse(c.end_at)>Date.now()).map(c=>Object.fromEntries(['campaign_id','name','category','start_at','end_at','campaign_timezone','vote_start_date','vote_end_date','points_per_proof','daily_limit','status'].map(k=>[k,c[k]])))));
   if (p === '/api/admin/solo-targets') return reply({targets:soloTargets});
-  if (p === '/api/leaderboards/solo-targets') return reply({targets:soloTargets.map((t,i)=>({...t,points:i===0&&state.data!=='empty'?rankings.reduce((s,r)=>s+r.points,0):0,proof_count:i===0&&state.data!=='empty'?rankings.reduce((s,r)=>s+r.proof_count,0):0,generated_at:state.data==='empty'?null:'2026-10-14T04:00:00Z',rank:state.data==='empty'?1:i===0?1:2}))});
+  if (p === "/api/leaderboards/solo-targets") return reply("NOT_FOUND",404);
   if (p === "/api/leaderboards") {
-    if(url.searchParams.has('solo_target'))return reply({leaderboards:[{...boards.find(b=>b.vote_type==='Solo' && b.system_fixed),solo_target:url.searchParams.get('solo_target'),rankings:url.searchParams.get('solo_target')==='miyeon'&&state.data!=='empty'?rankings:[]}],custom_boards:[]});
+    if(url.searchParams.has("solo_target"))return reply("INVALID_LEADERBOARD_QUERY",400);
     const selected =
       state.data === "empty"
         ? []

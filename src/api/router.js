@@ -1,6 +1,6 @@
 import { getHealth } from "./health.js";
 import { getCampaigns } from "./campaigns.js";
-import { getLeaderboards, getSoloArtistRankings } from "./leaderboards.js";
+import { getLeaderboards } from "./leaderboards.js";
 import { jsonError } from "./response.js";
 import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
 import { createCase, createDirectCase, getCase } from "./cases.js";
@@ -50,7 +50,6 @@ const routes = new Map([
   ["/api/admin/submissions/update", { method: "POST", handler: updateAdminSubmissionSettings }],
   ["/api/campaigns", { method: "GET", handler: getCampaigns }],
   ["/api/leaderboards", { method: "GET", handler: getLeaderboards }],
-  ["/api/leaderboards/solo-targets", { method: "GET", handler: getSoloArtistRankings }],
   ["/api/uploads/prepare", { method: "POST", handler: prepareUpload }],
   ["/api/uploads/complete", { method: "POST", handler: completeUpload }],
   ["/api/cases", { method: "POST", handler: createCase }],

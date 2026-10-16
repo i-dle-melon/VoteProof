@@ -115,7 +115,7 @@ test("real Miniflare: populated 0018 accepts 0019 without changing historical sc
     const owner = await l.fetch("/api/me/cases/" + proof.case_id, "GET", undefined, member.headers);
     assert.equal(owner.status, 200);
     assert.equal((await owner.json()).data.points_awarded, 10);
-    const board = await l.fetch("/api/leaderboards?id=system-solo&solo_target=legacy_unknown");
+    const board = await l.fetch("/api/leaderboards?id=system-solo");
     assert.equal(board.status, 200);
     assert.equal((await board.json()).data.leaderboards[0].rankings[0].points, 10);
     assert.deepEqual((await db.prepare("PRAGMA foreign_key_check").all()).results, []);

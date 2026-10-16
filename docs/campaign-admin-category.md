@@ -48,27 +48,25 @@ deactivation over deleting identities with historical use.
 
 - History: all formal ledger points, including adjustments and exact reversals.
 - Group: all historical Group points across Campaigns.
-- Solo default: the existing member total across all historical Solo points.
+- Solo total: one member ranking across all historical Solo points, including
+  exact reversals. Campaign `solo_target` never groups or filters this total.
 - Campaign/custom boards: existing publication and rebuild mechanisms retained.
-- All-artists Solo ranking: `GET /api/leaderboards/solo-targets` uses the registry
-  as its mother set and LEFT JOINs ledger totals by recorded stable target key.
-  Artists without Campaigns, Cases or points appear with zero. Inactive registry
-  artists remain readable, including their historical totals.
-- Individual artist member ranking:
-  `GET /api/leaderboards?id=system-solo&solo_target=yuqi`. This filters the same
-  ledger, with the existing member ranking/tie/tier policies. No second snapshot
-  or rebuild control is added. Display-name changes never change identity.
+- Registry is Campaign metadata only, not a public leaderboard dimension.
+  The former `GET /api/leaderboards/solo-targets` route is removed (404).
+  Public leaderboard requests with `solo_target` are rejected (400), so an old
+  client cannot accidentally treat the member total as an artist-specific rank.
 
 Approvals already record `solo_target` in ledger metadata; reversals copy the
-original metadata. Historical unknown targets can still be read explicitly.
-Rows without a recorded target still contribute to aggregate Solo/history, but
-are never guessed into an artist from Campaign names or current metadata.
+original metadata. Historical unknown targets remain readable in Campaign/Case
+records. All Solo ledger rows contribute to the member Solo total, including
+unknown or absent target metadata. No artist identity is guessed from names.
 Unknown keys are not automatically added to the registry, renamed or deleted.
 
-The normal Solo tab retains the member total board and adds the registry-based
-artist list, with links to artist-specific member ranks. Four fixed navigation
-buttons and enabled custom buttons remain unchanged. Preview uses the shared
-renderer with synthetic registry/API data and local-only Campaign mutations.
+The Solo tab shows only member ranks, names and accumulated Solo points. There
+are no artist cards or drilldown buttons. For example, one member's miyeon +10,
+minnie +20 and yuqi +30 produce one row with 60 points. Revoking the 20-point
+proof leaves 40. Group/history scope and campaign/custom publication are retained.
+Preview uses the same renderer; its registry fixture is used only by Admin.
 
 ## Future Campaign preparation (not executed)
 
@@ -95,7 +93,7 @@ These component tests do not claim provider/workerd execution coverage.
 Browser component tests fulfill local static source files and mock API contracts
 without opening a local listener. They use the real public/Admin renderers and
 the built Pages artifact. They cover dropdown loading/validation, future and
-inactive entries, Direct payload omission, Preview mutations and artist rankings
+inactive entries, Direct payload omission, Preview mutations and member Solo totals
 at 320/390/430/1024/1440 in both themes across Chrome and WebKit projects.
 
 Commands:

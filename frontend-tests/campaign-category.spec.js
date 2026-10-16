@@ -161,24 +161,78 @@ for (const category of ["Solo", "團體"])
     expect(calls.at(-1).body.campaign_id).toBe("LOCAL");
     expect(state.calls.some((c) => c.path.endsWith("/complete"))).toBe(false);
   });
-test("Preview uses shared UI: all five artists including zero points, target read, responsive themes", async ({
-  page,
-}) => {
+test("Preview Solo total has member rows only across responsive themes", async ({ page }) => {
   for (const width of [320, 390, 430, 1024, 1440])
     for (const theme of ["dark", "light"]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(preview + "?preview_theme=" + theme + "#leaderboards");
       await expect(page.locator("html")).toHaveAttribute("data-preview-ready", "true");
       await page.locator("#board-categories button").nth(3).click();
-      await expect(page.locator("#solo-artists-results [data-target-id]")).toHaveCount(5);
-      await expect(page.locator("[data-target-id=shuhua]")).toContainText("0 點");
-      await page.locator("[data-target-id=miyeon] button").click();
-      await expect(page.locator("#board-name")).toHaveText("MIYEON Solo排行");
+      await expect(page.locator("#board-name")).toHaveText("Solo 總排行");
+      await expect(page.locator("#board-results tr")).toHaveCount(5);
+      await expect(page.locator("#solo-artists,#solo-target-wrap,#solo-target-filter,[data-target-id],.solo-artist-row")).toHaveCount(0);
+      await expect(page.locator("#view-leaderboards")).not.toContainText(
+        /所有藝人 Solo 排行|MIYEON|MINNIE|SOYEON|YUQI|SHUHUA/,
+      );
+      await expect(page.getByRole("button", { name: "查看粉絲排行" })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
     }
 });
+test("public Solo total renders one member with 60 points and never requests artist rankings", async ({
+  page,
+}) => {
+  const state = await memberFixture(page, { authenticated: true }),
+    requests = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname.startsWith("/api/")) requests.push(r.url());
+  });
+  await page.route("**/api/leaderboards*", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        data: {
+          leaderboards: [
+            {
+              leaderboard_id: "system-solo",
+              name: "Solo 總排行",
+              type: "all_time",
+              system_fixed: true,
+              vote_type: "Solo",
+              rankings: [
+                {
+                  rank: 1,
+                  member_id: state.member.member_id,
+                  nickname: state.member.nickname,
+                  fan_id: "local_fan",
+                  points: 60,
+                  proof_count: 3,
+                },
+              ],
+            },
+          ],
+          custom_boards: [],
+        },
+      },
+    }),
+  );
+  await page.goto("/#leaderboards");
+  await page.locator("#board-categories button").nth(3).click();
+  await expect(page.locator("#board-name")).toHaveText("Solo 總排行");
+  await expect(page.locator("#board-results tr")).toHaveCount(1);
+  await expect(page.locator("#board-results")).toContainText(state.member.nickname);
+  await expect(page.locator("#board-results .points")).toHaveText("60 點");
+  await expect(page.locator("#solo-artists,#solo-target-wrap,#solo-target-filter,[data-target-id]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "查看粉絲排行" })).toHaveCount(0);
+  expect(
+    requests.some(
+      (url) =>
+        url.includes("/leaderboards/solo-targets") || new URL(url).searchParams.has("solo_target"),
+    ),
+  ).toBe(false);
+});
+
 test("Preview Admin can save registry choice locally and public form has no target controls", async ({
   page,
 }) => {

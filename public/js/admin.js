@@ -335,7 +335,7 @@ export function adminUI(session) {
     const choices=[['','請選擇 Solo 對象'],...targets.filter(t=>t.active).map(t=>[t.target_id,t.display_name])];
     if(row?.solo_target && !targets.some(t=>t.target_id===row.solo_target && t.active)) choices.push([row.solo_target,row.solo_target+'（歷史／已停用，僅供檢視）']);
     const target=field(f,"solo_target","Solo 對象","select",row?.solo_target??"",{choices,disabled:Boolean(row?.solo_target)});
-    f.append(node("p","活動分類由管理員設定；投稿者只選活動。Solo 對象 key 用於跨活動積分識別，建立後無法修改。","tiny"));
+    f.append(node("p","活動分類由管理員設定；投稿者只選活動。Solo 對象用於活動藝人識別，建立後無法修改；所有 Solo 積分統一累計至 Solo 總排行。","tiny"));
     const syncCategory=()=>{target.closest(".field").hidden=category.value!=="Solo";target.required=category.value==="Solo";target.disabled=category.value!=="Solo" || Boolean(row?.solo_target);};category.addEventListener("change",syncCategory);syncCategory();
     field(f, "start_at", copy("admin-copy-070"), "datetime-local", taipeiInput(row?.start_at), { required: true, step: 1, disabled: Boolean(locked) });
     field(f, "end_at", copy("admin-copy-071"), "datetime-local", taipeiInput(row?.end_at), { required: true, step: 1, disabled: Boolean(locked) });

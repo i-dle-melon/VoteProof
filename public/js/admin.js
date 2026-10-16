@@ -318,15 +318,24 @@ export function adminUI(session) {
     heading(copy("admin-copy-018"), copy("admin-copy-059"));
     $("admin-panel").append(button(copy("admin-copy-060"), () => campaignEditor(null), "btn btn-primary"));
     await paged("campaigns", "campaigns", row => {
-      const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", stamp(row.start_at) + " ～ " + stamp(row.end_at) + copy("admin-copy-061")), node("p", `每次通過 ${row.points_per_proof} 點 · ` + (row.daily_limit === null ? copy("admin-copy-062") : row.daily_limit === 0 ? copy("admin-copy-063") : `每日最多 ${row.daily_limit} 次計分`)), button(row.status === "archived" ? copy("admin-copy-064") : copy("admin-copy-065"), () => campaignEditor(row))); return c;
+      // Classification is Admin metadata; historical unknown IDs stay visible.
+      const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p",'活動分類：'+row.category+(row.solo_target?' · '+row.solo_target:'')), node("p", stamp(row.start_at) + " ～ " + stamp(row.end_at) + copy("admin-copy-061")), node("p", `每次通過 ${row.points_per_proof} 點 · ` + (row.daily_limit === null ? copy("admin-copy-062") : row.daily_limit === 0 ? copy("admin-copy-063") : `每日最多 ${row.daily_limit} 次計分`)), button(row.status === "archived" ? copy("admin-copy-064") : copy("admin-copy-065"), () => campaignEditor(row))); return c;
     });
   }
-  function campaignEditor(row) {
+  async function campaignEditor(row) {
     if (busy) return; clearPanel(); heading(copy("admin-copy-018"), copy("admin-copy-066"));
+    const born=sequence;let targets;
+    try { const data=await request('solo-targets'); if(born!==sequence || !visible)return;
+      if(!Array.isArray(data.targets))throw new PublicError('SERVICE_UNAVAILABLE');targets=data.targets;
+    } catch(error) {if(born===sequence)$('admin-status').textContent=adminMessage(error);return;}
     const f = formCard(row ? copy("admin-copy-065") : copy("admin-copy-060")), locked = row && row.status !== "draft";
+    f.dataset.campaignEditor='';
     if (!row) field(f, "campaign_id", copy("admin-copy-067"), "text", "", { required: true, pattern: "[A-Za-z0-9][A-Za-z0-9_-]{0,99}", maxLength: 100 });
     field(f, "name", copy("admin-copy-068"), "text", row?.name, { required: true, maxLength: 100 }); const category=field(f, "category", copy("admin-copy-069"), "select", row?.category??"Solo", { required: true, choices:[["Solo","Solo"],["團體","團體"]],disabled:Boolean(locked || row?.solo_target) });
-    const target=field(f,"solo_target","Solo 對象 key（跨活動穩定識別）","text",row?.solo_target??"",{maxLength:100,disabled:Boolean(row?.solo_target)});
+    const choices=[['','請選擇 Solo 對象'],...targets.filter(t=>t.active).map(t=>[t.target_id,t.display_name])];
+    if(row?.solo_target && !targets.some(t=>t.target_id===row.solo_target && t.active)) choices.push([row.solo_target,row.solo_target+'（歷史／已停用，僅供檢視）']);
+    const target=field(f,"solo_target","Solo 對象","select",row?.solo_target??"",{choices,disabled:Boolean(row?.solo_target)});
+    f.append(node("p","活動分類由管理員設定；投稿者只選活動。Solo 對象 key 用於跨活動積分識別，建立後無法修改。","tiny"));
     const syncCategory=()=>{target.closest(".field").hidden=category.value!=="Solo";target.required=category.value==="Solo";target.disabled=category.value!=="Solo" || Boolean(row?.solo_target);};category.addEventListener("change",syncCategory);syncCategory();
     field(f, "start_at", copy("admin-copy-070"), "datetime-local", taipeiInput(row?.start_at), { required: true, step: 1, disabled: Boolean(locked) });
     field(f, "end_at", copy("admin-copy-071"), "datetime-local", taipeiInput(row?.end_at), { required: true, step: 1, disabled: Boolean(locked) });

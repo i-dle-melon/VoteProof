@@ -118,6 +118,7 @@ export function adminPath(path) {
   if (typeof path !== "string" || /[.#\\]/.test(path)) return false;
   const [pathname, query, extra] = path.split("?");
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
+  if(pathname==='/api/admin/solo-targets' && query===undefined)return true;
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;
   if(query===undefined && /^\/api\/admin\/image-exports(?:\/(?:query|jobs)|\/jobs\/[a-f0-9-]{36}(?:\/packages\/[1-9]\d{0,4}(?:\/(?:start|state)|\/attempts\/[a-f0-9-]{36}\/files\/[a-f0-9-]{36}))?)?$/.test(pathname)) return true;

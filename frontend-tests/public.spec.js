@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ioAAAAASUVORK5CYII=", "base64");
 const today = () => new Date().toISOString().slice(0, 10);
-const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", category: "Solo",solo_target:"local-solo", status: "active", campaign_timezone: "Asia/Taipei",
+const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", category: "Solo", status: "active", campaign_timezone: "Asia/Taipei",
   vote_start_date: "2000-01-01", vote_end_date: "2099-12-31", start_at: "2000-01-01T00:00:00Z", end_at: "2100-01-01T00:00:00Z", points_per_proof: 10, daily_limit: null };
 async function fixture(page, options = {}) {
   const query = randomBytes(32).toString("base64url"), token = randomBytes(24).toString("base64url");

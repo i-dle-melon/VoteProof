@@ -24,6 +24,7 @@ export function reviewActions(status, role) {
   return status === "approved" ? ["complete", "revoke"] : status === "completed" ? ["revoke"] : [];
 }
 export const adminMessage = error => {
+  if(error?.code==='SOLO_TARGET_UNAVAILABLE')return 'Solo 對象不存在或已停用，請重新載入活動設定。歷史對象未被變更。';
   if (error?.code === 'DRIVE_BACKUP_DISABLED') return 'Google Drive 備份尚未啟用。';
   if (error?.code === 'DRIVE_BACKUP_NOT_CONFIGURED') return 'Google Drive 備份尚未設定完成。';
   if (error?.code === 'BACKUP_PROCESS_FAILED') return '備份未完成，請重新載入確認狀態；未自動重送。';

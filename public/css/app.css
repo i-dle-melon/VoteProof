@@ -2674,3 +2674,6 @@ button.legacy-case-row:hover {
 .export-results,.export-history { margin-top:16px; }
 #export-progress { overflow-wrap:anywhere; }
 @media(max-width:640px) { .export-filters { grid-template-columns:minmax(0,1fr); } .export-package { gap:10px; padding:12px; } }
+/* Artist identity comes from the registry; allow narrow screens to wrap actions. */
+.solo-artist-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.solo-artist-row > button { grid-column: 1 / -1; justify-self: start; max-width: 100%; white-space: normal; }

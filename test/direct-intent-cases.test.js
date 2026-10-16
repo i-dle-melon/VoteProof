@@ -42,7 +42,6 @@ const reference = (p) => ({
 });
 const body = (p, extra = {}) => ({
   campaign_id: "DIRECT-POINTS",
-  vote_type: "Solo",
   vote_date: new Date().toISOString().slice(0, 10),
   upload_session: reference(p),
   ...extra,
@@ -66,8 +65,8 @@ async function prepared(actor, extra = {}) {
     ),
   );
 }
-async function uploaded(actor) {
-  const p = await prepared(actor);
+async function uploaded(actor, extra) {
+  const p = await prepared(actor, extra);
   await l.put(p.uploads[0], bytes, headers(actor));
   return p;
 }
@@ -161,6 +160,7 @@ for (const kind of ["member", "guest"])
     assert.equal(c.upload_session_id, null);
     assert.equal(c.upload_intent_id, p.session_id);
     assert.equal(c.member_id, actor?.memberId ?? null);
+    assert.equal(c.vote_type, "Solo");
     if (!actor) {
       assert.equal(c.nickname, "匿名投稿");
       assert.equal(c.player_id, "匿名投稿");

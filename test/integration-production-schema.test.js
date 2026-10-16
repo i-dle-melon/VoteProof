@@ -6,7 +6,7 @@ import {localAdminRuntime} from '../scripts/lib/local-admin-runtime.mjs';
 import {localPrehashCase} from '../scripts/lib/local-prehash-case-fixture.mjs';
 const snapshot=JSON.parse((await readFile(new URL('./fixtures/production-schema-0011.json',import.meta.url),'utf8')).replace(/^\ufeff/,''));
 const normalize=s=>s?.replaceAll('"','').replace(/\s+/g,' ').trim();
-test('observed Production 0011 DDL matches baseline; ordered 0012-0018 preserves legacy rows, gate OFF and FK graph',async()=>{
+test('observed Production 0011 DDL matches baseline; ordered 0012-0019 preserves legacy rows, gate OFF and FK graph',async()=>{
   const h=await localAdminRuntime({migrationThrough:'0011_drive_backup_relay_lease_index.sql',seedCampaign:false,submissionsEnabled:false}),l=h.local,db=l.db;
   try{
     const schema=(await db.prepare("SELECT name,type,sql FROM sqlite_master WHERE type IN ('table','index','trigger') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results;
@@ -22,7 +22,7 @@ test('observed Production 0011 DDL matches baseline; ordered 0012-0018 preserves
     const beforeCase=await db.prepare('SELECT * FROM cases WHERE id=?').bind(legacy.id).first();
     const beforeFiles=(await db.prepare('SELECT * FROM case_files WHERE case_id=?').bind(legacy.id).all()).results;
     const pending=(await readdir(new URL('../migrations/',import.meta.url))).filter(n=>/^\d+_.+\.sql$/.test(n)&&!snapshot.migrations.includes(n)).sort();
-    assert.deepEqual(pending.map(n=>n.slice(0,4)),['0012','0013','0014','0015','0016','0017','0018']);
+    assert.deepEqual(pending.map(n=>n.slice(0,4)),['0012','0013','0014','0015','0016','0017','0018','0019']);
     for(const name of pending){const sql=await readFile(new URL('../migrations/'+name,import.meta.url),'utf8');await db.batch(unstable_splitSqlQuery(sql).map(s=>db.prepare(s)));assert.deepEqual((await db.prepare('PRAGMA foreign_key_check').all()).results,[],name);assert.equal((await db.prepare('SELECT submissions_enabled FROM submission_settings').first()).submissions_enabled,0,name);}
     const after=await db.prepare('SELECT * FROM cases WHERE id=?').bind(legacy.id).first();for(const [key,value]of Object.entries(beforeCase))assert.deepEqual(after[key],value,key);
     const files=(await db.prepare('SELECT * FROM case_files WHERE case_id=?').bind(legacy.id).all()).results;for(const f of beforeFiles)for(const [key,value]of Object.entries(f))assert.deepEqual(files.find(i=>i.id===f.id)[key],value,key);

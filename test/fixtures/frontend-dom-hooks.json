@@ -169,10 +169,6 @@
     "tag": "p",
     "attributes": {}
   },
-  "vote-type": {
-    "tag": "output",
-    "attributes": {}
-  },
   "vote-date": {
     "tag": "input",
     "attributes": {

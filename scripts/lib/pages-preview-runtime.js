@@ -26,7 +26,7 @@ export function setupPreview() {
   document.addEventListener(
     "submit",
     (event) => {
-      if(event.target.matches("#profile-form,[data-preview-review],[data-preview-export]"))return;
+      if(event.target.matches("#profile-form,[data-preview-review],[data-preview-export],[data-campaign-editor]"))return;
       event.preventDefault();
       event.stopImmediatePropagation();
       document.getElementById("preview-action-status").textContent =

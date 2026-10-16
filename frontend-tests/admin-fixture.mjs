@@ -4,7 +4,8 @@ import { memberFixture, png } from "./member-fixture.mjs";
 export async function adminFixture(page, options = {}) {
   const state = await memberFixture(page, { authenticated: true, dual: true, adminRole: "admin", submissionsOff: true, ...options });
   state.role = options.role ?? "admin"; state.elevationUntil = options.expiredMfa ? 0 : Date.now() / 1000 + 600;
-  state.campaigns = [{ campaign_id: "LOCAL", name: "本機應援活動", category: "Solo",solo_target:"local-solo", start_at: "2026-09-10T15:00:00.000Z", end_at: "2026-10-20T14:59:00.000Z", campaign_timezone: "Asia/Taipei", status: "active", daily_limit: null, points_per_proof: 10, version: 0, note: null }];
+  state.soloTargets=['miyeon','minnie','soyeon','yuqi','shuhua'].map((target_id,i)=>({target_id,display_name:target_id.toUpperCase(),active:true,sort_order:i+1}));
+  state.campaigns = [{ campaign_id: "LOCAL", name: "本機應援活動", category: "Solo",solo_target:"miyeon", start_at: "2026-09-10T15:00:00.000Z", end_at: "2026-10-20T14:59:00.000Z", campaign_timezone: "Asia/Taipei", status: "active", daily_limit: null, points_per_proof: 10, version: 0, note: null }];
   state.cases = [{ case_id: state.caseId, created_at: "2026-10-09T10:00:00.000Z", nickname: "本機會員", player_id: "local-player", campaign_id: "LOCAL", vote_type: "Solo", vote_date: "2026-10-09", review_stage:"initial",review_risk_reason:null,status: options.caseStatus ?? "pending", version: 0, points_awarded: 0, files: [{ file_id: randomUUID(), content_type: "image/png", size: png.length }] }];
   state.boards = [{ leaderboard_id: "BOARD", name: "本機公開成績", type: "campaign",campaign_id:"LOCAL", campaign_id: null, start_date: null, end_date: null, vote_type: null, top_n: 10, is_public: true, status: "active", version: 0 }];
   state.tiers = ["普通", "青銅", "白銀", "黃金", "白金", "翡翠", "鑽石", "星耀"].map((name, i) => ({ tier_id: ["normal", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "stellar"][i], name, min_points: i ? null : 0, status: i ? "disabled" : "active", version: 0 }));
@@ -22,6 +23,7 @@ export async function adminFixture(page, options = {}) {
     if (state.elevationUntil <= Date.now() / 1000) return error("ADMIN_STEP_UP_REQUIRED", 403);
     if (state.failAdmin) return error("ADMIN_SERVICE_UNAVAILABLE", 503);
     if (path === "/api/admin/me") return reply({ member_id: state.member.member_id, role: state.role, csrf_token: state.csrf });
+    if (path === '/api/admin/solo-targets') return reply({targets:state.soloTargets});
     if (state.role === "reviewer" && !path.startsWith("/api/admin/cases")) return error("ADMIN_FORBIDDEN", 403);
     if (request.method() === "POST") {
       if (request.headers()["x-csrf-token"] !== state.csrf || request.headers()["x-voteproof-request"] !== "1") return error("CSRF_REJECTED", 403);

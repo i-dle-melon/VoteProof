@@ -115,7 +115,12 @@ export async function rebuildBoard(db, actor, board, expectedVersion) {
   return { ...result[5].results[0], version:expectedVersion+1 };
 }
 // One joined query per response: a concurrent publish cannot mix runs/rows.
-export async function publishedBoards(db, id = null, admin = false) {
+export async function publishedBoards(db, id = null, admin = false, soloTarget = null) {
+  // Optional artist read uses the same ledger, never a second snapshot source.
+  if (soloTarget !== null) {
+    const leaderboards = await liveSystemBoards(db,'system-solo',soloTarget);
+    return { leaderboards, custom_boards: [], generated_at: leaderboards[0].generated_at };
+  }
   const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,b.type,b.campaign_id,b.vote_type,r.run_id,r.generated_at,
       x.rank,x.member_id,x.nickname,m.player_id fan_id,x.points,x.proof_count,x.reached_at
     FROM leaderboards b JOIN leaderboard_runs r ON r.run_id = b.current_run_id AND r.status = 'success'

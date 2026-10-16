@@ -5,6 +5,8 @@ import { MemberSession, adminPath } from "../public/js/member-api.js";
 import { AdminAccess, dailyLimit, utcFromTaipei, taipeiInput, reviewActions, adminMessage } from "../public/js/admin-api.js";
 const identity = () => ({ member: { member_id: "M-" + randomUUID(), nickname: "本機", status: "active" }, csrf_token: randomBytes(32).toString("hex"), expires_in: 600, elevated_until: Date.now() / 1000 + 600 });
 test("campaign daily limit explicitly preserves unlimited/zero/cap", () => {
+  assert.equal(adminPath('/api/admin/solo-targets'),true);
+  assert.equal(adminPath('/api/admin/solo-targets?token=forged'),false);
   assert.equal(dailyLimit("unlimited", "999999"), null); assert.equal(dailyLimit("zero", "100"), 0);
   for (const n of [1, 10, 1000]) assert.equal(dailyLimit("limited", n), n);
   for (const n of [0, -1, 1001, "", "1.5", "01"]) assert.throws(() => dailyLimit("limited", n));

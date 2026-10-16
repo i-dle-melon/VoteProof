@@ -11,7 +11,7 @@ export const identity = {
 export const campaign = {
   campaign_id: "PREVIEW-CAMPAIGN",
   name: "展示回歸應援・假資料",
-  category: "Solo",solo_target:"PREVIEW-SOLO-A",
+  category: "Solo",solo_target:"miyeon",
   start_at: "2026-01-01T00:00:00Z",
   end_at: "2099-12-31T00:00:00Z",
   campaign_timezone: "Asia/Taipei",
@@ -112,6 +112,7 @@ export const cases = ["pending", "approved", "rejected", "pending", "completed"]
 );
 export const adminCases=[...cases,{...cases[0],case_id:"VP-PREVIEW-006",nickname:"匿名投稿",player_id:"匿名投稿",source:"guest",files:[{file_id:"PREVIEW-IMAGE-6",content_type:"image/png",size:4096}]},{...cases[0],case_id:"VP-PREVIEW-007",nickname:"展示其他粉絲",player_id:"preview_other_fan",review_stage:"detailed",review_risk_reason:"manual_flag",status_reason:"展示人工疑慮（假資料）",files:[{file_id:"PREVIEW-IMAGE-7",content_type:"image/png",size:4096}]}];
 export const previewCampaigns=[campaign,{...campaign,campaign_id:"PREVIEW-GROUP",name:"展示團體活動・假資料",category:"團體",solo_target:null}];
+const soloTargets=['miyeon','minnie','soyeon','yuqi','shuhua'].map((target_id,i)=>({target_id,display_name:target_id.toUpperCase(),active:true,sort_order:i+1}));
 const partialFailures=new Set();
 const paged = (key, data) => ({ [key]: state.data === "empty" ? [] : data, next_cursor: null });
 export async function fixtureResponse(path, { method = "GET",body } = {}) {
@@ -126,6 +127,17 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     p = url.pathname;
   if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
   if(method!=="GET") {
+    if(method==='POST' && state.identity==='admin' && /^\/api\/admin\/campaigns(?:\/[^/]+\/update)?$/.test(p)) {
+      if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
+      const input=typeof body==='string'?JSON.parse(body):body;
+      if(!input || !['Solo','團體'].includes(input.category) || (input.category==='團體'&&input.solo_target!==null))return reply('INVALID_CAMPAIGN_REQUEST',400);
+      if(input.category==='Solo'&&!soloTargets.some(t=>t.target_id===input.solo_target&&t.active))return reply('SOLO_TARGET_UNAVAILABLE',400);
+      const existing=previewCampaigns.find(c=>p.endsWith('/'+c.campaign_id+'/update'));
+      if(existing){if(input.expected_version!==existing.version || input.solo_target!==existing.solo_target || input.category!==existing.category)return reply('CAMPAIGN_CONFLICT',409);Object.assign(existing,input,{version:existing.version+1});return reply({...existing});}
+      if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(input.campaign_id??''))return reply('INVALID_CAMPAIGN_REQUEST',400);
+      if(previewCampaigns.some(c=>c.campaign_id===input.campaign_id))return reply('CAMPAIGN_EXISTS',409);
+      const row={...input,version:0};previewCampaigns.push(row);return reply({...row},201);
+    }
     if(method==="POST" && p==="/api/admin/cases/batch-approve" && state.identity==="admin"){
       const input=typeof body==="string"?JSON.parse(body):body;
       if(!Array.isArray(input?.cases)||!input.cases.length||input.cases.length>4||new Set(input.cases.map(c=>c.case_id)).size!==input.cases.length)return reply("INVALID_REVIEW_BATCH",400);
@@ -192,8 +204,11 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   if (p.startsWith("/api/admin/") && state.identity !== "admin")
     return reply("ADMIN_FORBIDDEN", 403);
   if (state.data === "error") return reply("SERVICE_UNAVAILABLE", 503);
-  if (p === "/api/campaigns") return reply(paged("campaigns", previewCampaigns));
+  if (p === "/api/campaigns") return reply(paged("campaigns", previewCampaigns.filter(c=>c.status==='active'&&Date.parse(c.start_at)<=Date.now()&&Date.parse(c.end_at)>Date.now()).map(c=>Object.fromEntries(['campaign_id','name','category','start_at','end_at','campaign_timezone','vote_start_date','vote_end_date','points_per_proof','daily_limit','status'].map(k=>[k,c[k]])))));
+  if (p === '/api/admin/solo-targets') return reply({targets:soloTargets});
+  if (p === '/api/leaderboards/solo-targets') return reply({targets:soloTargets.map((t,i)=>({...t,points:i===0&&state.data!=='empty'?rankings.reduce((s,r)=>s+r.points,0):0,proof_count:i===0&&state.data!=='empty'?rankings.reduce((s,r)=>s+r.proof_count,0):0,generated_at:state.data==='empty'?null:'2026-10-14T04:00:00Z',rank:state.data==='empty'?1:i===0?1:2}))});
   if (p === "/api/leaderboards") {
+    if(url.searchParams.has('solo_target'))return reply({leaderboards:[{...boards.find(b=>b.vote_type==='Solo' && b.system_fixed),solo_target:url.searchParams.get('solo_target'),rankings:url.searchParams.get('solo_target')==='miyeon'&&state.data!=='empty'?rankings:[]}],custom_boards:[]});
     const selected =
       state.data === "empty"
         ? []

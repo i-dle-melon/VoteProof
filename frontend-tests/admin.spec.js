@@ -111,9 +111,19 @@ for (const [mode, limit] of [["zero", 0], ["limited", 1], ["limited", 1000]]) te
 });
 test("campaign create converts Taiwan datetime and uses explicit supported values", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "活動管理"); await save(page, "建立活動");
-  for (const [id, val] of [["campaign_id", "NEW"], ["name", "新活動"], ["solo_target","local-solo"], ["start_at", "2026-09-10T23:00"], ["end_at", "2026-10-20T22:59"], ["points_per_proof", "10"]]) await page.locator("#admin-field-" + id).fill(val);
+  for (const [id, val] of [["campaign_id", "NEW"], ["name", "新活動"], ["start_at", "2026-09-10T23:00"], ["end_at", "2026-10-20T22:59"], ["points_per_proof", "10"]]) await page.locator("#admin-field-" + id).fill(val);
+  await expect(page.locator('select#admin-field-solo_target option')).toHaveCount(6);
+  await page.locator('#admin-field-solo_target').selectOption('yuqi');
   await page.locator("#admin-field-daily_mode").selectOption("unlimited"); await save(page, "保存活動"); await expect(panel(page)).toContainText("新活動");
-  const write = state.calls.find(c => c.path === "/api/admin/campaigns" && c.method === "POST"); expect(write.body.start_at).toBe("2026-09-10T15:00:00.000Z"); expect(write.body.daily_limit).toBeNull();
+  const write = state.calls.find(c => c.path === "/api/admin/campaigns" && c.method === "POST"); expect(write.body.start_at).toBe("2026-09-10T15:00:00.000Z"); expect(write.body.daily_limit).toBeNull();expect(write.body.solo_target).toBe('yuqi');
+});
+test('group campaign hides target and saves null; registry label comes from backend',async({page})=>{
+ const state=await adminFixture(page);state.soloTargets[3].display_name='YUQI updated';await open(page,'活動管理');await save(page,'建立活動');
+ await expect(page.locator('#admin-field-solo_target option[value=yuqi]')).toHaveText('YUQI updated');
+ await page.locator('#admin-field-category').selectOption('團體');await expect(page.locator('#admin-field-solo_target')).toBeHidden();await expect(page.locator('#admin-field-solo_target')).toBeDisabled();
+ for(const [id,value]of [['campaign_id','NEW-GROUP'],['name','團體活動'],['start_at','2026-09-10T23:00'],['end_at','2026-10-20T22:59'],['points_per_proof','10']])await page.locator('#admin-field-'+id).fill(value);
+ await page.locator('#admin-field-daily_mode').selectOption('unlimited');await save(page,'保存活動');await expect(panel(page)).toContainText('團體活動');
+ expect(state.calls.find(c=>c.path==='/api/admin/campaigns'&&c.method==='POST').body.solo_target).toBeNull();
 });
 test("leaderboard preserves server ranks and rebuild is versioned, no result editing", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "排行榜管理"); await save(page, "重建成績");

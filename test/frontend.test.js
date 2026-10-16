@@ -32,8 +32,10 @@ test("frontend normalizes metadata without rewriting backend business rules", ()
   const normalized = normalizedMetadata(metadata());
   assert.equal("nickname" in normalized,false); assert.equal("player_id" in normalized,false); assert.equal(normalized.note, "備註");
   assert.equal(normalizedMetadata({ ...metadata(), note: " " }).note, null);
+  for (const field of ["vote_type", "category", "solo_target"])
+    assert.equal(field in normalizedMetadata({ ...metadata(), vote_type: "forged", category: "團體", solo_target: "forged" }), false);
 });
-for (const [label, extra] of [["empty campaign", {campaign_id:" "}], ["invalid campaign",{campaign_id:"../other"}], ["unknown type", { vote_type: "invalid" }],
+for (const [label, extra] of [["empty campaign", {campaign_id:" "}], ["invalid campaign",{campaign_id:"../other"}],
   ["invalid date", { vote_date: "2026-02-30" }], ["long note", { note: "x".repeat(501) }]]) {
   test(`frontend input rejects ${label}`, () => assert.throws(() => normalizedMetadata({ ...metadata(), ...extra }), PublicError));
 }

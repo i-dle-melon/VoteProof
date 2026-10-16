@@ -4,7 +4,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { Submission, BatchSubmission, directIntentPocEnabled } from "../public/js/submission.js";
 import { PublicError } from "../public/js/api.js";
 globalThis.location = { origin: "https://voteproof.example" };
-const metadata = { campaign_id: "LOCAL-TEST", vote_type: "Solo", vote_date: "2026-10-15" };
+const metadata = { campaign_id: "LOCAL-TEST", vote_date: "2026-10-15" };
 const file = () => new File([new Uint8Array([1, 2, 3])], "fixture.png", { type: "image/png" });
 function harness({
   direct = true,
@@ -84,6 +84,8 @@ test("direct frontend runs Prepare/PUT/Case without Complete", async () => {
     ["/api/uploads/prepare", "/api/cases/direct"],
   );
   assert.equal(h.calls[0].body.completion_mode, "direct");
+  const payload = JSON.parse(h.calls[1].body);
+  for (const key of ["vote_type", "category", "solo_target"]) assert.equal(key in payload, false);
   assert.equal(h.puts.length, 1);
 });
 test("legacy remains default and calls Complete", async () => {

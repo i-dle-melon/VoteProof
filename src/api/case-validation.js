@@ -39,7 +39,8 @@ export function validateCase(body, now = new Date()) {
   const campaignId = text(body.campaign_id, CASE_LIMITS.campaignId);
   // D1 Campaign existence/window/open-state checks run after idempotent replay.
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(campaignId)) invalid();
-  if (!["Solo", "團體"].includes(body.vote_type)) invalid();
+  // Legacy clients may assert a type, but Campaign remains authoritative.
+  if (body.vote_type !== undefined && !["Solo", "團體"].includes(body.vote_type)) invalid();
   if (typeof body.vote_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.vote_date)) invalid();
   const date = new Date(body.vote_date + "T00:00:00Z");
   const latest = new Date(now.valueOf() + CASE_LIMITS.futureDays * 86400000).toISOString().slice(0, 10);

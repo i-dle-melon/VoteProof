@@ -3,6 +3,8 @@ import { CaseError } from "../api/case-validation.js";
 
 export const CAMPAIGN_LIMITS = Object.freeze({ id: 100, name: 100, category: 50, note: 1000, points: 1000000, daily: 1000 });
 export const CAMPAIGN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
+export const campaignClassificationReady = row => row?.category === "團體" ? row.solo_target == null
+  : row?.category === "Solo" && typeof row.solo_target === "string" && CAMPAIGN_ID.test(row.solo_target);
 export const CAMPAIGN_STATUSES = Object.freeze(["draft", "active", "closed", "archived"]);
 export const invalidCampaign = () => new AdminError(400, "INVALID_CAMPAIGN_REQUEST", "Invalid campaign request");
 export const campaignConflict = () => new AdminError(409, "CAMPAIGN_CONFLICT", "Campaign version or policy has changed");
@@ -66,8 +68,8 @@ export async function requireCaseCampaign(db, input, now = new Date().toISOStrin
 export function requireCaseCampaignRow(row,input,now=new Date().toISOString()) {
   if (!row) throw new CaseError(400, "CAMPAIGN_NOT_FOUND", "Campaign does not exist");
   if (row.status !== "active" || row.start_at > now || row.end_at <= now) throw new CaseError(400, "CAMPAIGN_NOT_OPEN", "Campaign is not accepting submissions");
-  if (!["Solo","團體"].includes(row.category) || (row.category==="Solo" && !row.solo_target)) throw new CaseError(400,"CAMPAIGN_TYPE_INVALID","活動投稿類型尚未設定，暫時無法投稿。");
-  if (input.voteType !== row.category) throw new CaseError(400,"CAMPAIGN_TYPE_MISMATCH","投稿類型必須與活動設定一致。");
+  if (!campaignClassificationReady(row)) throw new CaseError(400,"CAMPAIGN_TYPE_INVALID","活動投稿類型尚未設定，暫時無法投稿。");
+  if (input.voteType !== undefined && input.voteType !== row.category) throw new CaseError(400,"CAMPAIGN_TYPE_MISMATCH","投稿類型必須與活動設定一致。");
   if (input.voteDate < row.vote_start_date || input.voteDate > row.vote_end_date) throw new CaseError(400, "VOTE_DATE_OUTSIDE_CAMPAIGN", "Vote date is outside the campaign window");
   return row;
 }

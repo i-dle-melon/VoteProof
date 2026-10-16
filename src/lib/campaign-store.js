@@ -1,13 +1,17 @@
 import { ELEVATED_AUTH_GUARD, actorBindings, adminDenied, AdminError } from "./admin-identity.js";
-import { campaignConflict, campaignMissing, campaignUpdatePolicy, CAMPAIGN_ID, CAMPAIGN_STATUSES } from "./campaign-policy.js";
+import { campaignConflict, campaignMissing, campaignUpdatePolicy, campaignClassificationReady, CAMPAIGN_ID, CAMPAIGN_STATUSES } from "./campaign-policy.js";
 import { encodeCursor } from "../api/admin-validation.js";
+import { requireActiveSoloTarget } from './solo-targets.js';
 
-export const PUBLIC_CAMPAIGN_COLUMNS = "campaign_id, name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date, points_per_proof, daily_limit, status";
+export const PUBLIC_CAMPAIGN_COLUMNS = "campaign_id, name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date, points_per_proof, daily_limit, status";
 export const campaignRow = (db, id) => db.prepare("SELECT * FROM campaigns WHERE campaign_id = ?").bind(id).first();
 export async function publicCampaigns(db) {
   const now = new Date().toISOString();
-  return (await db.prepare(`SELECT ${PUBLIC_CAMPAIGN_COLUMNS} FROM campaigns
+  const rows = (await db.prepare(`SELECT ${PUBLIC_CAMPAIGN_COLUMNS}, solo_target FROM campaigns
     WHERE status = 'active' AND start_at <= ? AND end_at > ? ORDER BY start_at, campaign_id`).bind(now, now).all()).results;
+  // Invalid legacy metadata remains available to Admin/history readers, but
+  // cannot be offered for new submissions. The browser does not need target IDs.
+  return rows.filter(campaignClassificationReady).map(({ solo_target: _target, ...row }) => row);
 }
 export const campaignSummarySql = alias => `json_object('campaign_id', ${alias}.campaign_id, 'name', ${alias}.name,
   'category', ${alias}.category, 'solo_target', ${alias}.solo_target, 'start_at', ${alias}.start_at, 'end_at', ${alias}.end_at,
@@ -17,19 +21,21 @@ const summary = row => Object.fromEntries(["campaign_id", "name", "category", "s
 const campaignResult = row => { const { last_mutation_id, ...safe } = row; return safe; };
 export async function saveCampaign(db, actor, input, existing = null) {
   if (existing) campaignUpdatePolicy(existing, input);
+  await requireActiveSoloTarget(db, input);
   const id = existing?.campaign_id ?? input.campaign_id, marker = crypto.randomUUID(), now = new Date().toISOString();
   const values = [input.name, input.category, input.solo_target, input.start_at, input.end_at, input.campaign_timezone,
     input.vote_start_date, input.vote_end_date, input.points_per_proof, input.daily_limit, input.status, input.note];
+  const targetGuard = "(?='團體' OR EXISTS(SELECT 1 FROM solo_targets WHERE target_id=? AND active=1))";
   const statement = existing
     ? db.prepare(`UPDATE campaigns SET name = ?, category = ?, solo_target = ?, start_at = ?, end_at = ?, campaign_timezone = ?,
         vote_start_date = ?, vote_end_date = ?, points_per_proof = ?, daily_limit = ?, status = ?, note = ?,
         updated_at = ?, updated_by = ?, version = version + 1, last_mutation_id = ?
-        WHERE campaign_id = ? AND version = ? AND status = ? AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, ...actorBindings(actor))
+        WHERE campaign_id = ? AND version = ? AND status = ? AND ${targetGuard} AND ${ELEVATED_AUTH_GUARD}`)
+      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, input.category,input.solo_target,...actorBindings(actor))
     : db.prepare(`INSERT INTO campaigns (name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
         points_per_proof, daily_limit, status, note, campaign_id, created_at, updated_at, created_by, updated_by, last_mutation_id)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, ...actorBindings(actor));
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${targetGuard} AND ${ELEVATED_AUTH_GUARD}`)
+      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, input.category,input.solo_target,...actorBindings(actor));
   let result;
   try {
     result = await db.batch([
@@ -48,7 +54,7 @@ export async function saveCampaign(db, actor, input, existing = null) {
     if (!existing && stored) throw new AdminError(409, "CAMPAIGN_EXISTS", "Campaign already exists");
     throw new AdminError(503, "CAMPAIGN_SERVICE_UNAVAILABLE", "Campaign service is unavailable");
   }
-  if (result[0].meta.changes !== 1) { if (existing) throw campaignConflict(); throw adminDenied(); }
+  if (result[0].meta.changes !== 1) { await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
   return campaignResult(result[2].results[0]);
 }
 export async function getAdminCampaign(db, id) {

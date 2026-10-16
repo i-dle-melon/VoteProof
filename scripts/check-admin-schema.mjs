@@ -51,9 +51,9 @@ assert.equal(results.length, schemaQueries.length);
 assert.ok(results.every(result => result.success));
 const rows = results.map(result => result.results);
 const applied = rows[0].map(row => row.name);
-assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql", "0010_google_drive_backups.sql", "0011_drive_backup_relay_lease_index.sql", "0012_proof_exact_hashes.sql", "0013_async_proof_duplicates.sql", "0014_fan_campaign_rules.sql", "0015_admin_review_workflow.sql", "0016_admin_image_exports.sql", "0017_immutable_final_uploads.sql", "0018_direct_intent_cases.sql"]);
+assert.deepEqual(applied, ["0001_cases.sql", "0002_case_idempotency.sql", "0003_member_identity.sql", "0004_admin_review.sql", "0005_campaign_point_ledger.sql", "0006_leaderboards.sql", "0007_member_tiers.sql", "0008_submission_gate.sql", "0009_campaign_unlimited_daily_limit.sql", "0010_google_drive_backups.sql", "0011_drive_backup_relay_lease_index.sql", "0012_proof_exact_hashes.sql", "0013_async_proof_duplicates.sql", "0014_fan_campaign_rules.sql", "0015_admin_review_workflow.sql", "0016_admin_image_exports.sql", "0017_immutable_final_uploads.sql", "0018_direct_intent_cases.sql", "0019_solo_target_registry.sql"]);
 const tables = rows[1].map(row => row.name);
-for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "member_credentials", "auth_transactions", "trusted_devices", "recovery_codes", "auth_atomic_guards", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers"]) assert.ok(tables.includes(name));
+for (const name of ["cases", "case_files", "completed_uploads", "completed_upload_files", "case_idempotency", "members", "auth_sessions", "member_credentials", "auth_transactions", "trusted_devices", "recovery_codes", "auth_atomic_guards", "auth_rate_limits", "admin_memberships", "admin_audit_logs", "campaigns", "point_transactions", "leaderboards", "leaderboard_runs", "leaderboard_results", "member_tiers", "solo_targets"]) assert.ok(tables.includes(name));
 const indexes = rows[2].map(row => row.name);
 for (const name of ["idx_cases_admin_queue", "idx_cases_last_review", "idx_cases_duplicate_target", "idx_admin_audit_cursor", "idx_admin_audit_actor", "idx_admin_audit_target", "idx_campaigns_public", "idx_campaigns_admin", "idx_points_member_date", "idx_points_daily", "idx_points_case", "idx_points_case_award", "idx_points_reversal"]) assert.ok(indexes.includes(name));
 const triggers = rows[3].map(row => row.name);
@@ -131,6 +131,9 @@ for (const [table,legacy] of [['cases','upload_session_id'],['case_files','uploa
   assert.ok(sql.includes('CHECK(('+legacy+'ISNOTNULL)!=(upload_intent_idISNOTNULL))'),table+' source exclusivity');
 }
 assert.equal(query('SELECT COUNT(*) n FROM proof_upload_intents')[0].n,0);
+assert.deepEqual(query('SELECT target_id,display_name,active,sort_order FROM solo_targets ORDER BY sort_order'),
+  ['miyeon','minnie','soyeon','yuqi','shuhua'].map((target_id,i)=>({target_id,display_name:target_id.toUpperCase(),active:1,sort_order:i+1})));
+assert.ok(triggers.includes('solo_targets_stable_identity'));
 assert.deepEqual(query('PRAGMA foreign_key_check'),[]);
 console.log(JSON.stringify({ auth_schema:'Supabase/Gmail/TOTP/trust/recovery', result: "PASS", migrations: applied, tables, indexes, triggers, foreign_key_check: "PASS", quick_check: "ok", fixture_rows: 0,
   fixed_tier_identities:8,unapproved_thresholds:7,tier_configuration_ready:false,production_used: false }, null, 2));

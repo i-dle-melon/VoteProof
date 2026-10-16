@@ -14,14 +14,13 @@ test('shared member profile has immutable fan ID and nonblocking duplicate nickn
  await expect(page.locator('#member-profile-name')).toHaveText('葉子改名');
  await expect(page.locator('#profile-nickname-warning')).toBeVisible();
 });
-test('anonymous form has no identity inputs and campaign selection locks type',async({page})=>{
+test('anonymous form selects campaign without classification or identity inputs',async({page})=>{
  await page.goto(scene({identity:'guest'},'submit'));await ready(page);
  await expect(page.locator('#nickname')).toBeHidden();await expect(page.locator('#player-id')).toBeHidden();
  await expect(page.locator('#submission-owner-hint')).toContainText('匿名投稿');
- await expect(page.locator('#vote-type')).toHaveText('請先選擇活動');
- await page.locator('#campaign').selectOption('PREVIEW-CAMPAIGN');await expect(page.locator('#vote-type')).toHaveText('Solo');
- await page.locator('#campaign').selectOption('PREVIEW-GROUP');await expect(page.locator('#vote-type')).toHaveText('團體');
- await expect(page.locator('select#vote-type')).toHaveCount(0);
+ await page.locator('#campaign').selectOption('PREVIEW-CAMPAIGN');
+ await page.locator('#campaign').selectOption('PREVIEW-GROUP');
+ await expect(page.locator('#vote-type, [name=vote_type], [name=category], [name=solo_target]')).toHaveCount(0);
  await page.goto(scene({identity:'guest',submission:'success'},'submit'));await ready(page);
  await expect(page.locator('#submission-success-message')).toContainText('不需要特別記錄');
  await expect(page.locator('#success-query-info')).not.toHaveAttribute('open','');

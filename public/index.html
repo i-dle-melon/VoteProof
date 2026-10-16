@@ -308,10 +308,6 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                     <p id="campaign-hint" class="tiny"></p>
                   </div>
                   <div class="field">
-                    <label for="vote-type">投票類型 <span class="required">必填</span></label
-                    ><output id="vote-type" aria-live="polite">請先選擇活動</output><p class="tiny">由活動設定決定</p>
-                  </div>
-                  <div class="field">
                     <label for="vote-date">投票日期 <span class="required">必填</span></label
                     ><input id="vote-date" name="vote_date" type="date" required />
                   </div>
@@ -566,6 +562,11 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <button class="pill" type="button" id="boards-refresh">重新載入</button>
             </div>
             <div id="board-categories" class="board-categories" aria-label="排行榜分類"></div>
+            <article class="card" id="solo-artists" hidden aria-labelledby="solo-artists-title">
+              <h2 id="solo-artists-title">所有藝人 Solo 排行</h2>
+              <p class="tiny" id="solo-artists-message" role="status"></p>
+              <div id="solo-artists-results" class="leaderboard-list"></div>
+            </article>
             <div class="tabs" id="leader-tabs" aria-label="公開排行榜"></div>
             <div class="field board-selector sr-only">
               <label for="board-select">選擇排行榜</label

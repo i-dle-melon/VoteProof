@@ -78,7 +78,7 @@ function syncOwnership() {
     : "匿名投稿：不需粉絲 ID 或暱稱，不占用會員身份，也不計入會員點數。";
 }
 
-const campaignOpen = c => ["Solo","團體"].includes(c?.category) && (c.category!=="Solo" || /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(c.solo_target??"")) && c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
+const campaignOpen = c => ["Solo","團體"].includes(c?.category) && c?.status === "active" && Date.parse(c.start_at) <= Date.now() && Date.parse(c.end_at) > Date.now();
 const submissionReady = () => submissionsEnabled && campaigns.some(campaignOpen);
 // Local file selection can finish during a foreground gate recheck. It grants
 // no upload permission; queued selections wait for the authoritative response.
@@ -143,7 +143,6 @@ function loadSubmissionStatus() {
 }
 function campaignHint() {
   const selected = campaigns.find((c) => c.campaign_id === $("campaign").value);
-  $("vote-type").textContent=selected && ["Solo","團體"].includes(selected.category)?selected.category:"請先選擇活動";
   if (!selected) { $("campaign-hint").textContent = "請選擇開放中的活動。"; return; }
   $("campaign-hint").textContent = `投票期間 ${voteDateLabel(selected.vote_start_date)} ～ ${voteDateLabel(selected.vote_end_date)} · ${scoringLabel(selected)}`;
   $("vote-date").min = selected.vote_start_date;
@@ -174,7 +173,7 @@ async function loadCampaigns({ refreshGate = true } = {}) {
     for (const c of campaigns) {
       $("campaign").append(new Option(c.name, c.campaign_id));
       const card = node("article", undefined, "card campaign-card");
-      card.append(node("span", c.category, "campaign-category"), node("h3", c.name), node("span", "活動進行中", "status"),
+      card.append(node("h3", c.name), node("span", "活動進行中", "status"),
         node("p", `活動期間 ${campaignDate(c.start_at)} ～ ${campaignDate(c.end_at)}（台灣時間）`),
         node("p", `投票期間 ${voteDateLabel(c.vote_start_date)} ～ ${voteDateLabel(c.vote_end_date)}`), node("p", scoringLabel(c)));
       const button = node("button", "投稿暫停", "btn btn-soft"); button.type = "button";
@@ -347,9 +346,7 @@ $("submission-form").addEventListener("submit", async (event) => {
     try {
       const sender = member.session.member ? member.session.caseSender() : null;
       submissionIdentityCheck = sender ? sender.verify : async () => {};
-      const chosen=campaigns.find(c=>c.campaign_id===$("campaign").value);
-      if(!["Solo","團體"].includes(chosen?.category) || (chosen.category==="Solo" && !chosen.solo_target))throw new PublicError("CAMPAIGN_TYPE_INVALID");
-      submission.start({...Object.fromEntries(new FormData($("submission-form"))),vote_type:chosen.category}, images.map((i) => i.file),
+      submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
         { caseApi: sender ? async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); } : undefined });
     }
     catch (e) { $("submission-error").textContent = e.code?.startsWith("AUTH_") ? authMessage(e) : errorMessage(e); return; }
@@ -473,6 +470,32 @@ function renderBoardPosition() {
   }
 }
 let boardCategory = "history";
+let soloArtistsLoaded=false,soloArtistsLoading=false;
+async function loadSoloArtists() {
+  if(soloArtistsLoaded || soloArtistsLoading)return;soloArtistsLoading=true;
+  $('solo-artists-message').textContent='正在載入藝人排行…';
+  try {
+    const data=await api('/api/leaderboards/solo-targets');if(!Array.isArray(data.targets))throw new Error();
+    $('solo-artists-results').replaceChildren();
+    for(const target of data.targets){
+      const row=node('div',undefined,'solo-artist-row'),label=node('span',target.rank+'. '+target.display_name),score=node('strong',Number(target.points).toLocaleString('zh-TW')+' 點');
+      row.dataset.targetId=target.target_id;
+      const detail=node('button','查看粉絲排行','btn btn-soft');detail.type='button';
+      detail.setAttribute('aria-label','查看 '+target.display_name+' 的粉絲排行');
+      detail.addEventListener('click',()=>void selectSoloArtist(target));row.append(label,score,detail);$('solo-artists-results').append(row);
+    }
+    $('solo-artists-message').textContent=data.targets.length?'尚無積分的藝人也會顯示；點數依正式歷史記錄累積。':'目前尚無藝人資料。';soloArtistsLoaded=true;
+  } catch { $('solo-artists-message').textContent='藝人排行暫時無法載入，請重新整理排行榜。'; }
+  finally {soloArtistsLoading=false;}
+}
+async function selectSoloArtist(target) {
+  const sequence=++boardSequence;
+  try {
+    const data=await api('/api/leaderboards?id=system-solo&solo_target='+encodeURIComponent(target.target_id));
+    if(sequence!==boardSequence || boardCategory!=='solo')return;
+    const board=boardsFrom(data)[0];renderBoard(board?{...board,name:target.display_name+' Solo排行'}:null);
+  } catch {if(sequence===boardSequence && boardCategory==='solo')$('boards-message').textContent='此藝人的粉絲排行暫時無法載入。';}
+}
 const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo排行"]];
 function categoryOf(board) {
   if(board.type === "custom") return "custom:" + board.leaderboard_id;
@@ -494,6 +517,7 @@ function renderBoardTabs() {
     const tab=node("button",label,"tab");tab.type="button";tab.dataset.category=key;
     tab.classList.toggle("active",key===boardCategory);tab.setAttribute("aria-pressed",String(key===boardCategory));tab.disabled=boardLoading;
     tab.addEventListener("click",()=>{
+      ++boardSequence;
       boardCategory=key;const board=publicBoards.find(b=>boardMatches(b,key));
       $("board-select").value=board?.leaderboard_id??"";renderBoardTabs();renderBoard(board);
       if(!board)$("boards-message").textContent="這個分類目前沒有公開排行榜。管理員公布後會顯示在這裡。";
@@ -522,6 +546,7 @@ function boardsFrom(data){
   return [...published.filter(board=>board.type!=="custom"),...data.custom_boards.map(board=>published.find(b=>b.leaderboard_id===board.leaderboard_id)??({...board,generated_at:null,rankings:[]}))];
 }
 function renderBoard(board) {
+  $('solo-artists').hidden=boardCategory!=='solo';if(boardCategory==='solo')void loadSoloArtists();
   currentBoard = board ?? null;
   $("board-results").replaceChildren(); $("board-table").hidden = true;
   $("board-name").textContent = board?.name ?? "";
@@ -549,6 +574,7 @@ function renderBoard(board) {
 }
 async function loadBoards() {
   if (boardLoading) return;
+  soloArtistsLoaded=false;
   boardLoading = true; const sequence = ++boardSequence;
   $("board-select").disabled = true; $("boards-refresh").disabled = true;
   publicBoards = []; renderBoardTabs(); renderBoard(null);

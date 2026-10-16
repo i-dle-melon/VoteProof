@@ -5,6 +5,11 @@ import { adminIdentity, adminCsrf, ELEVATED_ROLES } from "../lib/admin-identity.
 import { readReviewJson } from "./admin-validation.js";
 import { campaignInput, campaignMissing, CAMPAIGN_ID } from "../lib/campaign-policy.js";
 import { getAdminCampaign, saveCampaign, listCampaigns } from "../lib/campaign-store.js";
+import { listSoloTargets } from '../lib/solo-targets.js';
+
+export const readAdminSoloTargets = adminHandler(async (env,_url,request)=>{
+  await adminIdentity(request,env);return jsonSuccess({targets:await listSoloTargets(authDatabase(env))});
+});
 
 const pathId = url => { const id = url.pathname.split("/")[4]; if (typeof id !== "string" || id.length > 100 || !CAMPAIGN_ID.test(id)) throw campaignMissing(); return id; };
 export const listAdminCampaigns = adminHandler(async (env, url, request) => {
@@ -23,6 +28,7 @@ export const updateAdminCampaign = adminHandler(async (env, url, request) => {
   return jsonSuccess(await saveCampaign(db, actor, campaignInput(await readReviewJson(request), true), existing));
 });
 export function campaignRoute(path, method) {
+  if (path === '/api/admin/solo-targets') return {method:'GET',handler:readAdminSoloTargets};
   if (path === "/api/admin/campaigns") return method === "POST" ? { method: "POST", handler: createAdminCampaign }
     : { method: "GET", handler: listAdminCampaigns, allow: "GET, POST" };
   if (/^\/api\/admin\/campaigns\/[^/]+\/update$/.test(path)) return { method: "POST", handler: updateAdminCampaign };

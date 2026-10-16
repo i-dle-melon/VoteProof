@@ -48,6 +48,9 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
       input.guestCapabilityHash=input.capability?await uploadCapabilityHash(input.capability):null;
     }
     const preflight = await (direct ? directCasePreflight : casePreflight)(db,input);
+    // Derive only after hashing/replay: legacy request hashes and lost-ACK
+    // retries remain compatible, even if the Campaign later closes.
+    input.voteType = preflight.campaign.category;
     input.campaignVersion = preflight.campaign.version;
     const completed = preflight.completed;
     id = crypto.randomUUID();

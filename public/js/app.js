@@ -7,9 +7,15 @@ import { adminUI } from "./admin.js";
 import { memberUI } from "./member.js";
 import { authMessage } from "./member-api.js";
 import { setupPreview } from "./preview.js";
+import { bestPublicRank, boardCategory as categoryOf } from "./leaderboard-ui.js";
+import { setDefaultVoteDate } from "./vote-date.js";
+import {campaignGuidance} from './campaign-guidance.js';
+import {setupAnnouncements} from './announcements.js';
 
 setupPreview();
 setupUI();
+setupAnnouncements();
+const loadCampaignGuidance=campaignGuidance();
 
 const $ = (id) => document.getElementById(id);
 const submitLabel = $("submit-button").textContent.trim();
@@ -34,6 +40,9 @@ let selectionWasReady = false, selectionQueue = Promise.resolve(), selectionPend
 let campaignAvailability = "正在載入活動…";
 let submissionIdentityCheck = async () => {};
 let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
+let voteDateEdited = false;
+setDefaultVoteDate($("vote-date"));
+$("vote-date").addEventListener("input", () => { voteDateEdited = true; });
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
 const submission = new BatchSubmission({ directIntent:()=>submissionFlow==='direct'||directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
 changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
@@ -120,6 +129,7 @@ function syncForm() {
   if (!ready && !gateChecking) { challenge.clear(); $("challenge-status").textContent = "投稿開放後即可完成人機驗證。"; }
   $("submission-gate-message").hidden = submissionsEnabled && !submissionsMessage;
   $("submission-gate-message").textContent = submissionsMessage;
+  for (const id of ["submission-gate-message", "submit-availability"]) $(id).classList.toggle("submission-paused", !submissionsEnabled);
   $("submit-availability").textContent = !submissionsEnabled ? submissionsMessage :
     [submissionsMessage, campaignAvailability].filter(Boolean).join(" ");
 }
@@ -142,17 +152,11 @@ function loadSubmissionStatus() {
   return gateRequest;
 }
 function campaignHint() {
+  void loadCampaignGuidance($("campaign").value);
   const selected = campaigns.find((c) => c.campaign_id === $("campaign").value);
   if (!selected) { $("campaign-hint").textContent = "請選擇開放中的活動。"; return; }
   $("campaign-hint").textContent = `投票期間 ${voteDateLabel(selected.vote_start_date)} ～ ${voteDateLabel(selected.vote_end_date)} · ${scoringLabel(selected)}`;
-  $("vote-date").min = selected.vote_start_date;
-  $("vote-date").max = [selected.vote_end_date, new Date(Date.now() + 86400000).toISOString().slice(0, 10)].sort()[0];
-  if (!$("vote-date").value) {
-    try {
-      const parts = new Intl.DateTimeFormat("en-US", { timeZone: selected.campaign_timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-      $("vote-date").value = ["year", "month", "day"].map((type) => parts.find((p) => p.type === type).value).join("-");
-    } catch { $("vote-date").value = new Date().toISOString().slice(0, 10); }
-  }
+  setDefaultVoteDate($("vote-date"), { min: selected.vote_start_date, max: selected.vote_end_date }, voteDateEdited);
 }
 async function loadCampaigns({ refreshGate = true } = {}) {
   if (campaignLoading) return campaignRequest;
@@ -366,6 +370,7 @@ $("submission-form").addEventListener("submit", async (event) => {
 });
 function resetSubmission() {
   submission.abandon(); success = null; clearImages(); $("submission-form").reset();
+  voteDateEdited=false;setDefaultVoteDate($("vote-date"));
   submissionIdentityCheck = async () => {}; $("batch-copy-status").textContent = "";
   $("success-title").textContent = "投稿成功"; $("submission-success").querySelector(".credentials").hidden = false;
   for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = false;
@@ -431,9 +436,9 @@ function renderHomeMember(data,identity,error=false) {
 }
 function renderHomeRank(){
   if(!$("home-member-rank"))return;
-  const identity=member.session.member,own=publicBoards.flatMap(b=>b.rankings??[]).find(r=>r.member_id===identity?.member_id);
-  $("home-member-rank").textContent=own?'#'+own.rank:'尚未上榜';
-  if($("member-public-rank"))$("member-public-rank").textContent=own?'#'+own.rank:'尚未上榜';
+  const rank=bestPublicRank(publicBoards,member.session.member?.member_id);
+  $("home-member-rank").textContent=rank?'#'+rank:'尚未上榜';
+  if($("member-public-rank"))$("member-public-rank").textContent=rank?'#'+rank:'尚未上榜';
 }
 function renderHomeBoard(board, message) {
   $("home-board-results").replaceChildren(); $("home-board-table").hidden = true;
@@ -471,19 +476,8 @@ function renderBoardPosition() {
 }
 let boardCategory = "history";
 const boardCategories = [["history","歷史累計"],["comeback","本次回歸"],["group","團體排行"],["solo","Solo 總排行"]];
-function categoryOf(board) {
-  if(board.type === "custom") return "custom:" + board.leaderboard_id;
-  if(board.type === "campaign")return "comeback";
-  if(board.vote_type === "團體") return "group";
-  if(board.vote_type === "Solo") return "solo";
-  return board.type === "campaign" ? "comeback" : "history";
-}
 function boardMatches(board, category) {
-  if(board.type === "custom") return category === "custom:" + board.leaderboard_id;
-  if(category === "comeback") return board.type === "campaign";
-  if(category === "group") return board.type!=="campaign" && board.vote_type === "團體";
-  if(category === "solo") return board.type!=="campaign" && board.vote_type === "Solo";
-  return category === "history" && !board.vote_type && board.type !== "campaign";
+  return categoryOf(board) === category;
 }
 function renderBoardTabs() {
   $("board-categories").replaceChildren();
@@ -497,9 +491,9 @@ function renderBoardTabs() {
       if(!board)$("boards-message").textContent="這個分類目前沒有公開排行榜。管理員公布後會顯示在這裡。";
     });$("board-categories").append(tab);
   }
-  for(const board of publicBoards.filter(b=>b.type==="custom")){
+  for(const board of publicBoards.filter(b=>b.type==="custom" || categoryOf(b).startsWith("named:"))){
     const tab=node("button",board.name,"tab");tab.type="button";tab.dataset.customBoard=board.leaderboard_id;
-    const active=boardCategory==="custom:"+board.leaderboard_id;tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));tab.disabled=boardLoading;
+    const active=boardCategory===categoryOf(board);tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));tab.disabled=boardLoading;
     tab.addEventListener("click",()=>{$("board-select").value=board.leaderboard_id;void selectBoard();});$("board-categories").append(tab);
   }
   $("leader-tabs").replaceChildren();

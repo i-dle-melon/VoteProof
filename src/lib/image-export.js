@@ -1,4 +1,4 @@
-import { AdminError, ELEVATED_AUTH_GUARD, actorBindings } from "./admin-identity.js";
+import { AdminError, REVIEW_AUTH_GUARD, actorBindings } from "./admin-identity.js";
 import { EXPORT_LIMITS } from "../../public/js/export-format.js";
 const invalid = () => {
   throw new AdminError(400, "INVALID_EXPORT_QUERY", "Invalid export filters");
@@ -129,7 +129,7 @@ export async function snapshotExport(db, actor, id, scope) {
     db
       .prepare(
         `INSERT INTO export_jobs(id,owner_member_id,created_at,expires_at,filters_json,from_utc,to_utc,campaign_name)
-      SELECT ?,?,?,?,?,?,?,? WHERE ${ELEVATED_AUTH_GUARD}${exactCampaign}`,
+      SELECT ?,?,?,?,?,?,?,? WHERE ${REVIEW_AUTH_GUARD}${exactCampaign}`,
       )
       .bind(
         id,

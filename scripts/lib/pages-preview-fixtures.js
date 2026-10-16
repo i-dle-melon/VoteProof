@@ -2,6 +2,9 @@
 import { PREVIEW } from "./preview.js";
 import { previewState as state } from "./pages-preview-state.js";
 import { exportFixture } from './preview-exports.js';
+import {contentFixture,savePreviewContent} from './preview-content.js';
+const isStaff=['admin','super_admin','reviewer'].includes(state.identity),isManager=['admin','super_admin'].includes(state.identity);
+const staffMembers=[{nickname:'展示主管理員',fan_id:'preview_owner',role:'super_admin',status:'active'}];
 export const identity = {
   member_id: "PREVIEW-MEMBER-001",
   nickname: "葉子",
@@ -77,6 +80,7 @@ export const boards = [
   rankings,
   top_n: 100,
   is_public: true,
+  is_current_comeback: leaderboard_id === 'comeback',
   status: "active",
   system_fixed:type==="all_time",rule:type==="all_time"?"系統固定榜：跨所有活動正式歷史積分累積，Solo 不再細分對象。":undefined,
   version: 1,
@@ -125,20 +129,40 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply("UI_PREVIEW_ONLY", 403);
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
+  const content=await contentFixture(p,{method,body},state,previewPicture,reply);if(content)return content;
+  if(state.identity==='reviewer'&&p.startsWith('/api/admin/')&&!['/api/admin/me','/api/admin/campaigns','/api/admin/solo-targets'].includes(p)&&!p.startsWith('/api/admin/cases')&&!p.startsWith('/api/admin/image-exports'))return reply('ADMIN_FORBIDDEN',403);
   if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
+  if(p==='/api/admin/staff'){
+    if(state.identity!=='super_admin')return reply('ADMIN_FORBIDDEN',403);
+    if(method==='GET')return reply({memberships:staffMembers});
+    const input=typeof body==='string'?JSON.parse(body):body;
+    if(!input||!['admin','reviewer'].includes(input.role)||typeof input.email!=='string'||!input.email.includes('@'))return reply('INVALID_STAFF_REQUEST',400);
+    const row={nickname:'展示新成員・假資料',fan_id:'preview_staff_'+(staffMembers.length+1),role:input.role,status:'active'};staffMembers.push(row);return reply({membership:row,outcome:'granted'},201);
+  }
   if(method!=="GET") {
-    if(method==='POST' && state.identity==='admin' && /^\/api\/admin\/campaigns(?:\/[^/]+\/update)?$/.test(p)) {
+    if(method==='POST' && isManager && /^\/api\/admin\/leaderboards(?:\/[^/]+\/update)?$/.test(p)) {
+      if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
+      const input=typeof body==='string'?JSON.parse(body):body,existing=boards.find(b=>p.endsWith('/'+b.leaderboard_id+'/update'));
+      if(!input||!['campaign','custom'].includes(input.type)||input.is_current_comeback&&(input.type!=='campaign'||input.status==='archived'))return reply('INVALID_LEADERBOARD_REQUEST',400);
+      if(input.campaign_id&&!previewCampaigns.some(c=>c.campaign_id===input.campaign_id))return reply('INVALID_CAMPAIGN',400);
+      if(input.type==='campaign'&&!input.campaign_id)return reply('INVALID_LEADERBOARD_REQUEST',400);
+      if(existing&&(existing.system_fixed||existing.status==='archived'||input.expected_version!==existing.version))return reply('LEADERBOARD_CONFLICT',409);
+      if(input.is_current_comeback)for(const b of boards)if(b!==existing&&b.is_current_comeback){b.is_current_comeback=false;b.version++;}
+      if(existing){const invalidate=['name','type','campaign_id','start_date','end_date','vote_type','top_n','is_public','status'].some(k=>existing[k]!==input[k]);Object.assign(existing,input,{version:existing.version+1,...(invalidate?{rankings:[],generated_at:null}:{})});return reply({...existing});}
+      const row={...input,leaderboard_id:input.leaderboard_id??'PREVIEW-'+crypto.randomUUID(),version:0,rankings:[],generated_at:null};boards.push(row);return reply({...row},201);
+    }
+    if(method==='POST' && isManager && /^\/api\/admin\/campaigns(?:\/[^/]+\/update)?$/.test(p)) {
       if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
       const input=typeof body==='string'?JSON.parse(body):body;
       if(!input || !['Solo','團體'].includes(input.category) || (input.category==='團體'&&input.solo_target!==null))return reply('INVALID_CAMPAIGN_REQUEST',400);
       if(input.category==='Solo'&&!soloTargets.some(t=>t.target_id===input.solo_target&&t.active))return reply('SOLO_TARGET_UNAVAILABLE',400);
       const existing=previewCampaigns.find(c=>p.endsWith('/'+c.campaign_id+'/update'));
-      if(existing){if(input.expected_version!==existing.version || input.solo_target!==existing.solo_target || input.category!==existing.category)return reply('CAMPAIGN_CONFLICT',409);Object.assign(existing,input,{version:existing.version+1});return reply({...existing});}
+      if(existing){if(input.expected_version!==existing.version || input.solo_target!==existing.solo_target || input.category!==existing.category)return reply('CAMPAIGN_CONFLICT',409);Object.assign(existing,input,{version:existing.version+1});savePreviewContent(existing.campaign_id,input);return reply({...existing});}
       if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(input.campaign_id??''))return reply('INVALID_CAMPAIGN_REQUEST',400);
       if(previewCampaigns.some(c=>c.campaign_id===input.campaign_id))return reply('CAMPAIGN_EXISTS',409);
-      const row={...input,version:0};previewCampaigns.push(row);return reply({...row},201);
+      const row={...input,version:0};savePreviewContent(row.campaign_id,input);previewCampaigns.push(row);return reply({...row},201);
     }
-    if(method==="POST" && p==="/api/admin/cases/batch-approve" && state.identity==="admin"){
+    if(method==="POST" && p==="/api/admin/cases/batch-approve" && isStaff){
       const input=typeof body==="string"?JSON.parse(body):body;
       if(!Array.isArray(input?.cases)||!input.cases.length||input.cases.length>4||new Set(input.cases.map(c=>c.case_id)).size!==input.cases.length)return reply("INVALID_REVIEW_BATCH",400);
       const results=input.cases.map(item=>{
@@ -159,10 +183,11 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       if(typeof input?.nickname!=="string" || !input.nickname.trim())return reply("INVALID_AUTH_REQUEST",400);
       identity.nickname=input.nickname.trim();return reply({member:{...identity},nickname_warning:{duplicate:state.nickname==="duplicate"}});
     }
-    if(method==="POST" && /^\/api\/admin\/cases\/VP-PREVIEW-\d+\/review$/.test(p) && state.identity==="admin") {
+    if(method==="POST" && /^\/api\/admin\/cases\/VP-PREVIEW-\d+\/review$/.test(p) && isStaff) {
       if(state.review==="error" || state.data==="error")return reply("SERVICE_UNAVAILABLE",503);
       const input=typeof body==="string"?JSON.parse(body):body,row=adminCases.find(c=>p.includes('/'+c.case_id+'/'));
       if(!row || !["approve","reject","mark_duplicate","complete","revoke","flag_detailed"].includes(input?.action))return reply("UI_PREVIEW_ONLY",403);
+      if(!isManager&&['complete','revoke'].includes(input.action))return reply('ADMIN_FORBIDDEN',403);
       if(input.expected_version!==row.version)return reply("CASE_VERSION_CONFLICT",409);
       if(["reject","mark_duplicate","revoke"].includes(input.action) && !input.reason?.trim())return reply("INVALID_ADMIN_REQUEST",400);
       if(input.action==="flag_detailed"){
@@ -179,11 +204,11 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       ? reply("AUTH_REQUIRED", 401)
       : reply({
           member: identity,
-          elevated_until: state.identity === "admin" ? 4102444800 : undefined,
+          elevated_until: isStaff ? 4102444800 : undefined,
         });
   if (p === "/api/admin/me")
-    return state.identity === "admin"
-      ? reply({ member_id: identity.member_id, role: "admin" })
+    return isStaff
+      ? reply({ member_id: identity.member_id, role: state.identity })
       : reply("ADMIN_FORBIDDEN", 403);
   if (p === "/api/auth/registration-status") return reply({ registration_available: false });
   if (p === "/api/submissions/status")
@@ -201,7 +226,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     state.identity === "guest"
   )
     return reply("AUTH_REQUIRED", 401);
-  if (p.startsWith("/api/admin/") && state.identity !== "admin")
+  if (p.startsWith("/api/admin/") && !isStaff)
     return reply("ADMIN_FORBIDDEN", 403);
   if (state.data === "error") return reply("SERVICE_UNAVAILABLE", 503);
   if (p === "/api/campaigns") return reply(paged("campaigns", previewCampaigns.filter(c=>c.status==='active'&&Date.parse(c.start_at)<=Date.now()&&Date.parse(c.end_at)>Date.now()).map(c=>Object.fromEntries(['campaign_id','name','category','start_at','end_at','campaign_timezone','vote_start_date','vote_end_date','points_per_proof','daily_limit','status'].map(k=>[k,c[k]])))));
@@ -296,7 +321,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   }
   if (p === "/api/admin/campaigns") return reply(paged("campaigns", previewCampaigns));
   if (p === "/api/admin/leaderboards") return reply({...paged("leaderboards", boards.filter(b=>!b.system_fixed)),system_boards:boards.filter(b=>b.system_fixed)});
-  if (/^\/api\/admin\/leaderboards\/PREVIEW-[a-z-]+\/results$/.test(p))
+  if (/^\/api\/admin\/leaderboards\/[^/]+\/results$/.test(p))
     return reply({
       leaderboards:
         state.data === "empty"

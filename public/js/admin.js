@@ -36,7 +36,8 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022") };
+const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), backups: 'Google Drive 備份', announcements:'彈窗公告', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022"), staff:'管理員管理' };
+const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
   let reviewMode="album",selectedReviews=new Map(),albumUrls=new Map(),albumObservers=new Set();
@@ -119,7 +120,6 @@ export function adminUI(session) {
   }
   async function cases() {
     heading(copy("admin-copy-017"), copy("admin-copy-032"));
-    if (management(access.actor) && reviewMode==="all") await backupOverview();
     const modes=node("nav","","tabs review-modes");modes.setAttribute("aria-label","審核工作流程");
     for(const [key,label] of [["album","相簿快速初審"],["detailed","詳細審核"],["all","全部案件"]]){const b=button(label,()=>{if(busy)return;reviewMode=key;void load();},"tab");b.setAttribute("aria-pressed",String(reviewMode===key));modes.append(b);}$("admin-panel").append(modes);
     const filters = node("form", "", "admin-filter"), params = new URLSearchParams();
@@ -324,13 +324,14 @@ export function adminUI(session) {
   }
   async function campaignEditor(row) {
     if (busy) return; clearPanel(); heading(copy("admin-copy-018"), copy("admin-copy-066"));
-    const born=sequence;let targets;
+    const born=sequence;let targets,content={submission_instructions:'',example_asset_id:null};
     try { const data=await request('solo-targets'); if(born!==sequence || !visible)return;
       if(!Array.isArray(data.targets))throw new PublicError('SERVICE_UNAVAILABLE');targets=data.targets;
+      if(row){content=await request('campaigns/'+row.campaign_id+'/guidance');if(born!==sequence||!visible)return;}
     } catch(error) {if(born===sequence)$('admin-status').textContent=adminMessage(error);return;}
     const f = formCard(row ? copy("admin-copy-065") : copy("admin-copy-060")), locked = row && row.status !== "draft";
     f.dataset.campaignEditor='';
-    if (!row) field(f, "campaign_id", copy("admin-copy-067"), "text", "", { required: true, pattern: "[A-Za-z0-9][A-Za-z0-9_-]{0,99}", maxLength: 100 });
+    if (!row) field(f, "campaign_id", copy("admin-copy-067"), "text", "", { required: true, placeholder: "英文、數字、連字號或底線", pattern: "[A-Za-z0-9][A-Za-z0-9_-]{0,99}", maxLength: 100 });
     field(f, "name", copy("admin-copy-068"), "text", row?.name, { required: true, maxLength: 100 }); const category=field(f, "category", copy("admin-copy-069"), "select", row?.category??"Solo", { required: true, choices:[["Solo","Solo"],["團體","團體"]],disabled:Boolean(locked || row?.solo_target) });
     const choices=[['','請選擇 Solo 對象'],...targets.filter(t=>t.active).map(t=>[t.target_id,t.display_name])];
     if(row?.solo_target && !targets.some(t=>t.target_id===row.solo_target && t.active)) choices.push([row.solo_target,row.solo_target+'（歷史／已停用，僅供檢視）']);
@@ -340,25 +341,36 @@ export function adminUI(session) {
     field(f, "start_at", copy("admin-copy-070"), "datetime-local", taipeiInput(row?.start_at), { required: true, step: 1, disabled: Boolean(locked) });
     field(f, "end_at", copy("admin-copy-071"), "datetime-local", taipeiInput(row?.end_at), { required: true, step: 1, disabled: Boolean(locked) });
     field(f, "campaign_timezone", copy("admin-copy-072"), "text", row?.campaign_timezone ?? "Asia/Taipei", { required: true, maxLength: 100, disabled: Boolean(locked) });
-    field(f, "points_per_proof", copy("admin-copy-073"), "number", row?.points_per_proof ?? "", { required: true, min: 0, max: 1000000, step: 1 });
-    const mode = field(f, "daily_mode", copy("admin-copy-074"), "select", row?.daily_limit === null ? "unlimited" : row?.daily_limit === 0 ? "zero" : "limited", { choices: [["unlimited", copy("admin-copy-075")], ["zero", copy("admin-copy-076")], ["limited", copy("admin-copy-077")]] });
+    field(f, "points_per_proof", copy("admin-copy-073"), "number", row?.points_per_proof ?? 10, { required: true, min: 0, max: 1000000, step: 1 });
+    const mode = field(f, "daily_mode", copy("admin-copy-074"), "select", !row || row.daily_limit === null ? "unlimited" : row.daily_limit === 0 ? "zero" : "limited", { choices: [["unlimited", copy("admin-copy-075")], ["zero", copy("admin-copy-076")], ["limited", copy("admin-copy-077")]] });
     const cap = field(f, "daily_limit", copy("admin-copy-078"), "number", row?.daily_limit ?? "", { min: 1, max: 1000, step: 1 });
     const sync = () => { cap.disabled = mode.value !== "limited"; cap.required = !cap.disabled; }; mode.addEventListener("change", sync); sync();
     const statuses = row ? ({ draft: ["draft", "active", "archived"], active: ["active", "closed"], closed: ["closed", "archived"], archived: ["archived"] }[row.status]) : ["draft", "active"];
-    field(f, "status", copy("admin-copy-079"), "select", row?.status ?? "draft", { choices: statuses.map(key => [key, statusNames[key]]) }); field(f, "note", copy("admin-copy-080"), "textarea", row?.note, { maxLength: 1000 });
+    field(f, "status", copy("admin-copy-079"), "select", row?.status ?? "active", { choices: statuses.map(key => [key, statusNames[key]]) }); field(f, "note", copy("admin-copy-080"), "textarea", row?.note, { maxLength: 1000 });
+    field(f,'submission_instructions','投稿說明（公開顯示）','textarea',content.submission_instructions,{maxLength:5000});
+    const example=field(f,'example_image','投稿範例圖片','file','',{accept:'image/png,image/jpeg,image/webp'}),preview=node('img'),remove=button('移除範例圖片',()=>{assetId=null;example.value='';preview.hidden=true;preview.removeAttribute('src');});
+    preview.alt='投稿範例預覽';preview.className='campaign-example-preview';preview.hidden=true;f.append(preview,remove,node('p','圖片選填，支援 PNG／JPEG／WEBP，最多 5 MB。儲存後套用至此活動。','tiny'));
+    let assetId=content.example_asset_id,uploaded=null;
+    const showPreview=blob=>{const url=URL.createObjectURL(blob);urls.push(url);preview.src=url;preview.hidden=false;};
+    if(assetId){try{const blob=await access.asset(assetId,null,controller.signal);if(born!==sequence||!visible)return;showPreview(blob);}catch{f.append(node('p','既有範例圖片暫時無法預覽；原圖設定仍保留。','tiny'));}}
+    example.addEventListener('change',()=>{const file=example.files[0];if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>5242880){example.value='';$('admin-status').textContent='範例圖片僅支援 PNG／JPEG／WEBP，最多 5 MB。';return;}showPreview(file);uploaded=null;});
     if (row?.status === "archived") { for (const el of f.elements) el.disabled = true; f.append(node("p", copy("admin-copy-081"))); }
-    else { submitButton(f, copy("admin-copy-082")); bindForm(f, () => mutate(row ? "campaigns/" + row.campaign_id + "/update" : "campaigns", {
+    else { submitButton(f, copy("admin-copy-082")); bindForm(f, async () => {const file=example.files[0],campaignId=row?.campaign_id??value(f,'campaign_id');
+      if(file&&(uploaded?.file!==file||uploaded?.campaignId!==campaignId)){const data=await access.asset(campaignId,file,controller.signal);assetId=data.asset_id;uploaded={file,campaignId};}
+      return mutate(row ? "campaigns/" + row.campaign_id + "/update" : "campaigns", {
       ...(row ? { expected_version: row.version } : { campaign_id: value(f, "campaign_id") }), name: value(f, "name"), category: value(f, "category"),solo_target:value(f,"category")==="Solo"?(row?.solo_target??value(f,"solo_target")):null,
       start_at: locked ? row.start_at : utcFromTaipei(value(f, "start_at")), end_at: locked ? row.end_at : utcFromTaipei(value(f, "end_at")), campaign_timezone: row?.campaign_timezone && locked ? row.campaign_timezone : value(f, "campaign_timezone"),
       points_per_proof: integer(f, "points_per_proof", 0, 1000000), daily_limit: dailyLimit(mode.value, cap.value), status: value(f, "status"), note: value(f, "note") || null,
-    })); } f.append(button(copy("admin-copy-083"), () => void load()));
+      submission_instructions:value(f,'submission_instructions'),example_asset_id:assetId,
+    });}); } f.append(button(copy("admin-copy-083"), () => void load()));
   }
   async function boards() {
     heading(copy("admin-copy-019"), copy("admin-copy-084"));
     $("admin-panel").append(button(copy("admin-copy-085"), () => boardEditor(null), "btn btn-primary"));
     await paged("leaderboards", "leaderboards", row => {
       const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", row.is_public ? copy("admin-copy-086") : copy("admin-copy-087")));
-      if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status approved"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
+      if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
+      if(row.is_current_comeback)c.append(node("span","本次回歸","status neutral"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
       if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); })); return c;
     });
@@ -370,27 +382,38 @@ export function adminUI(session) {
       $("admin-panel").append(board?.rankings?.length ? rowsTable(board.rankings, [["rank", copy("admin-copy-092")], ["nickname", copy("admin-copy-093")], ["points", copy("admin-copy-094")], ["proof_count", copy("admin-copy-095")]]) : node("p", copy("admin-copy-096")), button(copy("admin-copy-097"), () => void load()));
     });
   }
-  function boardEditor(row) {
-    if (busy) return; clearPanel(); heading(copy("admin-copy-019")); const f = formCard(row ? copy("admin-copy-098") : copy("admin-copy-085"));
-    if (!row) field(f, "leaderboard_id", copy("admin-copy-099"), "text", "", { required: true, maxLength: 100, pattern: "[A-Za-z0-9][A-Za-z0-9_-]{0,99}" });
+  async function boardEditor(row) {
+    if (busy) return; clearPanel(); heading(copy("admin-copy-019"));
+    const born=sequence, campaigns=[];let cursor=null;
+    try {do {const data=await request('campaigns?limit=50'+(cursor?'&cursor='+encodeURIComponent(cursor):''));
+      if(born!==sequence || !visible)return;if(!Array.isArray(data.campaigns))throw new PublicError('SERVICE_UNAVAILABLE');
+      campaigns.push(...data.campaigns);cursor=data.next_cursor;
+    }while(cursor);}catch(error){if(born===sequence)$('admin-status').textContent=adminMessage(error);return;}
+    const f = formCard(row ? copy("admin-copy-098") : copy("admin-copy-085"));
+    f.dataset.boardEditor='';
+    if(row)field(f,"leaderboard_id",copy("admin-copy-099"),"text",row.leaderboard_id,{readOnly:true});
+    else f.append(node('p','排行榜代號由系統產生，建立後固定不變。','tiny'));
     field(f, "name", copy("admin-copy-100") + " / 按鈕顯示名稱", "text", row?.name, { required: true, maxLength: 100 });
     const type = field(f, "type", copy("admin-copy-101"), "select", row?.type ?? "custom", { choices: [ ["campaign", copy("admin-copy-103")], ["custom", copy("admin-copy-104")]] });
-    const campaign = field(f, "campaign_id", copy("admin-copy-105"), "text", row?.campaign_id, { maxLength: 100 });
+    const choices=[['','不指定活動'],...campaigns.filter(c=>c.status!=='archived'||c.campaign_id===row?.campaign_id).map(c=>[c.campaign_id,c.name+' · '+c.campaign_id+(c.status==='archived'?'（已封存）':c.status==='closed'?'（已結束）':'')])];
+    if(row?.campaign_id&&!choices.some(([id])=>id===row.campaign_id))choices.push([row.campaign_id,row.campaign_id+'（歷史參照）']);
+    const campaign = field(f, "campaign_id", copy("admin-copy-105"), "select", row?.campaign_id, { choices });
+    const comeback=field(f,'is_current_comeback','設為本次回歸','checkbox');comeback.checked=Boolean(row?.is_current_comeback);
     const start = field(f, "start_date", copy("admin-copy-106"), "date", row?.start_date), end = field(f, "end_date", copy("admin-copy-107"), "date", row?.end_date);
-    const sync = () => { campaign.disabled = type.value === "all_time"; campaign.required = type.value === "campaign"; start.disabled = end.disabled = type.value !== "custom"; start.required = end.required = !start.disabled; };
+    const sync = () => { campaign.disabled = type.value === "all_time"; campaign.required = type.value === "campaign"; start.disabled = end.disabled = type.value !== "custom"; start.required = end.required = !start.disabled; comeback.disabled=type.value!=='campaign'||f.elements.namedItem('status')?.value==='archived';if(comeback.disabled)comeback.checked=false; };
     type.addEventListener("change", sync); sync();
     field(f, "vote_type", copy("admin-copy-036"), "select", row?.vote_type ?? "", { choices: [["", copy("admin-copy-034")], ["Solo", "Solo"], ["團體", "團體"]] });
-    field(f, "top_n", copy("admin-copy-108"), "number", row?.top_n ?? "", { required: true, min: 1, max: 100, step: 1 });
-    const visibility=field(f, "is_public", copy("admin-copy-109"), "select", row?.is_public ? "true" : "false", { choices: [["false", copy("admin-copy-087")], ["true", copy("admin-copy-086")]] });
-    const lifecycle=field(f, "status", copy("admin-copy-110"), "select", row?.status ?? "draft", { choices: (row?.status === "archived" ? ["archived"] : row?.status === "active" ? ["active", "archived"] : ["draft", "active", ...(row ? ["archived"] : [])]).map(k => [k, statusNames[k]]) });
+    field(f, "top_n", copy("admin-copy-108"), "number", row?.top_n ?? 10, { required: true, min: 1, max: 100, step: 1 });
+    const visibility=field(f, "is_public", copy("admin-copy-109"), "select", !row || row.is_public ? "true" : "false", { choices: [["false", copy("admin-copy-087")], ["true", copy("admin-copy-086")]] });
+    const lifecycle=field(f, "status", copy("admin-copy-110"), "select", row?.status ?? "active", { choices: (row?.status === "archived" ? ["archived"] : row?.status === "active" ? ["active", "archived"] : ["draft", "active", ...(row ? ["archived"] : [])]).map(k => [k, statusNames[k]]) });
     const display=field(f,"display_button","開啟顯示該排行按鈕","checkbox");display.setAttribute("role","switch");display.classList.add("display-switch");
     const syncDisplay=()=>{display.checked=visibility.value==="true"&&lifecycle.value==="active";display.setAttribute("aria-checked",String(display.checked));};
     display.addEventListener("change",()=>{visibility.value=display.checked?"true":"false";if(display.checked)lifecycle.value="active";syncDisplay();});
-    visibility.addEventListener("change",syncDisplay);lifecycle.addEventListener("change",syncDisplay);syncDisplay();
+    visibility.addEventListener("change",syncDisplay);lifecycle.addEventListener("change",()=>{if(lifecycle.value==='archived')comeback.checked=false;comeback.disabled=type.value!=='campaign'||lifecycle.value==='archived';syncDisplay();});syncDisplay();
     f.append(node("p","自訂類型會使用上方名稱顯示第 5、6、7… 顆按鈕。開關啟用後保存設定即可顯示；成績仍需使用原有重建功能公布。","tiny"));
     if (row?.status === "archived") { for (const el of f.elements) el.disabled = true; f.append(node("p", copy("admin-copy-111"))); }
     else { submitButton(f, copy("admin-copy-112")); bindForm(f, () => mutate(row ? "leaderboards/" + row.leaderboard_id + "/update" : "leaderboards", {
-      ...(row ? { expected_version: row.version } : { leaderboard_id: value(f, "leaderboard_id") }), name: value(f, "name"), type: type.value,
+      ...(row ? { expected_version: row.version } : {}), name: value(f, "name"), type: type.value, is_current_comeback:comeback.checked && type.value==='campaign' && lifecycle.value!=='archived',
       campaign_id: type.value === "all_time" ? null : campaign.value.trim() || null, start_date: type.value === "custom" ? start.value : null, end_date: type.value === "custom" ? end.value : null,
       vote_type: value(f, "vote_type") || null, top_n: integer(f, "top_n", 1, 100), is_public: value(f, "is_public") === "true", status: value(f, "status"),
     })); } f.append(button(copy("admin-copy-113"), () => void load()));
@@ -427,7 +450,7 @@ export function adminUI(session) {
   async function audit() {
     heading(copy("admin-copy-022"), copy("admin-copy-130"));
     await paged("audit-logs", "logs", row => {
-      const labels = { approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
+      const labels = { bootstrap_membership:'授予管理權限',announcement_create:'建立公告',announcement_update:'更新公告',announcement_enable:'開放公告',announcement_disable:'關閉公告',submission_note_update:'更新投稿說明',example_image_upload:'上傳範例圖片',example_image_replace:'替換範例圖片',example_image_delete:'移除範例圖片', approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
       const c = node("article", "", "member-case"); c.append(node("h3", labels[row.action] ?? copy("admin-copy-140")), node("p", stamp(row.created_at)), detailFields(row, [[copy("admin-copy-141"), row.admin_member_id], [copy("admin-copy-142"), row.target_id], [copy("admin-copy-143"), row.reason]])); return c;
     });
   }
@@ -438,16 +461,43 @@ export function adminUI(session) {
       const card=node('article','','activity-card');card.append(node('span',label,'tiny'),node('strong',String(data.cases.filter(c=>c.status===state).length)));grid.append(card);
     }
     $('admin-panel').append(grid,button('前往案件審核',()=>{tab='cases';void load();},'btn btn-primary'));
-    if(management(access.actor)){const gate=await request('submissions');$('admin-panel').append(node('p',gate.submissions_enabled?'收件：開放投稿':'收件：目前暫停投稿','notice info'));await backupOverview();}
+    if(management(access.actor)){const gate=await request('submissions');$('admin-panel').append(node('p',gate.submissions_enabled?'收件：開放投稿':'收件：目前暫停投稿','notice info'));}
   }
-  const loaders = { overview, cases, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, submissions, audit };
+  async function staff(){
+    heading('管理員管理','對方需先以 Google 帳號登入並完成會員資料；取得權限後仍須完成 MFA 才能使用後台。');
+    const data=await request('staff');
+    $('admin-panel').append(rowsTable(data.memberships,[['nickname','暱稱'],['fan_id','粉絲 ID'],['role','角色'],['status','狀態']]));
+    const f=formCard('新增管理員／審核員');
+    f.dataset.staffEditor='';
+    field(f,'staff_email','對方的 Google 帳號','email','',{required:true,maxLength:254,autocomplete:'off'});
+    field(f,'staff_role','授予角色','select','reviewer',{choices:[['reviewer','審核員（工作總覽、案件審核、圖片批次匯出）'],['admin','管理員（管理功能，不含管理員管理）']]});
+    submitButton(f,'確認新增權限');bindForm(f,()=>mutate('staff',{email:value(f,'staff_email'),role:value(f,'staff_role')}));
+  }
+  async function announcements(){
+    heading('彈窗公告','公告支援純文字與換行；開放後依設定時間顯示。');const data=await request('announcements');
+    $('admin-panel').append(button('新增公告',()=>announcementEditor(null),'btn btn-primary'));
+    for(const row of data.announcements){const card=node('article','','card');card.append(node('h3',row.title),node('p',row.enabled?'開放':'關閉','status neutral'),node('p','版本 '+row.version+' · '+stamp(row.updated_at),'tiny'),button('編輯公告',()=>announcementEditor(row)));$('admin-panel').append(card);}
+  }
+  function announcementEditor(row){
+    if(busy)return;clearPanel();heading('彈窗公告');const f=formCard(row?'編輯公告':'新增公告');f.dataset.announcementEditor='';
+    const title=field(f,'announcement_title','公告標題','text',row?.title,{required:true,maxLength:100}),body=field(f,'announcement_body','公告內容','textarea',row?.body,{required:true,maxLength:5000});
+    field(f,'announcement_enabled','公告狀態','select',row?.enabled?'true':'false',{choices:[['false','關閉'],['true','開放']]});
+    field(f,'announcement_start','開始顯示時間（台灣時間，選填）','datetime-local',row?.starts_at?taipeiInput(row.starts_at):'');field(f,'announcement_end','結束顯示時間（台灣時間，選填）','datetime-local',row?.ends_at?taipeiInput(row.ends_at):'');
+    field(f,'announcement_dismissible','是否允許關閉','select',row?.dismissible===false?'false':'true',{choices:[['true','是'],['false','否']]});
+    const label=field(f,'announcement_button_label','按鈕文字（選填）','text',row?.button_label,{maxLength:60}),url=field(f,'announcement_button_url','按鈕連結（http／https，選填）','url',row?.button_url,{maxLength:2048});
+    const preview=node('section','','card announcement-editor-preview');preview.hidden=true;preview.setAttribute('aria-label','公告預覽');f.append(button('預覽公告',()=>{preview.replaceChildren(node('h3',title.value),node('p',body.value,'content-lines'));preview.hidden=false;}),preview);
+    const sync=()=>{label.required=Boolean(url.value);url.required=Boolean(label.value);};label.addEventListener('input',sync);url.addEventListener('input',sync);sync();
+    submitButton(f,'儲存公告');bindForm(f,()=>mutate('announcements'+(row?'/'+row.announcement_id+'/update':''),{...(row?{expected_version:row.version}:{}),title:title.value,body:body.value,enabled:value(f,'announcement_enabled')==='true',dismissible:value(f,'announcement_dismissible')==='true',starts_at:value(f,'announcement_start')?utcFromTaipei(value(f,'announcement_start')):null,ends_at:value(f,'announcement_end')?utcFromTaipei(value(f,'announcement_end')):null,button_label:label.value,button_url:url.value}));
+    f.append(button('返回公告列表',()=>void load()));
+  }
+  const loaders = { overview, cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, submissions, audit, staff };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;
     await run(async current => {
       const actor = await access.check(controller.signal); if (!current()) return;
-      if (!management(actor)&&!["cases","overview"].includes(tab)) tab = "cases";
+      if (!canUseTab(actor,tab)) tab = "cases";
       $("admin-tabs").replaceChildren();
-      for (const [key, label] of Object.entries(tabs)) if (["cases","overview"].includes(key) || management(actor)) {
+      for (const [key, label] of Object.entries(tabs)) if (canUseTab(actor,key)) {
         const b = button(label, () => { if (!busy) { tab = key; void load(); } }, "btn " + (tab === key ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(tab === key)); $("admin-tabs").append(b);
       }
       $("admin-panel").append(button(copy("admin-copy-144"), () => void load())); await loaders[tab]();

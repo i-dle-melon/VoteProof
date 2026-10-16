@@ -5,7 +5,7 @@ const tab = async (page, name) => {
   await page.locator('#admin-tabs').getByRole('button', {name, exact:true}).click();
   await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
 };
-const ready = async page => { await page.goto('/#admin'); await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false'); await tab(page,'工作總覽'); };
+const ready = async page => { await page.goto('/#admin'); await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false'); await tab(page,await page.locator('#admin-tabs').getByRole('button',{name:'Google Drive 備份',exact:true}).count()?'Google Drive 備份':'工作總覽'); };
 const openReview = async page => {
   await tab(page,'案件審核');
   await page.locator('.review-album .case-preview').first().click({position:{x:12,y:12}});
@@ -39,7 +39,7 @@ test('backfill first performs dry run, then separate confirmed enqueue; missing 
   expect(state.calls.filter(c=>c.path.endsWith('/backfill')).map(c=>c.body.dry_run)).toEqual([true,false]);
   await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
   await page.route('**/api/admin/backups',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'ADMIN_SERVICE_UNAVAILABLE',message:'private upstream'}})}));
-  await page.reload();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');await tab(page,'工作總覽');
+  await page.reload();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');await tab(page,'Google Drive 備份');
   await expect(page.locator('#admin-panel')).toContainText('案件審核仍可使用');await openReview(page);
 });
 test('backup admin layout stays bounded in dark/light at 320,390,430',async({page})=>{

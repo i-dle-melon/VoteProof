@@ -24,6 +24,8 @@ export function reviewActions(status, role) {
   return status === "approved" ? ["complete", "revoke"] : status === "completed" ? ["revoke"] : [];
 }
 export const adminMessage = error => {
+  if(error?.code==='STAFF_GOOGLE_MEMBER_REQUIRED')return '請對方先使用此 Google 帳號登入並完成會員資料，再新增管理權限。';
+  if(error?.code==='STAFF_CONFLICT')return '此帳號已有其他管理權限或資料已更新，請重新載入確認；不會修改主管理員。';
   if(error?.code==='SOLO_TARGET_UNAVAILABLE')return 'Solo 對象不存在或已停用，請重新載入活動設定。歷史對象未被變更。';
   if (error?.code === 'DRIVE_BACKUP_DISABLED') return 'Google Drive 備份尚未啟用。';
   if (error?.code === 'DRIVE_BACKUP_NOT_CONFIGURED') return 'Google Drive 備份尚未設定完成。';
@@ -80,5 +82,10 @@ export class AdminAccess {
       if (["ADMIN_FORBIDDEN", "ADMIN_STEP_UP_REQUIRED", "AUTH_REQUIRED", "MEMBER_SUSPENDED"].includes(error.code)) this.clear();
       throw error;
     }
+  }
+  async asset(campaignId,file,signal){
+    const actor=await this.check(signal),epoch=this.epoch;
+    const data=file?await this.session.adminAssetUpload(campaignId,file,signal):await this.session.adminAsset('/api/admin/campaign-assets/'+campaignId,signal);
+    if(epoch!==this.epoch||this.session.member?.member_id!==actor.member_id)throw new PublicError('AUTH_IDENTITY_CHANGED');return data;
   }
 }

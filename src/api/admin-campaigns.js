@@ -20,12 +20,12 @@ export const readAdminCampaign = adminHandler(async (env, url, request) => {
 });
 export const createAdminCampaign = adminHandler(async (env, _url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES); await adminCsrf(request, env, actor);
-  return jsonSuccess(await saveCampaign(authDatabase(env), actor, campaignInput(await readReviewJson(request))), "no-store", 201);
+  return jsonSuccess(await saveCampaign(authDatabase(env), actor, campaignInput(await readReviewJson(request)),null,env.PROOFS_BUCKET), "no-store", 201);
 });
 export const updateAdminCampaign = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES); await adminCsrf(request, env, actor);
   const db = authDatabase(env), existing = await getAdminCampaign(db, pathId(url));
-  return jsonSuccess(await saveCampaign(db, actor, campaignInput(await readReviewJson(request), true), existing));
+  return jsonSuccess(await saveCampaign(db, actor, campaignInput(await readReviewJson(request), true), existing,env.PROOFS_BUCKET));
 });
 export function campaignRoute(path, method) {
   if (path === '/api/admin/solo-targets') return {method:'GET',handler:readAdminSoloTargets};

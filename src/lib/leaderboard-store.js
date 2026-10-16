@@ -6,9 +6,9 @@ import { CAMPAIGN_ID } from './campaign-policy.js';
 import { resolveMemberTier } from './member-tier.js';
 import { encodeCursor } from '../api/admin-validation.js';
 
-const definitionFields = ['name','type','campaign_id','start_date','end_date','vote_type','top_n','is_public','status'];
+const definitionFields = ['name','type','campaign_id','start_date','end_date','vote_type','top_n','is_public','status','is_current_comeback'];
 const scopeFields = ['type','campaign_id','start_date','end_date','vote_type'];
-const safeBoard = row => { const { last_mutation_id, ...safe } = row; return { ...safe, is_public: Boolean(safe.is_public) }; };
+const safeBoard = row => { const { last_mutation_id, ...safe } = row; return { ...safe, is_public: Boolean(safe.is_public), is_current_comeback: Boolean(safe.is_current_comeback) }; };
 export const boardRow = (db, id) => db.prepare('SELECT * FROM leaderboards WHERE leaderboard_id = ?').bind(id).first();
 export async function getBoard(db, id) {
   const fixed=systemBoards.find(b=>b.leaderboard_id===id); if(fixed)return fixed;
@@ -37,10 +37,12 @@ export async function listBoards(db, url) {
 }
 export async function saveBoard(db, actor, input, existing = null) {
   rejectSystemMutation(existing);rejectSystemMutation(input);
+  input = {...input, is_current_comeback: input.status === 'archived' || input.type !== 'campaign' ? false : (input.is_current_comeback ?? Boolean(existing?.is_current_comeback))};
   if (existing && (existing.status === 'archived' || existing.version !== input.expected_version ||
       !({ draft:['draft','active','archived'], active:['active','archived'] }[existing.status]?.includes(input.status)))) throw boardConflict();
   const archiving = Boolean(existing && input.status === 'archived');
-  if (archiving && definitionFields.filter(k => k !== 'status').some(k => existing[k] !== input[k])) throw boardConflict();
+  const selectionOnly = existing && definitionFields.filter(k => k !== 'is_current_comeback').every(k => existing[k] === input[k]);
+  if (archiving && definitionFields.filter(k => !['status','is_current_comeback'].includes(k)).some(k => existing[k] !== input[k])) throw boardConflict();
   if (input.campaign_id !== null) {
     const campaign = await db.prepare('SELECT status FROM campaigns WHERE campaign_id = ?').bind(input.campaign_id).first();
     if (!campaign) throw new AdminError(400,'INVALID_CAMPAIGN','Campaign does not exist');
@@ -48,7 +50,7 @@ export async function saveBoard(db, actor, input, existing = null) {
   }
   if (existing?.campaign_id && (await db.prepare('SELECT status FROM campaigns WHERE campaign_id = ?').bind(existing.campaign_id).first())?.status === 'archived' && scopeFields.some(k => existing[k] !== input[k])) throw boardConflict();
   const id = existing?.leaderboard_id ?? input.leaderboard_id, marker = crypto.randomUUID(), now = new Date().toISOString();
-  const values = definitionFields.map(k => k === 'is_public' ? Number(input[k]) : input[k]);
+  const values = definitionFields.map(k => ['is_public','is_current_comeback'].includes(k) ? Number(input[k]) : input[k]);
   // Revalidate Campaign archive/scope policy inside the same write transaction.
   const campaignGuard = `(? IS NULL OR EXISTS(SELECT 1 FROM campaigns WHERE campaign_id = ? AND (status != 'archived' OR ? = 1)))
     AND (? IS NULL OR NOT EXISTS(SELECT 1 FROM campaigns WHERE campaign_id = ? AND status = 'archived') OR ? = 1)`;
@@ -57,19 +59,42 @@ export async function saveBoard(db, actor, input, existing = null) {
   const statement = existing ? db.prepare(`UPDATE leaderboards SET ${definitionFields.map(k => k+' = ?').join(', ')}, updated_at = ?, updated_by = ?,
     version = version + 1, current_run_id = ?, last_mutation_id = ? WHERE leaderboard_id = ? AND version = ? AND status = ?
     AND ${ELEVATED_AUTH_GUARD} AND ${campaignGuard}`)
-    .bind(...values,now,actor.member.member_id,archiving ? existing.current_run_id : null,marker,id,input.expected_version,existing.status,...actorBindings(actor),...guardArgs)
+    .bind(...values,now,actor.member.member_id,archiving || selectionOnly ? existing.current_run_id : null,marker,id,input.expected_version,existing.status,...actorBindings(actor),...guardArgs)
     : db.prepare(`INSERT INTO leaderboards (${definitionFields.join(', ')}, leaderboard_id, created_at, updated_at, created_by, updated_by, last_mutation_id)
-      SELECT ${Array(15).fill('?').join(', ')} WHERE ${ELEVATED_AUTH_GUARD} AND ${campaignGuard}`)
+      SELECT ${Array(definitionFields.length + 6).fill('?').join(', ')} WHERE ${ELEVATED_AUTH_GUARD} AND ${campaignGuard}`)
       .bind(...values,id,now,now,actor.member.member_id,actor.member.member_id,marker,...actorBindings(actor),...guardArgs);
   const action = existing ? input.status === 'archived' ? 'leaderboard_archive' : 'leaderboard_update' : 'leaderboard_create';
   let result;
   try {
-    result = await db.batch([statement,
+    // All statements share one D1 transaction. Clear the previous selection only
+    // when this exact create/CAS update can succeed. A failure rolls it all back.
+    const selection = [];
+    if (input.is_current_comeback) {
+      const targetGuard = existing ? 'EXISTS(SELECT 1 FROM leaderboards WHERE leaderboard_id=? AND version=? AND status=?)'
+        : 'NOT EXISTS(SELECT 1 FROM leaderboards WHERE leaderboard_id=?)';
+      const targetArgs = existing ? [id,input.expected_version,existing.status] : [id];
+      selection.push(db.prepare(`UPDATE leaderboards SET is_current_comeback=0, version=version+1,updated_at=?,updated_by=?,last_mutation_id=?
+        WHERE is_current_comeback=1 AND leaderboard_id!=? AND ${targetGuard} AND ${ELEVATED_AUTH_GUARD} AND ${campaignGuard}`)
+        .bind(now,actor.member.member_id,marker+'-previous',id,...targetArgs,...actorBindings(actor),...guardArgs));
+      selection.push(db.prepare(`INSERT INTO admin_audit_logs(id,created_at,admin_member_id,admin_role,action,target_type,target_id,target_version,before_json,after_json)
+        SELECT ?,?,?,?,'leaderboard_update','leaderboard',leaderboard_id,version,json_object('is_current_comeback',1),json_object('is_current_comeback',0)
+        FROM leaderboards WHERE last_mutation_id=?`).bind(marker+'-previous',now,actor.member.member_id,actor.role,marker+'-previous'));
+    }
+    const all = await db.batch([...selection,statement,
       db.prepare(`INSERT INTO admin_audit_logs(id,created_at,admin_member_id,admin_role,action,target_type,target_id,target_version,before_json,after_json)
-        SELECT ?,?,?,?,?, 'leaderboard',leaderboard_id,version,?,json_object('leaderboard_id',leaderboard_id,'version',version,'status',status,'run_id',current_run_id)
+        SELECT ?,?,?,?,?, 'leaderboard',leaderboard_id,version,?,json_object('leaderboard_id',leaderboard_id,'version',version,'status',status,'run_id',current_run_id,'is_current_comeback',is_current_comeback)
         FROM leaderboards WHERE leaderboard_id = ? AND last_mutation_id = ?`)
-        .bind(marker,now,actor.member.member_id,actor.role,action,JSON.stringify(existing ? { version:existing.version,status:existing.status,run_id:existing.current_run_id } : {}),id,marker),
-      db.prepare('SELECT * FROM leaderboards WHERE leaderboard_id = ? AND last_mutation_id = ?').bind(id,marker)]);
+        .bind(marker,now,actor.member.member_id,actor.role,action,JSON.stringify(existing ? { version:existing.version,status:existing.status,run_id:existing.current_run_id,is_current_comeback:Boolean(existing.is_current_comeback) } : {}),id,marker),
+      db.prepare('SELECT * FROM leaderboards WHERE leaderboard_id = ? AND last_mutation_id = ?').bind(id,marker),
+      // An elevation expiry between statements must not commit only the clear.
+      // Reuse the existing transaction guard; it is removed before commit.
+      ...(selection.length ? [
+        db.prepare(`INSERT INTO auth_atomic_guards(id,valid) SELECT ?,CASE WHEN
+          NOT EXISTS(SELECT 1 FROM leaderboards WHERE last_mutation_id=?) OR EXISTS(SELECT 1 FROM leaderboards WHERE leaderboard_id=? AND last_mutation_id=?)
+          THEN 1 ELSE 0 END`).bind(marker,marker+'-previous',id,marker),
+        db.prepare('DELETE FROM auth_atomic_guards WHERE id=?').bind(marker),
+      ] : [])]);
+    result = all.slice(selection.length);
   } catch {
     const stored = await boardRow(db,id); if (stored?.last_mutation_id === marker) return safeBoard(stored);
     if (!existing && stored) throw new AdminError(409,'LEADERBOARD_EXISTS','Leaderboard already exists');
@@ -116,7 +141,7 @@ export async function rebuildBoard(db, actor, board, expectedVersion) {
 }
 // One joined query per response: a concurrent publish cannot mix runs/rows.
 export async function publishedBoards(db, id = null, admin = false) {
-  const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,b.type,b.campaign_id,b.vote_type,r.run_id,r.generated_at,
+  const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,b.type,b.campaign_id,b.vote_type,b.is_current_comeback,r.run_id,r.generated_at,
       x.rank,x.member_id,x.nickname,m.player_id fan_id,x.points,x.proof_count,x.reached_at
     FROM leaderboards b JOIN leaderboard_runs r ON r.run_id = b.current_run_id AND r.status = 'success'
     LEFT JOIN leaderboard_results x ON x.run_id = r.run_id LEFT JOIN members m ON m.member_id=x.member_id
@@ -125,7 +150,7 @@ export async function publishedBoards(db, id = null, admin = false) {
   const boards = await liveSystemBoards(db,id);
   for (const row of rows) {
     let board = boards.at(-1);
-    if (!board || board.leaderboard_id !== row.leaderboard_id) { board = { leaderboard_id:row.leaderboard_id,name:row.name,type:row.type,campaign_id:row.campaign_id,vote_type:row.vote_type,generated_at:row.generated_at,rankings:[] }; boards.push(board); }
+    if (!board || board.leaderboard_id !== row.leaderboard_id) { board = { leaderboard_id:row.leaderboard_id,name:row.name,type:row.type,campaign_id:row.campaign_id,vote_type:row.vote_type,is_current_comeback:Boolean(row.is_current_comeback),generated_at:row.generated_at,rankings:[] }; boards.push(board); }
     if (row.rank !== null) board.rankings.push(Object.fromEntries(['rank','member_id','nickname','fan_id','points','proof_count','reached_at'].map(k => [k,row[k]])));
   }
   const members=[...new Set(boards.flatMap(b=>b.rankings.map(r=>r.member_id)))];

@@ -15,6 +15,12 @@ export async function api(path, { method = "GET", body, headers = {} } = {}) {
   if (!response.ok || result?.ok !== true) throw new PublicError(result?.error?.code ?? "SERVICE_UNAVAILABLE", response.status);
   return result.data;
 }
+export async function campaignExample(path,signal){
+  if(!/^\/api\/campaigns\/[A-Za-z0-9_-]{1,100}\/example$/.test(path))throw new PublicError('INVALID_CONTENT_REQUEST');
+  const r=await(PREVIEW?previewFetch:fetch)(path,{credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',signal});
+  if(!r.ok||!['image/png','image/jpeg','image/webp'].includes(r.headers.get('Content-Type')))throw new PublicError('CONTENT_NOT_FOUND');
+  const blob=await r.blob();if(blob.size<=0||blob.size>5242880)throw new PublicError('INVALID_IMAGE_TYPE');return blob;
+}
 export function putImage(upload, file, onProgress) {
   if (PREVIEW) return Promise.reject(new PublicError("UI_PREVIEW_ONLY", 403));
   return new Promise((resolve, reject) => {

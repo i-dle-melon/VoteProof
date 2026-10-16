@@ -1,5 +1,6 @@
 import { AdminError } from "./admin-identity.js";
 import { CaseError } from "../api/case-validation.js";
+import { campaignContentInput } from './site-content.js';
 
 export const CAMPAIGN_LIMITS = Object.freeze({ id: 100, name: 100, category: 50, note: 1000, points: 1000000, daily: 1000 });
 export const CAMPAIGN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
@@ -9,7 +10,7 @@ export const CAMPAIGN_STATUSES = Object.freeze(["draft", "active", "closed", "ar
 export const invalidCampaign = () => new AdminError(400, "INVALID_CAMPAIGN_REQUEST", "Invalid campaign request");
 export const campaignConflict = () => new AdminError(409, "CAMPAIGN_CONFLICT", "Campaign version or policy has changed");
 export const campaignMissing = () => new AdminError(404, "CAMPAIGN_NOT_FOUND", "Campaign not found");
-const fields = ["name", "category", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "note", "solo_target"];
+const fields = ["name", "category", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "note", "solo_target", "submission_instructions", "example_asset_id"];
 const text = (v, max) => {
   if (typeof v !== "string" || !v.trim() || [...v.trim()].length > max || /[\u0000-\u001f\u007f]/.test(v)) throw invalidCampaign();
   return v.trim();
@@ -42,6 +43,7 @@ export function campaignInput(body, updating = false) {
   if (!CAMPAIGN_STATUSES.includes(body.status)) throw invalidCampaign();
   result.status = body.status;
   result.note = body.note == null ? null : text(body.note, CAMPAIGN_LIMITS.note);
+  result.content=campaignContentInput(body);
   result.vote_start_date = campaignDate(result.start_at, result.campaign_timezone);
   result.vote_end_date = campaignDate(Date.parse(result.end_at) - 1, result.campaign_timezone);
   if (updating) {

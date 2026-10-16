@@ -19,6 +19,7 @@ test("four default categories append configured custom buttons and preserve hone
     type,
     vote_type,
     campaign_id: type === "campaign" ? "LOCAL" : null,
+    is_current_comeback: id === 'comeback',
     rankings: [
       { rank: 7, nickname: "公開暱稱", points: 42, proof_count: 2, tier: { tier_id: "silver" } },
     ],

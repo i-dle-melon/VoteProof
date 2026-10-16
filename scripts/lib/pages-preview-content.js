@@ -1,0 +1,17 @@
+// BUILD ONLY. Public, synthetic content; all changes stay in page memory.
+const content=new Map([['PREVIEW-CAMPAIGN',{submission_instructions:'合作對象：展示 FANBASE（假資料）\n請保留完整投票畫面、日期與票數。',example_asset_id:'00000000-0000-4000-8000-000000000001',version:0}]]);
+const assets=new Map();let announcements=null;
+export function savePreviewContent(id,input){if(input.submission_instructions!==undefined)content.set(id,{submission_instructions:input.submission_instructions,example_asset_id:input.example_asset_id??null,version:(content.get(id)?.version??-1)+1});}
+export async function contentFixture(path,{method,body},state,picture,reply){
+ const manager=['admin','super_admin'].includes(state.identity),admin=path.startsWith('/api/admin/');
+ const relevant=path==='/api/announcements'||/^\/api\/campaigns\/[^/]+\/(guidance|example)$/.test(path)||/^\/api\/admin\/(announcements(?:\/[^/]+\/update)?|campaigns\/[^/]+\/guidance|campaign-assets\/[^/]+)$/.test(path);
+ if(!relevant)return null;if(admin&&!manager)return reply('ADMIN_FORBIDDEN',403);if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
+ announcements??=[{announcement_id:'00000000-0000-4000-8000-000000000002',title:'展示合作公告・假資料',body:'本次與展示 FANBASE 合作。\n請依照活動投稿說明準備圖片。',enabled:state.announcement!=='off',dismissible:state.announcement!=='locked',starts_at:state.announcement==='future'?'2099-01-01T00:00:00.000Z':null,ends_at:state.announcement==='expired'?'2000-01-01T00:00:00.000Z':null,button_label:'查看投稿說明',button_url:'https://example.com/preview-guide',version:0,updated_at:'2026-10-16T00:00:00.000Z'}];
+ const input=typeof body==='string'?JSON.parse(body):body;
+ if(path==='/api/announcements'){const now=new Date().toISOString();return reply({announcements:state.data==='empty'?[]:announcements.filter(a=>a.enabled&&(!a.starts_at||a.starts_at<=now)&&(!a.ends_at||a.ends_at>now))});}
+ if(path.startsWith('/api/admin/announcements')){if(method==='GET')return reply({announcements});const old=announcements.find(a=>path.includes('/'+a.announcement_id+'/'));if(old&&input.expected_version!==old.version)return reply('CONTENT_CONFLICT',409);if(input.button_url&&!/^https?:\/\//.test(input.button_url))return reply('INVALID_CONTENT_REQUEST',400);const row={...input,announcement_id:old?.announcement_id??crypto.randomUUID(),version:(old?.version??-1)+1,updated_at:new Date().toISOString()};if(old)Object.assign(old,row);else announcements.unshift(row);return reply(row);}
+ if(path.startsWith('/api/admin/campaign-assets/')){const id=path.split('/').at(-1);if(method==='POST'){if(!(body instanceof Blob)||!['image/png','image/jpeg','image/webp'].includes(body.type)||body.size>5242880)return reply('INVALID_IMAGE_TYPE',400);const asset_id=crypto.randomUUID();assets.set(asset_id,body);return reply({asset_id,size:body.size,content_type:body.type});}return new Response(assets.get(id)??await picture('Campaign example'),{headers:{'Content-Type':'image/png','Cache-Control':'no-store'}});}
+ const parts=path.split('/'),id=admin?parts[4]:parts[3],row=content.get(id)??{submission_instructions:'',example_asset_id:null,version:0};
+ if(path.endsWith('/guidance'))return reply(admin?row:{submission_instructions:row.submission_instructions,example_image_url:row.example_asset_id?'/api/campaigns/'+id+'/example':null});
+ if(!row.example_asset_id)return reply('CONTENT_NOT_FOUND',404);const blob=assets.get(row.example_asset_id)??await picture('Campaign example');return new Response(blob,{headers:{'Content-Type':blob.type,'Cache-Control':'no-store'}});
+}

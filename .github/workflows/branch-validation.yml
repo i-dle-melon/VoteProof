@@ -1,7 +1,7 @@
 name: VoteProof Branch Validation
 on:
   push:
-    branches: [codex/campaign-admin-category-v1]
+    branches: [codex/campaign-admin-category-v1, codex/solo-total-leaderboard-fix]
   workflow_dispatch:
 permissions:
   contents: read
@@ -58,7 +58,7 @@ jobs:
         run: npm run check
       - run: git diff --check
   migrations:
-    name: Local D1 schema and populated 0018 to 0019 safety
+    name: Local D1 schema and populated 0018 to 0019 to 0020 to 0021 safety
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -71,4 +71,4 @@ jobs:
       - name: Wrangler migrations and registry replay on disposable LOCAL D1
         run: npm run check:admin-schema
       - name: Populated 0018 migration and historical compatibility
-        run: node --test test/solo-target-registry-migration.test.js test/integration-production-schema.test.js
+        run: node --test test/solo-target-registry-migration.test.js test/current-comeback-migration.test.js test/site-content-migration.test.js test/integration-production-schema.test.js

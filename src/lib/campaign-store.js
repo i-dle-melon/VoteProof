@@ -2,6 +2,7 @@ import { ELEVATED_AUTH_GUARD, actorBindings, adminDenied, AdminError } from "./a
 import { campaignConflict, campaignMissing, campaignUpdatePolicy, campaignClassificationReady, CAMPAIGN_ID, CAMPAIGN_STATUSES } from "./campaign-policy.js";
 import { encodeCursor } from "../api/admin-validation.js";
 import { requireActiveSoloTarget } from './solo-targets.js';
+import { campaignContent } from './site-content.js';
 
 export const PUBLIC_CAMPAIGN_COLUMNS = "campaign_id, name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date, points_per_proof, daily_limit, status";
 export const campaignRow = (db, id) => db.prepare("SELECT * FROM campaigns WHERE campaign_id = ?").bind(id).first();
@@ -19,23 +20,27 @@ export const campaignSummarySql = alias => `json_object('campaign_id', ${alias}.
   'daily_limit', ${alias}.daily_limit, 'status', ${alias}.status, 'version', ${alias}.version)`;
 const summary = row => Object.fromEntries(["campaign_id", "name", "category", "solo_target", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "version"].map(k => [k, row[k]]));
 const campaignResult = row => { const { last_mutation_id, ...safe } = row; return safe; };
-export async function saveCampaign(db, actor, input, existing = null) {
+export async function saveCampaign(db, actor, input, existing = null, bucket = null) {
   if (existing) campaignUpdatePolicy(existing, input);
   await requireActiveSoloTarget(db, input);
   const id = existing?.campaign_id ?? input.campaign_id, marker = crypto.randomUUID(), now = new Date().toISOString();
+  const previousContent=input.content?await campaignContent(db,id):null;
+  if(input.content?.example_asset_id && !await db.prepare('SELECT asset_id FROM campaign_example_assets WHERE asset_id=? AND campaign_id=? AND retired_at IS NULL').bind(input.content.example_asset_id,id).first())throw new AdminError(400,'INVALID_CAMPAIGN_ASSET','範例圖片不屬於此活動。');
   const values = [input.name, input.category, input.solo_target, input.start_at, input.end_at, input.campaign_timezone,
     input.vote_start_date, input.vote_end_date, input.points_per_proof, input.daily_limit, input.status, input.note];
+  const assetGuard=input.content?"(? IS NULL OR EXISTS(SELECT 1 FROM campaign_example_assets WHERE asset_id=? AND campaign_id=? AND retired_at IS NULL))":"1";
+  const assetArgs=input.content?[input.content.example_asset_id,input.content.example_asset_id,id]:[];
   const targetGuard = "(?='團體' OR EXISTS(SELECT 1 FROM solo_targets WHERE target_id=? AND active=1))";
   const statement = existing
     ? db.prepare(`UPDATE campaigns SET name = ?, category = ?, solo_target = ?, start_at = ?, end_at = ?, campaign_timezone = ?,
         vote_start_date = ?, vote_end_date = ?, points_per_proof = ?, daily_limit = ?, status = ?, note = ?,
         updated_at = ?, updated_by = ?, version = version + 1, last_mutation_id = ?
-        WHERE campaign_id = ? AND version = ? AND status = ? AND ${targetGuard} AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, input.category,input.solo_target,...actorBindings(actor))
+        WHERE campaign_id = ? AND version = ? AND status = ? AND ${targetGuard} AND ${assetGuard} AND ${ELEVATED_AUTH_GUARD}`)
+      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, input.category,input.solo_target,...assetArgs,...actorBindings(actor))
     : db.prepare(`INSERT INTO campaigns (name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
         points_per_proof, daily_limit, status, note, campaign_id, created_at, updated_at, created_by, updated_by, last_mutation_id)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${targetGuard} AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, input.category,input.solo_target,...actorBindings(actor));
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${targetGuard} AND ${assetGuard} AND ${ELEVATED_AUTH_GUARD}`)
+      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, input.category,input.solo_target,...assetArgs,...actorBindings(actor));
   let result;
   try {
     result = await db.batch([
@@ -46,6 +51,17 @@ export async function saveCampaign(db, actor, input, existing = null) {
         FROM campaigns c WHERE c.campaign_id = ? AND c.last_mutation_id = ?`)
         .bind(marker, now, actor.member.member_id, actor.role, existing ? "campaign_update" : "campaign_create", JSON.stringify(existing ? summary(existing) : {}), id, marker),
       db.prepare("SELECT * FROM campaigns WHERE campaign_id = ? AND last_mutation_id = ?").bind(id, marker),
+      ...(input.content?[
+        db.prepare(`INSERT INTO campaign_content(campaign_id,submission_instructions,example_asset_id,updated_at,updated_by)
+          SELECT campaign_id,?,?,?,? FROM campaigns WHERE campaign_id=? AND last_mutation_id=?
+          ON CONFLICT(campaign_id) DO UPDATE SET submission_instructions=excluded.submission_instructions,example_asset_id=excluded.example_asset_id,updated_at=excluded.updated_at,updated_by=excluded.updated_by,version=campaign_content.version+1`)
+          .bind(input.content.submission_instructions,input.content.example_asset_id,now,actor.member.member_id,id,marker),
+        ...(previousContent.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id?[db.prepare(`UPDATE campaign_example_assets SET retired_at=? WHERE asset_id=? AND campaign_id=? AND EXISTS(SELECT 1 FROM campaigns WHERE campaign_id=? AND last_mutation_id=?)`).bind(now,previousContent.example_asset_id,id,id,marker)]:[]),
+        ...['submission_note_update',...(previousContent.example_asset_id!==input.content.example_asset_id?[input.content.example_asset_id?'example_image_replace':'example_image_delete']:[])].map(action=>db.prepare(`INSERT INTO admin_content_audit(id,created_at,admin_member_id,admin_role,action,target_type,target_id,target_version,before_json,after_json)
+          SELECT ?,?,?,?,?,'campaign_content',c.campaign_id,c.version,?,json_object('submission_instructions',x.submission_instructions,'example_asset_id',x.example_asset_id)
+          FROM campaigns c JOIN campaign_content x USING(campaign_id) WHERE c.campaign_id=? AND c.last_mutation_id=?`)
+          .bind(crypto.randomUUID(),now,actor.member.member_id,actor.role,action,JSON.stringify(previousContent),id,marker)),
+      ]:[]),
     ]);
   } catch {
     // Resolve an acknowledged-lost batch without treating an older row as ours.
@@ -55,7 +71,13 @@ export async function saveCampaign(db, actor, input, existing = null) {
     throw new AdminError(503, "CAMPAIGN_SERVICE_UNAVAILABLE", "Campaign service is unavailable");
   }
   if (result[0].meta.changes !== 1) { await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
-  return campaignResult(result[2].results[0]);
+  let cleanupPending=false;
+  if(bucket&&previousContent?.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id){
+    try{const asset=await db.prepare('SELECT object_key FROM campaign_example_assets WHERE asset_id=? AND campaign_id=?').bind(previousContent.example_asset_id,id).first();
+      if(asset?.object_key.startsWith('campaign-assets/'+id+'/example/'))await bucket.delete(asset.object_key);
+    }catch{cleanupPending=true;}
+  }
+  return {...campaignResult(result[2].results[0]),...(cleanupPending?{asset_cleanup_pending:true}:{})};
 }
 export async function getAdminCampaign(db, id) {
   if (!CAMPAIGN_ID.test(id) || id.length > 100) throw campaignMissing();

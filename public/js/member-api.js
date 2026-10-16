@@ -58,7 +58,15 @@ export class MemberSession {
     if (!this.member) throw new PublicError("AUTH_REQUIRED");
     return this.#send(path, { signal, image: true });
   }
-  async #send(path, { method = "GET", body, headers = {}, signal, image = false } = {}) {
+  async adminAsset(path, signal) {
+    if(!/^\/api\/admin\/campaign-assets\/[a-f0-9-]{36}$/.test(path)||!this.member)throw new PublicError('INVALID_AUTH_REQUEST');
+    return this.#send(path,{signal,image:true});
+  }
+  async adminAssetUpload(campaignId,file,signal) {
+    if(!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(campaignId)||!this.member||!['image/png','image/jpeg','image/webp'].includes(file?.type)||file.size<=0||file.size>5242880)throw new PublicError('INVALID_IMAGE_TYPE');
+    return this.#send('/api/admin/campaign-assets/'+campaignId,{method:'POST',body:file,headers:{'Content-Type':file.type},signal,upload:true});
+  }
+  async #send(path, { method = "GET", body, headers = {}, signal, image = false, upload = false } = {}) {
     const revision = this.#revision;
     let response;
     const timeout = method === 'POST' && /^\/api\/admin\/backups\/[a-f0-9-]{36}\/process$/.test(path) ? 270000 : 30000;
@@ -66,8 +74,8 @@ export class MemberSession {
       response = await (PREVIEW ? previewFetch : this.fetcher)(path, { method, credentials: "same-origin", cache: "no-store", referrerPolicy: "no-referrer",
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
         headers: { ...headers, ...(method === "GET" ? {} : { "X-VoteProof-Request": "1", ...(this.#csrf ? { "X-CSRF-Token": this.#csrf } : {}) }),
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
-        ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
+          ...(body === undefined || upload ? {} : { "Content-Type": "application/json" }) },
+        ...(body === undefined ? {} : { body: upload || typeof body === "string" ? body : JSON.stringify(body) }) });
     } catch { throw new PublicError(signal?.aborted ? "REQUEST_CANCELLED" : "NETWORK_ERROR"); }
     if (image && response.ok) {
       if (!["image/png", "image/jpeg", "image/webp"].includes(response.headers.get("Content-Type"))) throw new PublicError("PROOF_INTEGRITY_ERROR");
@@ -119,6 +127,8 @@ export function adminPath(path) {
   const [pathname, query, extra] = path.split("?");
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if(pathname==='/api/admin/solo-targets' && query===undefined)return true;
+  if(pathname==='/api/admin/staff' && query===undefined)return true;
+  if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;
   if(query===undefined && /^\/api\/admin\/image-exports(?:\/(?:query|jobs)|\/jobs\/[a-f0-9-]{36}(?:\/packages\/[1-9]\d{0,4}(?:\/(?:start|state)|\/attempts\/[a-f0-9-]{36}\/files\/[a-f0-9-]{36}))?)?$/.test(pathname)) return true;

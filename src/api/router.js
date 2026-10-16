@@ -1,6 +1,8 @@
 import { getHealth } from "./health.js";
 import { getCampaigns } from "./campaigns.js";
 import { getLeaderboards } from "./leaderboards.js";
+import { staffRoute } from './admin-staff.js';
+import { siteContentRoute } from './site-content.js';
 import { jsonError } from "./response.js";
 import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
 import { createCase, createDirectCase, getCase } from "./cases.js";
@@ -105,6 +107,8 @@ export async function routeApi(request, env, url) {
     internalDuplicateRoute(url.pathname) ??
     backupAdminRoute(url.pathname) ??
     adminRoute(url.pathname) ??
+    staffRoute(url.pathname,request.method) ??
+    siteContentRoute(url.pathname,request.method) ??
     imageExportRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??
     pointRoute(url.pathname) ??

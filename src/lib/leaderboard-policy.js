@@ -5,7 +5,7 @@ export const BOARD_LIMITS = Object.freeze({ top: 100, name: 100, page: 50 });
 export const boardInvalid = () => new AdminError(400, 'INVALID_LEADERBOARD_REQUEST', 'Invalid leaderboard request');
 export const boardConflict = () => new AdminError(409, 'LEADERBOARD_CONFLICT', 'Leaderboard version or policy changed');
 export const boardMissing = () => new AdminError(404, 'LEADERBOARD_NOT_FOUND', 'Leaderboard not found');
-const fields = ['name', 'type', 'campaign_id', 'start_date', 'end_date', 'vote_type', 'top_n', 'is_public', 'status'];
+const fields = ['name', 'type', 'campaign_id', 'start_date', 'end_date', 'vote_type', 'top_n', 'is_public', 'status', 'is_current_comeback'];
 export function boardInput(body, updating = false) {
   const bad = () => { throw boardInvalid(); };
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => ![...fields, updating ? 'expected_version' : 'leaderboard_id'].includes(k))) bad();
@@ -21,8 +21,12 @@ export function boardInput(body, updating = false) {
   if (result.type === 'custom') { if (!day(result.start_date) || !day(result.end_date) || result.start_date > result.end_date) bad(); }
   else if (result.start_date !== null || result.end_date !== null) bad();
   if (result.type === 'campaign' && result.campaign_id === null || result.type === 'all_time' && result.campaign_id !== null) bad();
+  if (body.is_current_comeback !== undefined && typeof body.is_current_comeback !== 'boolean') bad();
+  if (body.is_current_comeback === true && (result.type !== 'campaign' || result.status === 'archived')) bad();
+  // Legacy updates that omit the flag preserve the selection; archive clears it.
+  result.is_current_comeback = body.is_current_comeback ?? (updating ? undefined : false);
   if (updating) { if (!Number.isSafeInteger(body.expected_version) || body.expected_version < 0 || body.expected_version >= Number.MAX_SAFE_INTEGER) bad(); result.expected_version = body.expected_version; }
-  else { if (typeof body.leaderboard_id !== 'string' || !CAMPAIGN_ID.test(body.leaderboard_id) || result.status === 'archived') bad(); result.leaderboard_id = body.leaderboard_id; }
+  else { if (body.leaderboard_id !== undefined && (typeof body.leaderboard_id !== 'string' || !CAMPAIGN_ID.test(body.leaderboard_id)) || result.status === 'archived') bad(); result.leaderboard_id = body.leaderboard_id ?? ('board-' + crypto.randomUUID()); }
   return result;
 }
 export function rebuildInput(body) {

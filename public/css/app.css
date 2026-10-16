@@ -1404,7 +1404,8 @@ tbody tr:first-child td:first-child {
   margin-bottom: 20px;
 }
 .sidebar-footer {
-  margin-top: 24px;
+  margin-top: auto;
+  flex-shrink: 0;
 }
 /* =========================================================
    MOBILE ADMIN · 手機管理
@@ -1650,6 +1651,10 @@ tbody tr:first-child td:first-child {
   border: 0;
   font-size: 11px;
   font-weight: 800;
+}
+.status.neutral {
+  color: var(--muted);
+  background: var(--soft);
 }
 .status.pending {
   background: rgba(255, 153, 0, 0.12);
@@ -2334,6 +2339,19 @@ button.legacy-case-row:hover {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, var(--card));
 }
+.notice.submission-paused {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--card));
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  border-radius: 999px;
+  width: fit-content;
+  max-width: 100%;
+}
+@media (min-width: 981px) {
+  .topbar { justify-content: flex-start; gap: 18px; }
+  .topbar .account-nav { margin-left: 0; justify-content: flex-start; }
+  .sidebar > nav { flex-shrink: 0; margin-bottom: 24px; }
+}
 .status.pending::before {
   content: "◷ ";
 }
@@ -2659,6 +2677,13 @@ button.legacy-case-row:hover {
 }
 /* Private Admin export: independent bounded packages and cancellable progress. */
 .image-export { grid-column:1/-1; min-width:0; width:100%; }
+.content-lines { white-space:pre-wrap;overflow-wrap:anywhere; }
+.campaign-guidance { margin-top:16px;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--soft);min-width:0; }
+.example-preview { display:grid;gap:12px;width:100%;max-width:100%;text-align:left;color:var(--text);background:transparent;border:0;padding:0; }
+.example-preview img,.campaign-example-preview,#campaign-example-large { display:block;max-width:100%;max-height:65dvh;width:auto;height:auto;object-fit:contain;border-radius:var(--radius-sm); }
+.campaign-example-preview { margin:12px 0; }
+#announcement-title { min-width:0;overflow-wrap:anywhere; }
+#announcement-security { display:inline-block;margin-top:24px;font-size:14px;color:var(--muted); }
 .image-export > .notice:empty { display:none; }
 .export-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 .export-filters label:not(.export-check),.export-history label { display:grid; gap:8px; min-width:0; }

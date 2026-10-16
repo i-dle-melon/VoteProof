@@ -37,7 +37,7 @@ function makeJob(id, filters, scene) {
   };
 }
 export async function exportFixture(path, options, state, picture, reply) {
-  if (state.identity !== "admin") return reply("ADMIN_FORBIDDEN", 403);
+  if (!['admin','super_admin','reviewer'].includes(state.identity)) return reply("ADMIN_FORBIDDEN", 403);
   const scene = state.data === "empty" ? "empty" : state.exports;
   if (!jobs.length && scene !== "error")
     jobs.push(makeJob(fixtureId, { ...defaultFilters }, scene));
@@ -64,17 +64,19 @@ export async function exportFixture(path, options, state, picture, reply) {
   if (!pack) return reply("EXPORT_NOT_FOUND", 404);
   if (p[4] === "state") {
     if (pack.attempt_id !== b.attempt_id) return reply("EXPORT_PACKAGE_CONFLICT", 409);
+    if(pack.status==='completed' && b.status!=='completed')return reply('EXPORT_PACKAGE_CONFLICT',409);
     pack.status = b.status;
     pack.error_code = b.error_code ?? null;
     return reply(pack);
   }
   if (p[4] === "start") {
-    if (pack.status === "completed") return reply("EXPORT_PACKAGE_CONFLICT", 409);
-    pack.status = "in_progress";
-    pack.attempt_id = b.attempt_id;
+    const readOnly=pack.status==='completed';
+    if(readOnly&&pack.attempt_id!==b.expected_attempt_id)return reply('EXPORT_PACKAGE_CONFLICT',409);
+    if(!readOnly){pack.status = "in_progress";pack.attempt_id = b.attempt_id;}
     const sample = await picture();
     return reply({
       package: pack,
+      read_only: readOnly,
       items: Array.from({ length: 3 }, (_, i) => ({
         ordinal: i + 1,
         file_id: "00000000-0000-4000-8000-" + String(i + 10).padStart(12, "0"),

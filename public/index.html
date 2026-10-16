@@ -105,6 +105,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             </p></noscript
           >
           <p id="account-status" class="notice info" role="status" aria-live="polite" hidden></p>
+          <button id="announcement-open" type="button" class="pill" hidden>查看公告</button>
 
           <!-- =========================================================
      HOME · 首頁
@@ -136,7 +137,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   <span class="hero-action-icon" aria-hidden="true">📷</span>
                   <span class="hero-action-label">投稿暫停</span></button
                 ><a class="btn btn-soft" href="#lookup"
-                  ><span class="hero-action-icon" aria-hidden="true">👤</span
+                  ><span class="hero-action-icon" aria-hidden="true">▣</span
                   ><span>案件查詢</span></a
                 ><a class="btn btn-white" href="#leaderboards"
                   ><span class="hero-action-icon" aria-hidden="true">🏆</span
@@ -306,6 +307,10 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                       <option value="">請選擇活動</option>
                     </select>
                     <p id="campaign-hint" class="tiny"></p>
+                    <section id="campaign-guidance" class="campaign-guidance" aria-label="本次投稿說明" hidden>
+                      <button id="campaign-example-open" type="button" class="example-preview" aria-label="放大投稿範例圖片" hidden><span>投稿範例</span><img id="campaign-example" alt="本活動投稿範例" /></button>
+                      <div><h3>本次投稿說明</h3><p id="campaign-instructions" class="content-lines"></p></div>
+                    </section>
                   </div>
                   <div class="field">
                     <label for="vote-date">投票日期 <span class="required">必填</span></label
@@ -659,7 +664,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </p>
               <h2>瀏覽器資料</h2>
               <p>
-                本頁只長期保存深／淺色主題偏好，不保存案件查詢碼。未完成的投稿資料只保留在目前分頁，離開或重新整理前請先完成投稿。
+                本頁只長期保存深／淺色主題偏好與已關閉的公告版本，不保存案件查詢碼。未完成的投稿資料只保留在目前分頁，離開或重新整理前請先完成投稿。
               </p>
               <h2>排行榜</h2>
               <p>僅顯示已公開的排行榜與成績快照。尚未公開的排行榜不會顯示。</p>
@@ -1684,7 +1689,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       <span id="admin-copy-064">查看活動</span>
       <span id="admin-copy-065">編輯活動</span>
       <span id="admin-copy-066">下方起訖時間以台灣時間輸入。已開放的活動不能變更期間與時區。</span>
-      <span id="admin-copy-067">活動代號（英文、數字、連字號）</span>
+      <span id="admin-copy-067">活動代號（必填）</span>
       <span id="admin-copy-068">活動名稱</span>
       <span id="admin-copy-069">活動分類</span>
       <span id="admin-copy-070">開始時間（台灣時間）</span>
@@ -1825,5 +1830,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       </p>
       <p>圖片只供授權審核。查詢碼不會顯示在頁面上，可複製或下載至自己的安全筆記。</p>
     </dialog>
+    <dialog id="campaign-example-dialog" class="case-dialog" aria-labelledby="campaign-example-title"><div class="dialog-head"><h2 id="campaign-example-title">投稿範例</h2><button id="campaign-example-close" type="button" class="btn btn-white">關閉</button></div><img id="campaign-example-large" alt="本活動投稿範例放大圖" /></dialog>
+    <dialog id="announcement-dialog" class="case-dialog" aria-labelledby="announcement-title"><div class="dialog-head"><h2 id="announcement-title">公告</h2><button id="announcement-close" type="button" class="btn btn-white" aria-label="關閉公告">關閉</button></div><div id="announcement-body"></div><a id="announcement-security" href="#security">登入與安全設定</a></dialog>
   </body>
 </html>

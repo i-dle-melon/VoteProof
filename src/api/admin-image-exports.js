@@ -6,8 +6,8 @@ import {
   AdminError,
   adminIdentity,
   adminCsrf,
-  ELEVATED_ROLES,
-  ELEVATED_AUTH_GUARD,
+  ADMIN_ROLES,
+  REVIEW_AUTH_GUARD,
   actorBindings,
 } from "../lib/admin-identity.js";
 import { exportFilters, exportScope, countExport, snapshotExport } from "../lib/image-export.js";
@@ -52,7 +52,7 @@ function packageNumber(raw) {
   return Number(raw);
 }
 export const imageExportHandler = adminHandler(async (env, url, request) => {
-  const actor = await adminIdentity(request, env, ELEVATED_ROLES),
+  const actor = await adminIdentity(request, env, ADMIN_ROLES),
     db = authDatabase(env),
     parts = url.pathname.split("/").slice(4);
   if (url.search) fail(400, "INVALID_EXPORT_QUERY");
@@ -117,9 +117,11 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
       Object.keys(b).some((k) => !["attempt_id", "expected_attempt_id"].includes(k))
     )
       fail(400, "INVALID_EXPORT_QUERY");
-    await db
+    const completed = await db.prepare("SELECT * FROM export_packages WHERE job_id=? AND number=? AND status='completed'").bind(job.id,number).first();
+    if (completed && completed.attempt_id !== b.expected_attempt_id) fail(409,"EXPORT_PACKAGE_CONFLICT");
+    if (!completed) await db
       .prepare(
-        `UPDATE export_packages SET status='in_progress',attempt_id=?,started_at=?,error_code=NULL WHERE job_id=? AND number=? AND status!='completed' AND (attempt_id IS ? OR (attempt_id=? AND status='in_progress')) AND ${ELEVATED_AUTH_GUARD}`,
+        `UPDATE export_packages SET status='in_progress',attempt_id=?,started_at=?,error_code=NULL WHERE job_id=? AND number=? AND status!='completed' AND (attempt_id IS ? OR (attempt_id=? AND status='in_progress')) AND ${REVIEW_AUTH_GUARD}`,
       )
       .bind(
         b.attempt_id,
@@ -135,7 +137,7 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
       .prepare("SELECT * FROM export_packages WHERE job_id=? AND number=?")
       .bind(job.id, number)
       .first();
-    if (!p || p.attempt_id !== b.attempt_id || p.status !== "in_progress")
+    if (!p || (completed ? p.status !== 'completed' || p.attempt_id !== completed.attempt_id : p.attempt_id !== b.attempt_id || p.status !== "in_progress"))
       fail(409, "EXPORT_PACKAGE_CONFLICT");
     const items = (
       await db
@@ -143,7 +145,7 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
         .bind(job.id, number)
         .all()
     ).results.map(({ job_id, package_no, ...item }) => item);
-    return jsonSuccess({ package: p, items });
+    return jsonSuccess({ package: p, items, read_only: Boolean(completed) });
   }
   if (parts[4] === "state") {
     const b = await readExportJson(request);
@@ -159,7 +161,7 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
       fail(400, "INVALID_EXPORT_QUERY");
     await db
       .prepare(
-        `UPDATE export_packages SET status=?,completed_at=CASE WHEN ?='completed' THEN ? ELSE NULL END,error_code=? WHERE job_id=? AND number=? AND attempt_id=? AND status IN ('in_progress',?) AND ${ELEVATED_AUTH_GUARD}`,
+        `UPDATE export_packages SET status=?,completed_at=CASE WHEN ?='completed' THEN ? ELSE NULL END,error_code=? WHERE job_id=? AND number=? AND attempt_id=? AND status IN ('in_progress',?) AND ${REVIEW_AUTH_GUARD}`,
       )
       .bind(
         b.status,
@@ -190,7 +192,7 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
       .prepare(
         `SELECT f.object_key,i.content_type,i.file_size size,i.etag FROM export_job_items i JOIN export_packages p ON p.job_id=i.job_id AND p.number=i.package_no
       JOIN case_files f ON f.id=i.file_id JOIN cases c ON c.id=f.case_id AND c.case_id=i.case_id
-      WHERE i.job_id=? AND i.package_no=? AND i.file_id=? AND p.attempt_id=? AND p.status='in_progress' AND f.etag=i.etag AND f.size=i.file_size AND f.content_type=i.content_type`,
+      WHERE i.job_id=? AND i.package_no=? AND i.file_id=? AND p.attempt_id=? AND p.status IN ('in_progress','completed') AND f.etag=i.etag AND f.size=i.file_size AND f.content_type=i.content_type`,
       )
       .bind(job.id, number, parts[7], parts[5])
       .first();

@@ -506,6 +506,9 @@ test("0019 is additive and preserves preexisting unknown Campaign and ledger row
     );
     assert.deepEqual(await snapshot(), before);
     assert.equal((await db.prepare("SELECT COUNT(*) n FROM solo_targets").first()).n, 5);
+    // 0019 preservation is checked above. Current code's leaderboard reads
+    // require its subsequent additive 0020 schema as well.
+    await db.batch(unstable_splitSqlQuery(await readFile(new URL('../migrations/0020_current_comeback.sql',import.meta.url),'utf8')).map(s=>db.prepare(s)));
     assert.equal(
       (
         await data(
@@ -572,4 +575,14 @@ test("private proof/export references survive derived category", async () => {
   );
   assert.equal(exported.status, 200);
   assert.deepEqual(new Uint8Array(await exported.arrayBuffer()), image);
+  const base=`/api/admin/image-exports/jobs/${job.id}/packages/1`;
+  await data(await h.fetch(base+'/state','POST',{attempt_id:attempt,status:'completed'},admin.headers));
+  const before=await h.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(job.id).first();
+  const repeat=await data(await h.fetch(base+'/start','POST',{attempt_id:randomUUID(),expected_attempt_id:attempt},admin.headers));
+  assert.equal(repeat.read_only,true);assert.equal(repeat.package.status,'completed');assert.equal(repeat.package.attempt_id,attempt);
+  assert.equal((await h.fetch(`${base}/attempts/${attempt}/files/${file}`,'GET',undefined,admin.headers)).status,200);
+  await error(await h.fetch(base+'/state','POST',{attempt_id:attempt,status:'failed',error_code:'EXPORT_CANCELLED'},admin.headers),409,'EXPORT_PACKAGE_CONFLICT');
+  await error(await h.fetch(base+'/start','POST',{attempt_id:randomUUID(),expected_attempt_id:null},admin.headers),409,'EXPORT_PACKAGE_CONFLICT');
+  await error(await h.fetch(base+'/start','POST',{attempt_id:randomUUID(),expected_attempt_id:attempt}),401,'AUTH_REQUIRED');
+  assert.deepEqual(await h.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(job.id).first(),before);
 });

@@ -143,6 +143,8 @@ export async function renderImageExports({ container, request, session, signal }
   root.append(history, results);
   let job = null,
     active = null,
+    batch = null,
+    preparing = false,
     querying = false,
     pendingJob = null;
   const post = (path, body) => request("image-exports/" + path, { method: "POST", body });
@@ -172,7 +174,7 @@ export async function renderImageExports({ container, request, session, signal }
       label.append(select);
       history.append(label);
       select.addEventListener("change", () => {
-        if (select.value && !active)
+        if (select.value && !active && !batch && !preparing)
           void loadJob(select.value).catch((e) => (message.textContent = notice(e)));
       });
     }
@@ -222,23 +224,35 @@ export async function renderImageExports({ container, request, session, signal }
       );
       status.dataset.exportState = p.status;
       const download = button(
-        p.status === "failed" ? "重新下載" : p.status === "in_progress" ? "重新開始" : "下載",
+        p.status === "completed" ? "再次下載" : p.status === "failed" ? "重新下載" : p.status === "in_progress" ? "重新開始" : "下載",
         () => void downloadPackage(p),
         "btn btn-primary",
       );
-      download.disabled = Boolean(active) || p.status === "completed";
+      download.disabled = Boolean(active || batch || preparing);
       row.append(info, status, download);
       list.append(row);
     }
     const next = job.packages.find((p) => p.status !== "completed");
     if (next) {
       const b = button("下載下一包", () => void downloadPackage(next));
-      b.disabled = Boolean(active);
+      b.disabled = Boolean(active || batch || preparing);
       results.append(b);
     }
+    const all=button("批次全下載",()=>void downloadAll());all.disabled=Boolean(active||batch||preparing);results.append(all);
+    results.append(element('p','依包號逐包下載此快照的全部套件，包含已完成套件。瀏覽器可能要求允許多個檔案下載；若被阻擋，請允許後使用各包「再次下載」。','tiny'));
+    if(batch)results.append(button('停止批次下載',()=>{batch.cancelled=true;message.textContent='已要求停止；目前這包結束後不再下載下一包。';}));
   }
-  async function downloadPackage(p) {
-    if (active || querying || !current()) return;
+  async function downloadAll() {
+    if(active||preparing||batch||querying||!current())return;
+    const snapshot=job,queue=[...job.packages].sort((a,b)=>a.number-b.number),run={cancelled:false};batch=run;render();
+    form.inert=history.inert=true;
+    try{for(const p of queue){if(run.cancelled||!current()||job!==snapshot)break;if(!await downloadPackage(p,true)){run.cancelled=true;break;}}
+      if(!run.cancelled&&current())message.textContent='全部套件已依序產生。請確認瀏覽器下載清單；多檔下載可能需要允許瀏覽器權限。';
+    }finally{batch=null;form.inert=history.inert=false;if(current())render();}
+  }
+  async function downloadPackage(p, fromBatch=false) {
+    if (active || preparing || (batch&&!fromBatch) || querying || !current()) return false;
+    preparing=true;render();form.inert=history.inert=true;
     const downloadJob = job,
       filename = packageFilename(downloadJob, p.number);
     let handle = null,
@@ -256,35 +270,41 @@ export async function renderImageExports({ container, request, session, signal }
         e.name === "AbortError"
           ? "已取消選擇檔案。"
           : "此套件需支援直接寫檔的瀏覽器；請使用 64 MiB 相容模式重新查詢。";
-      return;
+      preparing=false;form.inert=history.inert=Boolean(batch);if(current())render();return false;
     }
-    if (!current()) return;
+    if (!current()) {preparing=false;return false;}
     let worker;
     try {
       worker = new Worker(new URL("./export-worker.js", import.meta.url), { type: "module" });
     } catch {
       message.textContent = "瀏覽器無法啟動 ZIP 工作，請更新瀏覽器後重試。";
-      return;
+      preparing=false;form.inert=history.inert=Boolean(batch);if(current())render();return false;
     }
     const attempt = crypto.randomUUID(),
       abort = new AbortController(),
       chunks = [];
     active = { worker, abort };
+    preparing=false;
     render();
     form.inert = history.inert = true;
     const progress = element("p", "正在準備下載…");
     progress.id = "export-progress";
     progress.setAttribute("role", "status");
     const cancel = button("取消", () => {
+      if(batch)batch.cancelled=true;
       abort.abort();
       worker.postMessage({ type: "cancel" });
       worker.terminate();
       active.reject?.(new DOMException("Cancelled", "AbortError"));
     });
     results.append(progress, cancel);
+    // A fixed mobile bottom nav must not cover the newly appended Cancel.
+    if (matchMedia('(max-width: 980px)').matches) cancel.scrollIntoView({block:'center',behavior:'instant'});
     let written = 0,
       started = false,
-      saved = false;
+      saved = false,
+      readOnly = p.status === 'completed',
+      succeeded = false;
     const state = (status) =>
       post(`jobs/${downloadJob.id}/packages/${p.number}/state`, {
         attempt_id: attempt,
@@ -299,8 +319,9 @@ export async function renderImageExports({ container, request, session, signal }
         expected_attempt_id: p.attempt_id ?? null,
       });
       started = true;
-      p.attempt_id = attempt;
-      p.status = "in_progress";
+      readOnly=readOnly||data.read_only===true;
+      p.attempt_id = data.package.attempt_id;
+      if(!readOnly)p.status = "in_progress";
       if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (handle) sink = await handle.createWritable();
       const sample = await session.exportSample?.();
@@ -339,7 +360,7 @@ export async function renderImageExports({ container, request, session, signal }
           items: data.items,
           proofBase:
             location.origin +
-            `/api/admin/image-exports/jobs/${downloadJob.id}/packages/${p.number}/attempts/${attempt}/files/`,
+            `/api/admin/image-exports/jobs/${downloadJob.id}/packages/${p.number}/attempts/${p.attempt_id}/files/`,
           ...(sample ? { sample } : {}),
         });
       });
@@ -361,13 +382,16 @@ export async function renderImageExports({ container, request, session, signal }
       if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       saved = true;
       cancel.disabled = true;
-      await state("completed");
+      if(!readOnly)await state("completed");
       p.status = "completed";
-      message.textContent = "ZIP 已產生，完成狀態已保存。";
+      succeeded=true;
+      message.textContent = readOnly ? "ZIP 已再次產生；原本已完成狀態保持不變。" : "ZIP 已產生，完成狀態已保存。";
     } catch (error) {
       await sink?.abort().catch(() => {});
       sink = null;
-      if (saved) {
+      if(readOnly){
+        p.status='completed';message.textContent=abort.signal.aborted?'再次下載已取消；原本已完成狀態保持不變。':'再次下載未完成；原本已完成狀態保持不變。'+notice(error);
+      } else if (saved) {
         message.textContent = "ZIP 已產生，但完成回覆未確認。可單獨重送確認，不需要重新下載。";
         const ack = button("重送完成確認", () => {
           if (active) return;
@@ -394,13 +418,15 @@ export async function renderImageExports({ container, request, session, signal }
       worker.terminate();
       chunks.length = 0;
       active = null;
-      form.inert = history.inert = false;
+      form.inert = history.inert = Boolean(batch);
       if (current()) render();
     }
+    return succeeded;
   }
   signal.addEventListener(
     "abort",
     () => {
+      if(batch)batch.cancelled=true;
       active?.abort.abort();
       active?.worker.terminate();
       active?.reject?.(new DOMException("Cancelled", "AbortError"));
@@ -409,7 +435,7 @@ export async function renderImageExports({ container, request, session, signal }
   );
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (querying || active) return;
+    if (querying || active || batch || preparing) return;
     void (async () => {
       querying = true;
       query.disabled = true;

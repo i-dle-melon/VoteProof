@@ -10,11 +10,11 @@ export async function adminFixture(page, options = {}) {
   state.boards = [{ leaderboard_id: "BOARD", name: "本機公開成績", type: "campaign",campaign_id:"LOCAL", campaign_id: null, start_date: null, end_date: null, vote_type: null, top_n: 10, is_public: true, status: "active", version: 0 }];
   state.tiers = ["普通", "青銅", "白銀", "黃金", "白金", "翡翠", "鑽石", "星耀"].map((name, i) => ({ tier_id: ["normal", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "stellar"][i], name, min_points: i ? null : 0, status: i ? "disabled" : "active", version: 0 }));
   state.submissions = { submissions_enabled: false, submissions_message: "尚未開放投稿", version: 0 };
-  state.audit = []; state.conflict = false; state.failAdmin = false;
+  state.content={};state.assets=new Map();state.announcements=[];state.audit = []; state.conflict = false; state.failAdmin = false;
   state.backupReadiness = {enabled:true,configured:true,ready:true,state:'ready',transport:options.backupTransport ?? 'apps_script_pull'}; state.backups = []; state.backupMissing = 0; state.backupBlocked = null;
   if (options.autoConfirm !== false) page.on("dialog", dialog => dialog.accept());
   await page.route("**/api/admin/**", async route => {
-    const request = route.request(), url = new URL(request.url()), path = url.pathname, body = request.postData() ? request.postDataJSON() : null;
+    const request = route.request(), url = new URL(request.url()), path = url.pathname, body = request.postData() && request.headers()["content-type"]?.includes("application/json") ? request.postDataJSON() : null;
     state.calls.push({ path, method: request.method(), body, headers: request.headers() });
     const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", headers: { "Cache-Control": "no-store" }, body: JSON.stringify({ ok: true, data }) });
     const error = (code, status) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ ok: false, error: { code, message: "private SQL upstream message" } }) });
@@ -24,7 +24,15 @@ export async function adminFixture(page, options = {}) {
     if (state.failAdmin) return error("ADMIN_SERVICE_UNAVAILABLE", 503);
     if (path === "/api/admin/me") return reply({ member_id: state.member.member_id, role: state.role, csrf_token: state.csrf });
     if (path === '/api/admin/solo-targets') return reply({targets:state.soloTargets});
-    if (state.role === "reviewer" && !path.startsWith("/api/admin/cases")) return error("ADMIN_FORBIDDEN", 403);
+    if(path==='/api/admin/staff'){
+      if(state.role!=='super_admin')return error('ADMIN_FORBIDDEN',403);
+      state.staff??=[{nickname:'Owner fixture',fan_id:'fixture_owner',role:'super_admin',status:'active'}];
+      if(!body)return reply({memberships:state.staff});
+      if(!['admin','reviewer'].includes(body.role))return error('INVALID_STAFF_REQUEST',400);
+      const membership={nickname:'Fixture staff',fan_id:'fixture_staff',role:body.role,status:'active'};state.staff.push(membership);return reply({membership,outcome:'granted'},201);
+    }
+    if (state.role === "reviewer" && !path.startsWith("/api/admin/cases") && !(path==='/api/admin/campaigns'&&request.method()==='GET') && !path.startsWith('/api/admin/image-exports')) return error("ADMIN_FORBIDDEN", 403);
+    if(path==='/api/admin/image-exports')return reply({jobs:[]});
     if (request.method() === "POST") {
       if (request.headers()["x-csrf-token"] !== state.csrf || request.headers()["x-voteproof-request"] !== "1") return error("CSRF_REJECTED", 403);
       if (state.conflict) return error("CASE_STATUS_CONFLICT", 409);
@@ -40,9 +48,12 @@ export async function adminFixture(page, options = {}) {
     if (path.endsWith("/review") && body.action==="flag_detailed"){state.cases[0].review_stage="detailed";state.cases[0].review_risk_reason=body.review_risk_reason;state.cases[0].version++;return reply(state.cases[0]);}
     if (path.endsWith("/review")) { state.cases[0].status = { approve: "approved", reject: "rejected", mark_duplicate: "duplicate", complete: "completed", revoke: "revoked" }[body.action]; state.cases[0].version++; return reply(state.cases[0]); }
     if (path.startsWith("/api/admin/cases/")) return reply(state.cases[0]);
-    if (path === "/api/admin/campaigns") { if (body) { state.campaigns.push({ ...body, version: 0 }); return reply(state.campaigns.at(-1), 201); } return reply({ campaigns: state.campaigns, next_cursor: null }); }
-    if (path.startsWith("/api/admin/campaigns/")) { Object.assign(state.campaigns[0], body, { version: state.campaigns[0].version + 1 }); return reply(state.campaigns[0]); }
-    if (path === "/api/admin/leaderboards") { if (body) { state.boards.push({ ...body, version: 0 }); return reply(state.boards.at(-1), 201); } return reply({ leaderboards: state.boards, next_cursor: null }); }
+    if(path.startsWith('/api/admin/campaign-assets/')){if(request.method()==='GET')return route.fulfill({contentType:'image/png',body:png});const asset_id=randomUUID();state.assets.set(asset_id,request.postDataBuffer()??png);return reply({asset_id,size:(request.postDataBuffer()??png).length,content_type:'image/png'},201);}
+    if(path.endsWith('/guidance')){const id=path.split('/')[4];return reply(state.content[id]??{submission_instructions:'',example_asset_id:null,version:0});}
+    if(path.startsWith('/api/admin/announcements')){if(!body)return reply({announcements:state.announcements});const old=state.announcements.find(a=>path.includes('/'+a.announcement_id+'/'));const row={...body,announcement_id:old?.announcement_id??randomUUID(),version:(old?.version??-1)+1,updated_at:new Date().toISOString()};if(old)Object.assign(old,row);else state.announcements.push(row);return reply(row);}
+    if (path === "/api/admin/campaigns") { if (body) { state.content[body.campaign_id]={submission_instructions:body.submission_instructions??'',example_asset_id:body.example_asset_id??null,version:0}; state.campaigns.push({ ...body, version: 0 }); return reply(state.campaigns.at(-1), 201); } return reply({ campaigns: state.campaigns, next_cursor: null }); }
+    if (path.startsWith("/api/admin/campaigns/")) { state.content[state.campaigns[0].campaign_id]={submission_instructions:body.submission_instructions??'',example_asset_id:body.example_asset_id??null,version:1};Object.assign(state.campaigns[0], body, { version: state.campaigns[0].version + 1 }); return reply(state.campaigns[0]); }
+    if (path === "/api/admin/leaderboards") { if (body) { if(body.is_current_comeback)for(const b of state.boards)b.is_current_comeback=false;state.boards.push({ ...body, leaderboard_id:body.leaderboard_id??'board-'+randomUUID(), version: 0 }); return reply(state.boards.at(-1), 201); } return reply({ leaderboards: state.boards, next_cursor: null }); }
     if (path.endsWith("/results")) return reply({ leaderboards: [{ ...state.boards[0], rankings: [{ rank: 4, nickname: "已發布會員", points: 80, proof_count: 8 }] }] });
     if (path.endsWith("/rebuild")) return reply({ run_id: randomUUID(), row_count: 1 });
     if (path.startsWith("/api/admin/leaderboards/")) { Object.assign(state.boards[0], body, { version: state.boards[0].version + 1 }); return reply(state.boards[0]); }

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./isolated-ui-fixture.mjs";
 import { adminFixture } from "./admin-fixture.mjs";
 import { png } from "./member-fixture.mjs";
 import { randomUUID } from "node:crypto";
@@ -94,9 +94,9 @@ async function fixture(page, { direct = false } = {}) {
     if (!job) return reply(route, "EXPORT_NOT_FOUND", 404);
     const p = job.packages[0];
     if (path.endsWith("/start")) {
-      p.status = "in_progress";
-      p.attempt_id = b.attempt_id;
-      return reply(route, { package: p, items: files });
+      const readOnly=p.status==='completed';
+      if(!readOnly){p.status = "in_progress";p.attempt_id = b.attempt_id;}
+      return reply(route, { package: p, items: files,read_only:readOnly });
     }
     if (path.includes("/files/")) {
       state.proofs++;
@@ -224,11 +224,11 @@ test("direct file writer applies chunks and closes only after complete ZIP", asy
   expect(Object.keys(unzipSync(bytes))).toHaveLength(4);
   expect(state.proofs).toBe(3);
 });
-test("reviewer does not see bulk export entry", async ({ page }) => {
+test("reviewer sees bulk export with only review tabs", async ({ page }) => {
   await adminFixture(page, { role: "reviewer" });
   await page.goto("/#admin");
-  await expect(page.locator("#admin-tabs button")).toHaveCount(2);
+  await expect(page.locator("#admin-tabs button")).toHaveCount(3);
   await expect(
     page.locator("#admin-tabs").getByRole("button", { name: "圖片批次匯出" }),
-  ).toHaveCount(0);
+  ).toHaveCount(1);
 });

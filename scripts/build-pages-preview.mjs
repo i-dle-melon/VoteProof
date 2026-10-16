@@ -53,6 +53,8 @@ export async function buildPagesPreview(output) {
     "index.html",
     "css/app.css",
     "js/app.js",
+    "js/leaderboard-ui.js", "js/vote-date.js",
+    "js/campaign-guidance.js", "js/announcements.js",
     "js/api.js",
     "js/member.js",
     "js/admin.js",
@@ -94,6 +96,7 @@ export async function buildPagesPreview(output) {
   const adapters = {
     "pages-preview-runtime.js": "preview.js",
     "pages-preview-fixtures.js": "preview-fixtures.js",
+    "pages-preview-content.js": "preview-content.js",
     "pages-preview-state.js": "pages-preview-state.js",
     "pages-public-ui.js": "member-api.js",
     "pages-preview-challenge.js": "turnstile.js",

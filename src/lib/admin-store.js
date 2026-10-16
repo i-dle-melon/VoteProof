@@ -73,8 +73,9 @@ export async function applyReview(db, actor, row, input) {
 export async function auditLogs(db, page) {
   const { clauses, values } = filterSql(page, "a");
   if (page.cursor) { clauses.push("(a.created_at < ? OR (a.created_at = ? AND a.id < ?))"); values.push(page.cursor[1], page.cursor[1], page.cursor[2]); }
-  const rows = (await db.prepare(`SELECT a.id, a.created_at, a.admin_member_id, a.admin_role, a.action, a.target_type,
-    a.target_id, a.target_version, a.before_json, a.after_json, a.reason FROM admin_audit_logs a
+  const rows = (await db.prepare(`WITH all_audit AS (SELECT * FROM admin_audit_logs UNION ALL SELECT * FROM admin_content_audit)
+    SELECT a.id, a.created_at, a.admin_member_id, a.admin_role, a.action, a.target_type,
+    a.target_id, a.target_version, a.before_json, a.after_json, a.reason FROM all_audit a
     ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY a.created_at DESC, a.id DESC LIMIT ?`)
     .bind(...values, page.limit + 1).all()).results;
   const selected = rows.slice(0, page.limit), last = selected.at(-1);

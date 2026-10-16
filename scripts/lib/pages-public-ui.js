@@ -47,7 +47,7 @@ export class MemberSession {
   async adminProof(path) {
     if (
       !PREVIEW ||
-      previewState.identity !== "admin" ||
+      !["admin","super_admin","reviewer"].includes(previewState.identity) ||
       previewState.data !== "normal" ||
       !/^\/api\/admin\/cases\/VP-PREVIEW-\d+\/files\/PREVIEW-IMAGE-\d+$/.test(path)
     )
@@ -55,9 +55,11 @@ export class MemberSession {
     return previewPicture();
   }
   async exportSample() {
-    if(!PREVIEW || previewState.identity!=='admin')throw new PublicError('UI_PREVIEW_ONLY',403);
+    if(!PREVIEW || !['admin','super_admin','reviewer'].includes(previewState.identity))throw new PublicError('UI_PREVIEW_ONLY',403);
     return new Uint8Array(await (await previewPicture()).arrayBuffer());
   }
+  async adminAsset(path,signal){const response=await previewFetch(path,{signal});if(!response.ok)throw new PublicError('CONTENT_NOT_FOUND',response.status);return response.blob();}
+  async adminAssetUpload(campaignId,file,signal){return this.request('/api/admin/campaign-assets/'+encodeURIComponent(campaignId),{method:'POST',body:file,signal});}
   caseSender() {
     const blocked = async () => {
       throw new PublicError("UI_PREVIEW_ONLY", 403);

@@ -313,6 +313,11 @@ test("package completion callback idempotent; failed cannot downgrade completed"
   assert.equal((await data(await call(path, "POST", b))).status, "completed");
   assert.equal((await data(await call(path, "POST", b))).status, "completed");
   await error(await call(path, "POST", { ...b, status: "failed" }), 409, "EXPORT_PACKAGE_CONFLICT");
+  const before=await local.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(j.id).first();
+  const repeat=await data(await call(`/jobs/${j.id}/packages/1/start`,'POST',{attempt_id:randomUUID(),expected_attempt_id:s.attempt}));
+  assert.equal(repeat.read_only,true);assert.equal(repeat.package.status,'completed');assert.equal(repeat.package.attempt_id,s.attempt);
+  await error(await call(path,'POST',{...b,status:'failed',error_code:'EXPORT_CANCELLED'}),409,'EXPORT_PACKAGE_CONFLICT');
+  assert.deepEqual(await local.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(j.id).first(),before);
 });
 test("concurrent starts use CAS and only one attempt wins; exact start replay succeeds", async () => {
   const j = await create(),
@@ -331,10 +336,10 @@ test("concurrent starts use CAS and only one attempt wins; exact start replay su
     winner,
   );
 });
-test("export read and mutation routes all enforce reviewer/member denial", async () => {
+test("export read and mutation routes enforce ordinary member denial", async () => {
   const j = await create(),
     s = await start(j);
-  for (const actor of [member, reviewer])
+  for (const actor of [member])
     for (const [path, method, body] of [
       ["/query", "POST", filters()],
       ["/jobs", "POST", { job_id: randomUUID(), filters: filters() }],

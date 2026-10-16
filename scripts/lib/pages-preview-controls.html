@@ -3,12 +3,15 @@
   <details id="preview-controls">
     <summary>切換預覽情境</summary>
     <div class="preview-controls-grid">
+<label>彈窗公告<select data-preview-control="announcement"><option value="off">關閉</option><option value="on">開放，可關閉</option><option value="locked">開放，不可關閉</option><option value="future">尚未開始</option><option value="expired">已結束</option></select></label>
       <label>圖片匯出<select id="preview-exports" data-preview-control="exports"><option value="normal">Normal · 4386 張／14 包</option><option value="small">Small · 76 張／1 包</option><option value="empty">Empty · 0 張</option><option value="error">Error · 查詢失敗</option></select></label>
       <label
         >身份<select id="preview-identity" data-preview-control="identity">
           <option value="guest">訪客</option>
           <option value="member">一般會員（展示）</option>
           <option value="admin">Admin（展示）</option>
+          <option value="super_admin">主管理員（展示）</option>
+          <option value="reviewer">審核員（展示）</option>
         </select></label
       >
       <label

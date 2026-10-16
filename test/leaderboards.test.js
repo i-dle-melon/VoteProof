@@ -176,7 +176,7 @@ test('Public reads only current successful active public run and safe B1-compati
   const b = await h.create(); await publish(b); const response = await local.fetch('/api/leaderboards?id='+b.leaderboard_id);
   assert.equal(response.headers.get('cache-control'),'public, max-age=15, must-revalidate'); const json = await response.json();
   assert.deepEqual(Object.keys(json.data).sort(),['custom_boards','generated_at','leaderboards']); const board = json.data.leaderboards[0];
-  assert.deepEqual(Object.keys(board).sort(),['campaign_id','generated_at','leaderboard_id','name','rankings','type','vote_type']);
+  assert.deepEqual(Object.keys(board).sort(),['campaign_id','generated_at','is_current_comeback','leaderboard_id','name','rankings','type','vote_type']);
   for (const row of board.rankings) assert.deepEqual(Object.keys(row).sort(),['fan_id','member_id','nickname','points','proof_count','rank','reached_at','tier','tier_configuration_ready']);
   assert.equal(/email|player_id|token|hash|object_key|run_id|created_by/.test(JSON.stringify(json)),false);
   assert.deepEqual((await (await local.fetch('/api/leaderboards?id=missing')).json()).data.leaderboards,[]);

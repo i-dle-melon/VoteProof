@@ -129,13 +129,12 @@ after(async () => {
 for (const [name, who, status, code] of [
   ["guest", () => null, 401, "AUTH_REQUIRED"],
   ["member", () => member, 403, "ADMIN_FORBIDDEN"],
-  ["reviewer", () => reviewer, 403, "ADMIN_FORBIDDEN"],
   ["missing MFA", () => noMfa, 403, "ADMIN_STEP_UP_REQUIRED"],
 ])
   test(`export ${name} denied`, async () =>
     error(await call("", "GET", undefined, who()), status, code));
-test("admin and super_admin allowed; responses do not expose private keys", async () => {
-  for (const actor of [admin, superAdmin]) {
+test("reviewer, admin and super_admin allowed; responses do not expose private keys", async () => {
+  for (const actor of [reviewer, admin, superAdmin]) {
     const result = await data(await call("/query", "POST", filters(), actor));
     assert.equal(result.image_count, 6);
     assert.equal(result.total_bytes, 18);

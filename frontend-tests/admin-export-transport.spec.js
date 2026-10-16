@@ -4,7 +4,7 @@ import { png } from "./member-fixture.mjs";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { unzipSync } from "fflate";
-async function fixture(page, { direct = false } = {}) {
+async function fixture(page, { direct = false, packages = 1 } = {}) {
   const auth = await adminFixture(page);
   await page.addInitScript(
     ({ direct }) => {
@@ -77,22 +77,22 @@ async function fixture(page, { direct = false } = {}) {
         image_count: 3,
         total_bytes: png.length * 3,
         created_at: "2026-10-14T04:00:00.000Z",
-        packages: [
+        packages: Array.from({length:packages},(_,i)=>(
           {
-            number: 1,
+            number: i+1,
             image_count: 3,
             total_bytes: png.length * 3,
             status: "planned",
             attempt_id: null,
-          },
-        ],
+          }
+        )),
       };
       state.jobs.unshift(j);
       return reply(route, j);
     }
     const job = state.jobs.find((j) => path.includes(j.id));
     if (!job) return reply(route, "EXPORT_NOT_FOUND", 404);
-    const p = job.packages[0];
+    const number=Number(path.match(/\/packages\/(\d+)/)?.[1]??1),p=job.packages[number-1];
     if (path.endsWith("/start")) {
       const readOnly=p.status==='completed';
       if(!readOnly){p.status = "in_progress";p.attempt_id = b.attempt_id;}
@@ -162,11 +162,14 @@ test("missing proof fails without download, retry succeeds", async ({ page }) =>
   expect(count).toBe(0);
   await expect(page.locator(".image-export")).toContainText("1 個檔案無法取得");
   state.failProof = false;
+  const retried=page.waitForEvent("download");
   await page.getByRole("button", { name: "重新下載", exact: true }).click();
   await expect(page.locator("[data-export-state]")).toHaveAttribute(
     "data-export-state",
     "completed",
   );
+  const retriedFile=await retried;expect(await retriedFile.failure()).toBe(null);
+  expect(Object.keys(unzipSync(new Uint8Array(await readFile(await retriedFile.path()))))).toHaveLength(4);
   expect(count).toBe(1);
 });
 test("cancel aborts proof transfer and does not complete", async ({ page }) => {
@@ -231,4 +234,32 @@ test("reviewer sees bulk export with only review tabs", async ({ page }) => {
   await expect(
     page.locator("#admin-tabs").getByRole("button", { name: "圖片批次匯出" }),
   ).toHaveCount(1);
+});
+
+async function actualZIP(page,click){
+ const event=page.waitForEvent('download');await click();const file=await event;
+ expect(await file.failure()).toBe(null);const zip=unzipSync(new Uint8Array(await readFile(await file.path())));
+ expect(Object.keys(zip)).toHaveLength(4);return {file,zip};
+}
+test('actual Blob completed re-download preserves attempt and server completion; URL remains live',async({page})=>{
+ const state=await fixture(page);const first=await actualZIP(page,()=>download(page).click());
+ await expect(page.locator('[data-export-state]')).toHaveAttribute('data-export-state','completed');
+ const before=structuredClone(state.jobs[0].packages[0]),writes=state.calls.filter(c=>c.path.endsWith('/state')).length;
+ const second=await actualZIP(page,()=>page.getByRole('button',{name:'再次下載',exact:true}).click());
+ expect(second.zip).toEqual(first.zip);expect(state.jobs[0].packages[0]).toEqual(before);expect(state.calls.filter(c=>c.path.endsWith('/state'))).toHaveLength(writes);expect(state.proofs).toBe(6);
+});
+test('actual Blob completed retry failure and cancel leave no orphan state or extra download',async({page})=>{
+ const state=await fixture(page);await actualZIP(page,()=>download(page).click());await expect(page.locator('[data-export-state]')).toHaveAttribute('data-export-state','completed');
+ const before=structuredClone(state.jobs[0].packages[0]),writes=state.calls.filter(c=>c.path.endsWith('/state')).length;let downloads=0;page.on('download',()=>downloads++);
+ state.failProof=true;await page.getByRole('button',{name:'再次下載',exact:true}).click();await expect(page.locator('.image-export')).toContainText('再次下載未完成');expect(state.jobs[0].packages[0]).toEqual(before);
+ state.failProof=false;state.slow=true;await page.getByRole('button',{name:'再次下載',exact:true}).click();await expect(page.locator('#export-progress')).toContainText('下載圖片');await page.getByRole('button',{name:'取消',exact:true}).click();await expect(page.locator('.image-export')).toContainText('再次下載已取消');
+ expect(state.jobs[0].packages[0]).toEqual(before);expect(state.calls.filter(c=>c.path.endsWith('/state'))).toHaveLength(writes);expect(downloads).toBe(0);await expect(page.locator('#export-progress')).toHaveCount(0);
+});
+test('actual Blob batch-all produces separate sequential ZIPs with one real Worker and operator policy hint',async({page})=>{
+ await page.addInitScript(()=>{const Original=window.Worker;window.__zipWorkers={active:0,max:0};window.Worker=class extends Original{constructor(...args){super(...args);window.__zipWorkers.max=Math.max(window.__zipWorkers.max,++window.__zipWorkers.active);}terminate(){window.__zipWorkers.active--;return super.terminate();}};});
+ const state=await fixture(page,{packages:3}),downloads=[];state.jobs[0].packages[1].status='completed';state.jobs[0].packages[1].attempt_id=randomUUID();const completedBefore=structuredClone(state.jobs[0].packages[1]);page.on('download',file=>downloads.push(file));
+ await page.getByRole('button',{name:'批次全下載',exact:true}).click();await expect(page.locator('[data-export-state="completed"]')).toHaveCount(3);await expect.poll(()=>downloads.length).toBe(3);
+ for(const file of downloads){expect(await file.failure()).toBe(null);const zip=unzipSync(new Uint8Array(await readFile(await file.path())));expect(Object.keys(zip)).toHaveLength(4);}
+ expect(new Set(downloads.map(d=>d.suggestedFilename())).size).toBe(3);expect(state.proofs).toBe(9);expect(state.jobs[0].packages[1]).toEqual(completedBefore);expect(state.calls.filter(c=>c.path.endsWith('/state')).map(c=>Number(c.path.match(/\/packages\/(\d+)/)[1]))).toEqual([1,3]);expect(await page.evaluate(()=>window.__zipWorkers)).toEqual({active:0,max:1});
+ expect(state.calls.filter(c=>c.path.endsWith('/start')).map(c=>Number(c.path.match(/\/packages\/(\d+)/)[1]))).toEqual([1,2,3]);await expect(page.locator('.image-export')).toContainText('瀏覽器可能要求允許多個檔案下載');expect(state.calls.every(c=>!c.path.includes('combined'))).toBe(true);
 });

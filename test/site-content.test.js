@@ -61,3 +61,8 @@ test('failed content transactions roll back publication and remove only newly un
  try{assert.equal((await post('/api/admin/announcements',announcement)).status,503);assert.equal((await raw()).status,503);}finally{h.db.batch=original;h.bucket.put=put;}
  assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM site_announcements').first()).n,before);assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM campaign_example_assets').first()).n,assets);assert.match(key,/^campaign-assets\/CONTENT_TEST\/example\//);assert.equal(await h.bucket.head(key),null);assert.ok(await h.bucket.head('proofs/unchanged'));
 });
+test('announcement schedule includes exact start and excludes exact end',async t=>{
+ const starts_at='2030-01-01T00:00:00.000Z',ends_at='2030-01-01T00:01:00.000Z',row=await data(await post('/api/admin/announcements',{...announcement,starts_at,ends_at}),201);
+ t.mock.timers.enable({apis:['Date'],now:Date.parse(starts_at)-1});
+ try{const visible=async()=>(await data(await h.fetch('/api/announcements'))).announcements.some(a=>a.announcement_id===row.announcement_id);assert.equal(await visible(),false);t.mock.timers.setTime(Date.parse(starts_at));assert.equal(await visible(),true);t.mock.timers.setTime(Date.parse(ends_at)-1);assert.equal(await visible(),true);t.mock.timers.setTime(Date.parse(ends_at));assert.equal(await visible(),false);}finally{t.mock.timers.reset();}
+});

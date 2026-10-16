@@ -71,4 +71,4 @@ jobs:
       - name: Wrangler migrations and registry replay on disposable LOCAL D1
         run: npm run check:admin-schema
       - name: Populated 0018 migration and historical compatibility
-        run: node --test test/solo-target-registry-migration.test.js test/current-comeback-migration.test.js test/site-content-migration.test.js test/integration-production-schema.test.js
+        run: node --test test/solo-target-registry-migration.test.js test/current-comeback-migration.test.js test/site-content-migration.test.js test/rc-migration-chain.test.js test/integration-production-schema.test.js

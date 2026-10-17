@@ -47,4 +47,3 @@ test('new footer and both native modals fit mobile and desktop in both themes',a
  }
  await expect(page.locator('.footer-owner')).toHaveAttribute('href','https://i-dle-melon.github.io/vote/');await expect(page.locator('.footer-note')).toContainText('Designed & Maintained by');
 });
-

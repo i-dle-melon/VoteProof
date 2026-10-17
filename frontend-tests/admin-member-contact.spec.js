@@ -18,10 +18,22 @@ test('lookup beside member total; result fields, exact search, blocked and multi
 test('Gmail-like native composer fixes From/To, prefill editable, send once and success',async({page})=>{
  await overview(page);const d=await lookup(page);await d.getByRole('button',{name:'寄信給會員',exact:true}).click();const c=page.getByRole('dialog',{name:'寄信給會員',exact:true});
  await expect(c.getByLabel('寄件者（唯讀）')).toHaveValue('idle.voteproof.verify@gmail.com');await expect(c.getByLabel('寄件者（唯讀）')).toHaveAttribute('readonly','');await expect(c.getByLabel('收件者（唯讀）')).toHaveValue('preview-fan-yeh@example.invalid');await expect(c.getByLabel('收件者（唯讀）')).toHaveAttribute('readonly','');
- await c.getByRole('button',{name:'帶入說明',exact:true}).click();expect(await c.getByLabel('內容（純文字）').inputValue()).toContain('展示客服說明');await c.getByLabel('主旨',{exact:true}).fill('展示客服回覆');await c.getByLabel('內容（純文字）').fill('您好，這是編輯後的純文字內容。');
+ const expectedBody='您好 葉子，\n\n這是 VoteProof 管理團隊寄出的會員通知。\n\n粉絲 ID：fan_yeh\n\n通知內容：\n展示客服說明：您的案件審核進度可至「我的案件」查看。\n\n如有任何問題，可直接回覆此郵件與我們聯絡。\n\nVoteProof 管理團隊';
+ await expect(c.getByLabel('主旨',{exact:true})).toHaveValue('VoteProof 會員通知');await expect(c.getByLabel('內容（純文字）')).toHaveValue(expectedBody);
+ await expect(c.getByLabel('主旨',{exact:true})).toBeEditable();await expect(c.getByLabel('內容（純文字）')).toBeEditable();
+ await c.getByLabel('內容（純文字）').fill('暫時編輯的內容');await c.getByRole('button',{name:'帶入說明',exact:true}).click();await expect(c.getByLabel('內容（純文字）')).toHaveValue(expectedBody);await c.getByLabel('主旨',{exact:true}).fill('展示客服回覆');await c.getByLabel('內容（純文字）').fill('您好，這是編輯後的純文字內容。');
  await page.evaluate(async()=>{const{MemberSession}=await import('./js/member-api.js');const original=MemberSession.prototype.adminRequest;window.mailCalls=[];MemberSession.prototype.adminRequest=async function(p,o){if(p.endsWith('/member-mail/send'))window.mailCalls.push(o.body);return original.call(this,p,o);};});
  await c.getByRole('button',{name:'傳送',exact:true}).evaluate(b=>{b.click();b.click();});await expect(c.getByRole('status')).toHaveText('郵件已傳送。');await expect(c.getByRole('button',{name:'已傳送',exact:true})).toBeDisabled();const calls=await page.evaluate(()=>window.mailCalls);expect(calls).toHaveLength(1);expect(Object.keys(calls[0]).sort()).toEqual(['body','member_id','mutation_id','recipient_ref','subject']);
+ expect(calls[0].subject).toBe('展示客服回覆');expect(calls[0].body).toBe('您好，這是編輯後的純文字內容。');
  await c.getByRole('button',{name:'捨棄',exact:true}).click();await expect(c).toHaveCount(0);await expect(d.getByRole('button',{name:'寄信給會員',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(d).toHaveCount(0);await expect(page.getByRole('button',{name:'會員查詢',exact:true})).toBeFocused();
+});
+test('missing nickname/explanation opens with exact anonymous greeting and blank notification area',async({page})=>{
+ await overview(page);
+ await page.evaluate(async()=>{const{MemberSession}=await import('./js/member-api.js');const original=MemberSession.prototype.adminRequest;MemberSession.prototype.adminRequest=async function(p,o){const result=await original.call(this,p,o);return p.endsWith('/member-lookup')?{...result,member:{...result.member,nickname:'',explanation:''}}:result;};});
+ const d=await lookup(page,'preview_multi_fan');await d.getByRole('button',{name:'寄信給會員',exact:true}).nth(1).click();const c=page.getByRole('dialog',{name:'寄信給會員',exact:true});
+ await expect(c.getByLabel('主旨',{exact:true})).toHaveValue('VoteProof 會員通知');
+ await expect(c.getByLabel('內容（純文字）')).toHaveValue('您好，\n\n這是 VoteProof 管理團隊寄出的會員通知。\n\n粉絲 ID：preview_multi_fan\n\n通知內容：\n\n\n如有任何問題，可直接回覆此郵件與我們聯絡。\n\nVoteProof 管理團隊');
+ await expect(c.getByLabel('收件者（唯讀）')).toHaveValue('preview-second@example.invalid');await expect(c.getByRole('button',{name:'帶入說明',exact:true})).toHaveCount(0);
 });
 test('confirmed failure preserves editable draft; ambiguous result disables resend',async({page})=>{
  await overview(page,'preview_identity=admin&preview_mail=rejected');let d=await lookup(page);await d.getByRole('button',{name:'寄信給會員',exact:true}).click();let c=page.getByRole('dialog',{name:'寄信給會員',exact:true});await c.getByLabel('主旨',{exact:true}).fill('未寄出測試');await c.getByLabel('內容（純文字）').fill('保留我的草稿');await c.getByRole('button',{name:'傳送',exact:true}).click();await expect(c.getByRole('status')).toContainText('已確認未寄出');await expect(c.getByLabel('內容（純文字）')).toHaveValue('保留我的草稿');await expect(c.getByLabel('主旨',{exact:true})).toBeEditable();await expect(c.getByRole('button',{name:'傳送',exact:true})).toBeEnabled();

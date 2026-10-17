@@ -1,5 +1,20 @@
 // Shared Production/Preview renderer. Only the injected transport differs.
 const FROM='idle.voteproof.verify@gmail.com';
+export function supportMailTemplate(member){
+ const nickname=typeof member.nickname==='string'&&member.nickname.trim()?member.nickname:'',explanation=typeof member.explanation==='string'?member.explanation:'';
+ return{subject:'VoteProof 會員通知',body:`您好${nickname?' '+nickname:''}，
+
+這是 VoteProof 管理團隊寄出的會員通知。
+
+粉絲 ID：${member.fan_id??''}
+
+通知內容：
+${explanation}
+
+如有任何問題，可直接回覆此郵件與我們聯絡。
+
+VoteProof 管理團隊`};
+}
 const node=(tag,text='',cls)=>{const n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;return n;};
 const button=(name,action,cls='btn btn-white')=>{const b=node('button',name,cls);b.type='button';b.addEventListener('click',action);return b;};
 const message=e=>({MEMBER_NOT_FOUND:'找不到此粉絲 ID 的會員。',MEMBER_EMAIL_UNAVAILABLE:'沒有可使用的已驗證 Email，或收件資料已變更，請重新查詢。',MEMBER_LOOKUP_REQUIRED:'查詢已過期，請重新查詢會員。',ADMIN_MAIL_NOT_CONFIGURED:'客服寄信尚未設定完成。',ADMIN_MAIL_RATE_LIMITED:'客服寄信已達保留配額限制，請稍後再試。',INVALID_MEMBER_CONTACT:'請確認粉絲 ID、主旨（150 字內）與內容（10000 字內）。',MEMBER_MAIL_MUTATION_CONFLICT:'此寄信編號已用於其他內容，請重新查詢後建立新信件。',ADMIN_STEP_UP_REQUIRED:'請重新完成 MFA 驗證。',ADMIN_FORBIDDEN:'你目前沒有此操作的管理權限。'}[e?.code]??'操作未完成，未自動重送。請確認狀態後再試。');
@@ -20,8 +35,8 @@ export function memberContactUI({request,opener}){
   const{d,close}=modal('寄信給會員','member-mail-compose',source);compose=d;
   const f=node('form');f.dataset.memberMailEditor='';
   field(f,'from','寄件者（唯讀）','input',FROM,true);field(f,'to','收件者（唯讀）','input',email.email,true);
-  const subject=field(f,'subject','主旨'),body=field(f,'body','內容（純文字）','textarea');subject.required=true;subject.maxLength=150;body.required=true;body.maxLength=10000;body.rows=10;
-  if(member.explanation)f.append(button('帶入說明',()=>{body.value=member.explanation;body.focus();}));
+  const template=supportMailTemplate(member),subject=field(f,'subject','主旨','input',template.subject),body=field(f,'body','內容（純文字）','textarea',template.body);subject.required=true;subject.maxLength=150;body.required=true;body.maxLength=10000;body.rows=10;
+  if(member.explanation)f.append(button('帶入說明',()=>{body.value=supportMailTemplate(member).body;body.focus();}));
   const status=node('p','','notice');status.setAttribute('role','status');const footer=node('div','','contact-footer'),send=node('button','傳送','btn btn-primary'),discard=button('捨棄',()=>d.close());send.type='submit';footer.append(send,discard);f.append(status,footer);d.append(f);
   let inFlight=false,mutation=null,fingerprint=null,terminal=false;
   const freezeDraft=()=>{subject.readOnly=body.readOnly=true;};

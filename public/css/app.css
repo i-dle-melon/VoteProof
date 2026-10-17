@@ -2729,3 +2729,21 @@ button.legacy-case-row:hover {
 .about-dialog .page-head { margin-top:16px; }
 .about-dialog .page-head h1 { font-size:clamp(24px,4vw,34px); }
 .about-dialog .form-card { width:100%;max-width:none;padding:16px;box-sizing:border-box; }
+.member-total-contact { display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px; }
+.member-total-contact > .tiny { grid-column:1; }
+.member-total-contact > strong { grid-column:1; }
+.member-total-contact > button { grid-column:2;grid-row:1 / 3;min-width:0;padding:10px 12px; }
+.member-contact-dialog { width:min(680px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);box-sizing:border-box;overflow:auto;padding:clamp(12px,3vw,24px);overflow-wrap:anywhere; }
+.contact-titlebar { display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:16px; }
+.contact-titlebar h2 { margin:0;font-size:clamp(20px,4vw,26px); }
+.member-contact-dialog form,.member-contact-dialog .field { min-width:0; }
+.member-contact-dialog input,.member-contact-dialog textarea { width:100%;min-width:0;max-width:100%;box-sizing:border-box; }
+.member-contact-dialog [readonly] { color:var(--muted);background:var(--bg); }
+.member-lookup-result { margin-top:16px; }
+.member-lookup-result dd { min-width:0;overflow-wrap:anywhere; }
+.contact-email-row { border-top:1px solid var(--line);padding:12px 0; }
+.contact-email-row p { margin:4px 0 10px; }
+.member-mail-compose { width:min(720px,calc(100vw - 24px));border-top:4px solid var(--primary); }
+.member-mail-compose textarea { min-height:200px;resize:vertical; }
+.contact-footer { display:flex;gap:12px;flex-wrap:wrap;justify-content:space-between;border-top:1px solid var(--line);padding-top:16px; }
+.member-contact-dialog .notice:empty { display:none; }

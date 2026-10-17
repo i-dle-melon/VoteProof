@@ -10,12 +10,13 @@ on:
         type: string
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: voteproof-pages
   cancel-in-progress: true
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/solo-total-leaderboard-fix')
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/solo-total-leaderboard-fix' || github.ref == 'refs/heads/codex/admin-member-mail-v1'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +27,13 @@ jobs:
         run: |
           [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
+      - name: Require full branch CI for member-mail Preview
+        if: github.ref == 'refs/heads/codex/admin-member-mail-v1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {data} = await github.rest.actions.listWorkflowRuns({owner:context.repo.owner,repo:context.repo.repo,workflow_id:'branch-validation.yml',head_sha:context.sha,branch:'codex/admin-member-mail-v1',status:'completed'});
+            if (!data.workflow_runs.some(run => run.head_sha === context.sha && run.conclusion === 'success')) core.setFailed('Full branch CI must PASS for this exact SHA before Pages publication.');
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -40,7 +48,7 @@ jobs:
         with:
           path: .wrangler/pages-preview
   deploy:
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/solo-total-leaderboard-fix')
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/solo-total-leaderboard-fix' || github.ref == 'refs/heads/codex/admin-member-mail-v1'))
     needs: build
     runs-on: ubuntu-latest
     permissions:

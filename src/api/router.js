@@ -3,6 +3,7 @@ import { getCampaigns } from "./campaigns.js";
 import { getLeaderboards } from "./leaderboards.js";
 import { staffRoute } from './admin-staff.js';
 import { memberBlockRoute } from './admin-member-blocks.js';
+import { memberContactRoute } from './admin-member-contact.js';
 import { siteContentRoute } from './site-content.js';
 import { jsonError } from "./response.js";
 import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
@@ -110,6 +111,7 @@ export async function routeApi(request, env, url) {
     adminRoute(url.pathname) ??
     staffRoute(url.pathname,request.method) ??
     memberBlockRoute(url.pathname,request.method) ??
+    memberContactRoute(url.pathname) ??
     siteContentRoute(url.pathname,request.method) ??
     imageExportRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??

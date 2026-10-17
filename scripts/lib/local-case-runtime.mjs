@@ -8,7 +8,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, adminMailService, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
@@ -30,6 +30,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       AUTH_TOTP_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     },
     outboundService: async request => {
+      if(adminMailService && new URL(request.url).hostname === "script.google.com") return adminMailService(request);
       if (backupService && ['oauth2.googleapis.com','www.googleapis.com'].includes(new URL(request.url).hostname)) {
         const mocked = await backupService(request); if (mocked) return mocked;
       }

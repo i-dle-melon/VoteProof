@@ -120,6 +120,7 @@ export const adminCases=[...cases,{...cases[0],case_id:"VP-PREVIEW-006",nickname
 export const previewCampaigns=[campaign,{...campaign,campaign_id:"PREVIEW-GROUP",name:"展示團體活動・假資料",category:"團體",solo_target:null}];
 const soloTargets=['miyeon','minnie','soyeon','yuqi','shuhua'].map((target_id,i)=>({target_id,display_name:target_id.toUpperCase(),active:true,sort_order:i+1}));
 const partialFailures=new Set();
+const mailLookups=new Set(),mailSends=new Map();
 const paged = (key, data) => ({ [key]: state.data === "empty" ? [] : data, next_cursor: null });
 export async function fixtureResponse(path, { method = "GET",body } = {}) {
   const reply = (data, status = 200) =>
@@ -133,6 +134,26 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     p = url.pathname;
   if(p==='/api/auth/logout'){previewLoggedOut=true;return reply({logged_out:true});}
   if(!previewLoggedOut&&state.identity==='blocked'&&(p.startsWith('/api/me/')||p.startsWith('/api/auth/')||p.startsWith('/api/admin/')))return reply('MEMBER_SUSPENDED',403);
+  if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(p)){
+    if(!isManager||previewLoggedOut)return reply('ADMIN_FORBIDDEN',403);
+    if(method!=='POST'||url.search)return reply('INVALID_MEMBER_CONTACT',400);
+    const b=typeof body==='string'?JSON.parse(body):body;
+    if(p.endsWith('member-lookup')){
+      const fan=typeof b?.fan_id==='string'?b.fan_id.trim().toLowerCase():'';
+      if(state.data==='empty'||!['fan_yeh','preview_blocked_fan','preview_multi_fan','preview_no_email'].includes(fan))return reply('MEMBER_NOT_FOUND',404);
+      const id='PREVIEW-CONTACT-'+fan;mailLookups.add(id);
+      return reply({member:{member_id:id,fan_id:fan,nickname:fan==='fan_yeh'?'葉子':'展示粉絲・假資料',status:fan==='preview_blocked_fan'?'suspended':'active',
+        created_at:'2026-10-01T00:00:00.000Z',updated_at:'2026-10-17T02:00:00.000Z',tier:tiers[3],total_points:420,
+        proof_counts:{total:45,pending:2,approved:42,rejected:1},login_methods:['Google','Email／密碼'],
+        explanation:fan==='preview_blocked_fan'?'展示封鎖原因・假資料':'展示客服說明：您的案件審核進度可至「我的案件」查看。',
+        emails:fan==='preview_no_email'?[]:[{email:'preview-fan-yeh@example.invalid',providers:['Google','Email／密碼'],recipient_ref:'a'.repeat(64)},...(fan==='preview_multi_fan'?[{email:'preview-second@example.invalid',providers:['Google'],recipient_ref:'b'.repeat(64)}]:[])]}});
+    }
+    if(!b||Object.keys(b).some(k=>!['member_id','recipient_ref','subject','body','mutation_id'].includes(k))||!b.subject?.trim()||b.subject.length>150||!b.body?.trim()||b.body.length>10000||/[\r\n]/.test(b.subject))return reply('INVALID_MEMBER_CONTACT',400);
+    if(!mailLookups.has(b.member_id))return reply('MEMBER_LOOKUP_REQUIRED',403);
+    const prior=mailSends.get(b.mutation_id);if(prior)return reply({...prior,replayed:true});
+    await new Promise(resolve=>setTimeout(resolve,120));
+    const r={send_id:b.mutation_id,outcome:state.mail==='rejected'?'rejected':state.mail==='ambiguous'?'ambiguous':'sent',replayed:false};mailSends.set(b.mutation_id,r);return reply(r);
+  }
   if(p==='/api/admin/member-blocks'){
     if(!isManager)return reply('ADMIN_FORBIDDEN',403);
     if(method==='GET')return reply(paged('members',blockedMembers));

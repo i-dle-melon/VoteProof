@@ -5,6 +5,7 @@ import { renderTierArtwork } from "./tier-artwork.js";
 import { backupText, backupLink } from "./admin-backup.js";
 import { renderDuplicateEvidence } from './admin-duplicate.js';
 import { renderImageExports } from './admin-export.js';
+import { memberContactUI } from './admin-member-contact.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -45,10 +46,11 @@ export function adminUI(session) {
   const clearAlbumImages=()=>{thumbnails?.clear();thumbnails=null;};
   let expanded=null;
   let blockDialog=null;
+  let memberContact=null;
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
   function clearImages() { for (const url of urls) URL.revokeObjectURL(url); urls = []; }
-  function clearPanel() { blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
+  function clearPanel() { memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
   const access = new AdminAccess(session, actor => {
     $("admin-nav-group").hidden = $("member-admin-entry").hidden = !actor;
     $("admin-content").hidden = !actor; $("admin-gate").hidden = Boolean(actor);
@@ -449,14 +451,16 @@ export function adminUI(session) {
   async function audit() {
     heading(copy("admin-copy-022"), copy("admin-copy-130"));
     await paged("audit-logs", "logs", row => {
-      const labels = { member_block:'封鎖會員',member_restore:'恢復會員',bootstrap_membership:'授予管理權限',announcement_create:'建立公告',announcement_update:'更新公告',announcement_enable:'開放公告',announcement_disable:'關閉公告',submission_note_update:'更新投稿說明',example_image_upload:'上傳範例圖片',example_image_replace:'替換範例圖片',example_image_delete:'移除範例圖片', approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
+      const labels = { member_lookup:'會員查詢',member_mail_send:'寄信給會員',member_block:'封鎖會員',member_restore:'恢復會員',bootstrap_membership:'授予管理權限',announcement_create:'建立公告',announcement_update:'更新公告',announcement_enable:'開放公告',announcement_disable:'關閉公告',submission_note_update:'更新投稿說明',example_image_upload:'上傳範例圖片',example_image_replace:'替換範例圖片',example_image_delete:'移除範例圖片', approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
       const c = node("article", "", "member-case"); c.append(node("h3", labels[row.action] ?? copy("admin-copy-140")), node("p", stamp(row.created_at)), detailFields(row, [[copy("admin-copy-141"), row.admin_member_id], [copy("admin-copy-142"), row.target_id], [copy("admin-copy-143"), row.reason]])); return c;
     });
   }
   async function overview(){
     heading('工作總覽','會員總數為全站已建立的會員數（包含停權會員）；案件摘要僅計算本次載入的資料。');
     const [data,totals]=await Promise.all([request('cases?limit=20'),request('overview')]),grid=node('div','','grid grid-4');
-    const members=node('article','','activity-card');members.dataset.memberTotal='';members.append(node('span','會員總數','tiny'),node('strong',String(totals.member_count)));grid.append(members);
+    const members=node('article','','activity-card');members.dataset.memberTotal='';members.append(node('span','會員總數','tiny'),node('strong',String(totals.member_count)));
+    if(management(access.actor)){const lookup=button('會員查詢',()=>memberContact.open(),'btn btn-white');members.classList.add('member-total-contact');members.append(lookup);memberContact=memberContactUI({request,opener:lookup});}
+    grid.append(members);
     for(const [state,label] of [['pending','待審核'],['approved','已通過'],['rejected','未通過']]){
       const card=node('article','','activity-card');card.append(node('span',label,'tiny'),node('strong',String(data.cases.filter(c=>c.status===state).length)));grid.append(card);
     }

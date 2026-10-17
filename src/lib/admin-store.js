@@ -75,7 +75,11 @@ export async function auditLogs(db, page) {
   if (page.cursor) { clauses.push("(a.created_at < ? OR (a.created_at = ? AND a.id < ?))"); values.push(page.cursor[1], page.cursor[1], page.cursor[2]); }
   const rows = (await db.prepare(`WITH all_audit AS (SELECT * FROM admin_audit_logs UNION ALL SELECT * FROM admin_content_audit
     UNION ALL SELECT id,created_at,admin_member_id,admin_role,action,'member',member_id,NULL,
-    json_object('status',before_status),json_object('status',after_status),reason FROM member_status_events)
+    json_object('status',before_status),json_object('status',after_status),reason FROM member_status_events
+    UNION ALL SELECT id,created_at,admin_member_id,admin_role,action,'member',target_member_id,NULL,'{}',
+    json_object('outcome',outcome,'send_id',send_id),outcome FROM admin_member_contact_audit
+    UNION ALL SELECT send_id,created_at,admin_member_id,admin_role,'member_mail_send','member',target_member_id,NULL,'{}',
+    json_object('outcome','ambiguous','send_id',send_id),'ambiguous' FROM admin_member_mail_requests r WHERE NOT EXISTS(SELECT 1 FROM admin_member_contact_audit a WHERE a.send_id=r.send_id))
     SELECT a.id, a.created_at, a.admin_member_id, a.admin_role, a.action, a.target_type,
     a.target_id, a.target_version, a.before_json, a.after_json, a.reason FROM all_audit a
     ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY a.created_at DESC, a.id DESC LIMIT ?`)

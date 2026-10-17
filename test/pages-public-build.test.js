@@ -37,7 +37,7 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   assert.doesNotMatch(before, /ui-preview-banner|data-preview-control|voteproof-preview/);
   for (const file of [
     "member.js",
-    "admin.js", "admin-proof-thumbnails.js",
+    "admin.js", "admin-proof-thumbnails.js", "admin-member-contact.js",
     "admin-api.js",
     "ui-system.js",
     "leaderboard-ui.js", "vote-date.js",

@@ -132,6 +132,7 @@ export function adminPath(path) {
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
   if(pathname==='/api/admin/staff' && query===undefined)return true;
   if(pathname==='/api/admin/member-blocks')return true;
+  if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(pathname)&&query===undefined)return true;
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;

@@ -26,7 +26,7 @@ export function setupPreview() {
   document.addEventListener(
     "submit",
     (event) => {
-      if(event.target.matches("#profile-form,[data-preview-review],[data-preview-export],[data-campaign-editor],[data-board-editor],[data-staff-editor],[data-announcement-editor]"))return;
+      if(event.target.matches("#profile-form,[data-preview-review],[data-preview-export],[data-campaign-editor],[data-board-editor],[data-staff-editor],[data-announcement-editor],[data-block-editor]"))return;
       event.preventDefault();
       event.stopImmediatePropagation();
       document.getElementById("preview-action-status").textContent =

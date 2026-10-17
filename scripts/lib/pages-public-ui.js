@@ -6,13 +6,16 @@ import { previewPicture } from "./preview-fixtures.js";
 export { emailValue, passwordValue, codeValue, authMessage, adminPath } from "./member-rules.js";
 export class MemberSession {
   #member = null;
+  #blocked = false;
   constructor({ changed = () => {} } = {}) {
     this.changed = changed;
   }
   get member() {
     return this.#member;
   }
-  clear() {
+  get blocked() { return this.#blocked; }
+  clear(code) {
+    this.#blocked=code==='MEMBER_SUSPENDED';
     this.#member = null;
     this.changed(null);
   }
@@ -28,13 +31,14 @@ export class MemberSession {
     const response = await previewFetch(path, options),
       json = await response.json();
     if (!response.ok) {
-      if (json.error.code === "AUTH_REQUIRED") this.clear();
+      if (['AUTH_REQUIRED','MEMBER_SUSPENDED'].includes(json.error.code)) this.clear(this.#blocked?'MEMBER_SUSPENDED':json.error.code);
       throw new PublicError(json.error.code, response.status);
     }
     return json.data;
   }
   async refresh() {
     const data = await this.request("/api/auth/me");
+    this.#blocked=false;
     if (this.#member?.member_id !== data.member.member_id) {
       this.#member = Object.freeze(data.member);
       this.changed(this.#member);

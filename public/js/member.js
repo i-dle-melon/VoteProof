@@ -21,6 +21,21 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
   let caseOpener=null;
+  let ledgerCursors=[null],ledgerIndex=0,ledgerNext=null,ledgerSequence=0,ledgerLoaded=false;
+  function resetLedger(){ledgerSequence++;ledgerCursors=[null];ledgerIndex=0;ledgerNext=null;ledgerLoaded=false;$('point-record-details').open=false;$('point-record-list').replaceChildren();$('point-record-status').textContent='';$('point-record-previous').disabled=$('point-record-next').disabled=true;$('point-record-page').textContent='第 1 頁 · 每頁 10 筆';}
+  async function loadLedger(index=0){
+    const owner=session.member?.member_id,requestId=++ledgerSequence;if(!owner)return;$('point-record-previous').disabled=$('point-record-next').disabled=true;$('point-record-status').textContent='正在載入點數紀錄…';
+    try{const data=await session.request('/api/me/point-transactions?limit=10'+(ledgerCursors[index]?'&cursor='+encodeURIComponent(ledgerCursors[index]):''));if(owner!==session.member?.member_id||requestId!==ledgerSequence)return;
+      ledgerIndex=index;ledgerNext=data.next_cursor;ledgerLoaded=true;const list=$('point-record-list');list.replaceChildren();
+      const categories={proof_approved:'投稿通過',proof_reapproved:'投稿重新通過',proof_revoked:'投稿撤銷',manual_adjustment:'點數調整'};
+      for(const row of data.transactions){const item=element('article','','point-record-row'),amount=element('strong',(row.points>0?'+':'')+row.points+' 點');item.append(element('p',memberDate(row.created_at),'tiny'),element('p',categories[row.category]??'點數異動'),amount);if(row.campaign_name)item.append(element('p',row.campaign_name));if(row.reason)item.append(element('p',row.reason,'content-lines'));list.append(item);}
+      $('point-record-status').textContent=data.transactions.length?'':'目前沒有點數異動紀錄。';$('point-record-page').textContent=`第 ${index+1} 頁 · 每頁 10 筆`;
+    }catch(e){if(requestId===ledgerSequence)$('point-record-status').textContent=authMessage(e);}
+    finally{if(requestId===ledgerSequence){$('point-record-previous').disabled=!ledgerLoaded||ledgerIndex===0;$('point-record-next').disabled=!ledgerLoaded||!ledgerNext;}}
+  }
+  $('point-record-details').addEventListener('toggle',()=>{if($('point-record-details').open&&!ledgerLoaded)void loadLedger();});
+  $('point-record-next').addEventListener('click',()=>{if(!ledgerNext||$('point-record-next').disabled)return;ledgerCursors[ledgerIndex+1]=ledgerNext;void loadLedger(ledgerIndex+1);});
+  $('point-record-previous').addEventListener('click',()=>{if(ledgerIndex>0&&!$('point-record-previous').disabled)void loadLedger(ledgerIndex-1);});
   function closeCase(){if($("owned-case-detail").open)$("owned-case-detail").close();}
   $("owned-case-close").addEventListener("click",closeCase);
   $("owned-case-detail").addEventListener("close",()=>{if(caseOpener?.isConnected)caseOpener.focus();});
@@ -28,6 +43,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
   let loginSessionChecked = false, linkPurpose = "connect", setupKind = "enroll", setupTx = "", setupDeadline = 0, recoveryLogout = false;
   const session = new MemberSession({ changed: member => {
+    const blocked=session.blocked;$('member-blocked').hidden=!blocked;document.querySelector('.app-shell').inert=blocked;document.querySelector('.bottom-nav').inert=blocked;
+    if(blocked){for(const d of document.querySelectorAll('dialog[open]'))d.close();$('member-blocked').focus();}
+    if(!member||profileSnapshot?.member_id!==member.member_id)resetLedger();
     if (member) { $("account-status").hidden = true; $("account-status").textContent = ""; }
     else if (wasLoggedIn) {
       $("account-status").textContent = "登入已失效，請重新登入。訪客投稿資料仍保留在此分頁。"; $("account-status").hidden = false;
@@ -633,6 +651,10 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   }
   // One boot probe, independent of all public API loading. No polling/redirect
   // loop and no provider connection; failed auth leaves Guest untouched.
+  $('member-blocked-refresh').addEventListener('click',async()=>{try{await session.refresh();if(view==='member')await loadMember();$('member-blocked-status').textContent='';}catch(e){$('member-blocked-status').textContent=authMessage(e);}});
+  $('member-blocked-logout').addEventListener('click',async()=>{try{await session.request('/api/auth/logout',{method:'POST',body:{}});session.clear();location.hash='home';}catch(e){$('member-blocked-status').textContent=authMessage(e);}});
+  const recheckMember=()=>{if(session.member&&!busy)void session.refresh().catch(()=>{});};
+  window.addEventListener('focus',recheckMember);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')recheckMember();});
   const ready = session.refresh().catch(() => {}).finally(() => { loginSessionChecked = true; syncLogin(); });
   window.addEventListener("pagehide", () => { pendingEmailAdd = null; resetAuth(); clearInterval(ticker); });
   window.addEventListener("pageshow", event => {

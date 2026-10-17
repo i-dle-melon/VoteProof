@@ -31,7 +31,7 @@ test("recent submissions and member cases use owned API rows in the legacy list"
   await expect(page.locator("#top-avatar")).toHaveText("本");
   await page.goto("/#member"); await expect(page.locator("#member-cases .row")).toHaveCount(1);
   await expect(page.locator("#member-record-total")).toHaveText("123");
-  await expect(page.locator(".points-record-card")).toContainText("點數異動明細尚未開放");
+  await expect(page.locator(".points-record-card")).toContainText("點數異動明細");
   await page.locator("#logout-button").click(); await expect(page.locator("#recent-cases")).toBeEmpty();
   await expect(page.locator("#member-record-total")).toHaveText("—");
 });

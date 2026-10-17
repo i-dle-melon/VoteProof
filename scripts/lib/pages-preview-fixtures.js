@@ -5,6 +5,8 @@ import { exportFixture } from './preview-exports.js';
 import {contentFixture,savePreviewContent} from './preview-content.js';
 const isStaff=['admin','super_admin','reviewer'].includes(state.identity),isManager=['admin','super_admin'].includes(state.identity);
 const staffMembers=[{nickname:'展示主管理員',fan_id:'preview_owner',role:'super_admin',status:'active'}];
+let previewLoggedOut=false;
+const blockedMembers=[{fan_id:'preview_blocked_fan',nickname:'展示已封鎖粉絲',status:'suspended',reason:'展示封鎖原因・假資料',blocked_at:'2026-10-17T02:00:00.000Z'}];
 export const identity = {
   member_id: "PREVIEW-MEMBER-001",
   nickname: "葉子",
@@ -129,6 +131,19 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply("UI_PREVIEW_ONLY", 403);
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
+  if(p==='/api/auth/logout'){previewLoggedOut=true;return reply({logged_out:true});}
+  if(!previewLoggedOut&&state.identity==='blocked'&&(p.startsWith('/api/me/')||p.startsWith('/api/auth/')||p.startsWith('/api/admin/')))return reply('MEMBER_SUSPENDED',403);
+  if(p==='/api/admin/member-blocks'){
+    if(!isManager)return reply('ADMIN_FORBIDDEN',403);
+    if(method==='GET')return reply(paged('members',blockedMembers));
+    if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
+    const b=typeof body==='string'?JSON.parse(body):body;
+    if(!b||!['block','restore'].includes(b.action)||!b.fan_id?.trim()||!b.reason?.trim()||b.reason.trim().length>500||b.confirmed_fan_id!==b.fan_id)return reply('INVALID_MEMBER_BLOCK',400);
+    const fan=b.fan_id.trim().toLowerCase();if(['fan_yeh','preview_owner'].includes(fan))return reply('MEMBER_BLOCK_PROTECTED',403);
+    const index=blockedMembers.findIndex(m=>m.fan_id===fan);
+    if(b.action==='restore'){if(index<0)return reply('MEMBER_NOT_FOUND',404);const [member]=blockedMembers.splice(index,1);return reply({member:{...member,status:'active'},outcome:'restored'});}
+    if(index<0)blockedMembers.push({fan_id:fan,nickname:'展示粉絲・假資料',status:'suspended',reason:b.reason.trim(),blocked_at:new Date().toISOString()});return reply({member:blockedMembers.find(m=>m.fan_id===fan),outcome:'blocked'});
+  }
   const content=await contentFixture(p,{method,body},state,previewPicture,reply);if(content)return content;
   if(state.identity==='reviewer'&&p.startsWith('/api/admin/')&&!['/api/admin/me','/api/admin/overview','/api/admin/campaigns','/api/admin/solo-targets'].includes(p)&&!p.startsWith('/api/admin/cases')&&!p.startsWith('/api/admin/image-exports'))return reply('ADMIN_FORBIDDEN',403);
   if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
@@ -200,7 +215,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply("UI_PREVIEW_ONLY",403);
   }
   if (p === "/api/auth/me")
-    return state.identity === "guest"
+    return state.identity === "guest"||previewLoggedOut
       ? reply("AUTH_REQUIRED", 401)
       : reply({
           member: identity,
@@ -254,6 +269,11 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
           vote_type,
         })),
     });
+  }
+  if(p==='/api/me/point-transactions'){
+    if(state.identity==='guest'||previewLoggedOut)return reply('AUTH_REQUIRED',401);
+    const offset=Number(url.searchParams.get('cursor')??0),all=Array.from({length:23},(_,i)=>({transaction_id:'PREVIEW-POINT-'+i,created_at:new Date(Date.UTC(2026,9,17-i)).toISOString(),category:i===3?'proof_revoked':'proof_approved',points:i===3?-10:10,reason:i===3?'展示撤銷積分・假資料':'展示投稿核准・假資料',campaign_name:campaign.name})),rows=state.data==='empty'?[]:all;
+    return reply({transactions:rows.slice(offset,offset+10),next_cursor:rows.length>offset+10?String(offset+10):null});
   }
   if (p === "/api/me/points")
     return reply({

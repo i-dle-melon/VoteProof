@@ -1188,7 +1188,11 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <div class="mini-kpi">
                   <span>累計有效點數</span><strong id="member-record-total">—</strong>
                 </div>
-                <p class="tiny">點數異動明細尚未開放。</p>
+                <details id="point-record-details"><summary>點數異動明細</summary>
+                  <p id="point-record-status" role="status" aria-live="polite"></p>
+                  <div id="point-record-list" class="list"></div>
+                  <div class="form-actions"><button id="point-record-previous" type="button" class="btn btn-white" disabled>上一頁</button><span id="point-record-page">第 1 頁 · 每頁 10 筆</span><button id="point-record-next" type="button" class="btn btn-white" disabled>下一頁</button></div>
+                </details>
               </article>
               <article class="card case-card">
                 <h2 class="section-title">我的案件</h2>
@@ -1836,5 +1840,6 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
     </dialog>
     <dialog id="campaign-example-dialog" class="case-dialog" aria-labelledby="campaign-example-title"><div class="dialog-head"><h2 id="campaign-example-title">投稿範例</h2><button id="campaign-example-close" type="button" class="btn btn-white">關閉</button></div><img id="campaign-example-large" alt="本活動投稿範例放大圖" /></dialog>
     <dialog id="announcement-dialog" class="case-dialog" aria-labelledby="announcement-title"><div class="dialog-head"><h2 id="announcement-title" tabindex="-1">公告</h2><button id="announcement-close" type="button" class="btn btn-white" aria-label="關閉公告">關閉</button></div><div id="announcement-body"></div><label id="announcement-opt-out" class="announcement-opt-out"><input id="announcement-never" type="checkbox" />此公告不再提醒</label></dialog>
+    <section id="member-blocked" class="member-blocked" tabindex="-1" hidden aria-labelledby="member-blocked-title"><h1 id="member-blocked-title">此會員已被封鎖</h1><p>目前無法使用功能。如需協助，請聯絡管理員。</p><p id="member-blocked-status" role="status"></p><button id="member-blocked-refresh" type="button" class="btn btn-white">重新確認會員狀態</button><button id="member-blocked-logout" type="button" class="btn btn-white">登出</button></section>
   </body>
 </html>

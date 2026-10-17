@@ -9,7 +9,7 @@ export function setupAnnouncements(){
  const safeFlow=()=>['login','register','recover','security','submit','admin'].includes(location.hash.slice(1))||/^\/admin\/?$/.test(location.pathname);
  function remember(){if(!current||!current.dismissible)return;if(never.checked)dismissed[current.announcement_id]=current.version;else if(Object.hasOwn(dismissed,current.announcement_id))delete dismissed[current.announcement_id];else return;const entries=Object.entries(dismissed).filter(([id,v])=>/^[a-f0-9-]{36}$/.test(id)&&Number.isSafeInteger(v)).slice(-100);try{localStorage.setItem("voteproof-announcement-opt-outs",JSON.stringify(Object.fromEntries(entries)));}catch{}}
  function show(force=false,source=null){
-  if(safeFlow()||dialog.open||document.querySelector('dialog[open]'))return;
+  if(!force&&safeFlow()||dialog.open||document.querySelector('dialog[open]'))return;
   current=rows.find(r=>force||!shown.has(r.announcement_id+':'+r.version)&&dismissed[r.announcement_id]!==r.version);if(!current)return;
   list.replaceChildren();const title=document.getElementById('announcement-title');title.textContent=current.title;
   const body=document.createElement('p');body.className='content-lines';body.textContent=current.body;list.append(body);
@@ -20,7 +20,7 @@ export function setupAnnouncements(){
  dialog.addEventListener('cancel',e=>{if(!current?.dismissible)e.preventDefault();else remember();});
  dialog.addEventListener('close',()=>{if(opener?.isConnected)opener.focus();});
  dialog.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const controls=[...dialog.querySelectorAll('button,a[href],input')].filter(n=>n.getClientRects().length),first=controls[0],last=controls.at(-1);if(!first){e.preventDefault();document.getElementById('announcement-title').focus();}else if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
- open.addEventListener('click',()=>show(true,open));
+ document.addEventListener('click',e=>{const source=e.target.closest('#announcement-open,[data-announcement-open]');if(!source)return;e.preventDefault();show(true,source);});
  window.addEventListener('hashchange',()=>{if(safeFlow()){if(dialog.open)dialog.close();}else show();});
  void api('/api/announcements').then(data=>{if(!Array.isArray(data.announcements))return;rows=data.announcements.filter(r=>/^[a-f0-9-]{36}$/.test(r.announcement_id)&&Number.isSafeInteger(r.version)&&typeof r.title==='string'&&typeof r.body==='string'&&typeof r.dismissible==='boolean');open.hidden=!rows.length;show();}).catch(()=>{});
 }

@@ -5,6 +5,7 @@ import { PREVIEW, previewFetch } from "./preview.js";
 // or a provider. The secure session cookie remains inaccessible to JavaScript.
 export class MemberSession {
   #member = null;
+  #blocked = false;
   #csrf = "";
   #revision = 0;
   #expiry;
@@ -12,14 +13,16 @@ export class MemberSession {
     this.fetcher = fetcher; this.changed = changed;
   }
   get member() { return this.#member; }
-  clear() {
+  get blocked() { return this.#blocked; }
+  clear(code) {
+    this.#blocked=code==='MEMBER_SUSPENDED';
     clearTimeout(this.#expiry); this.#member = null; this.#csrf = "";
     this.#revision++; this.changed(null);
   }
   accept(data) {
     if (!data?.member || typeof data.member.member_id !== "string" || data.member.status !== "active" ||
         !/^[a-f0-9]{64}$/.test(data.csrf_token ?? "")) throw new PublicError("SERVICE_UNAVAILABLE");
-    clearTimeout(this.#expiry);
+    this.#blocked=false;clearTimeout(this.#expiry);
     // Explicit allowlist: ignore identity/provider/storage internals even if
     // an upstream response accidentally includes additional fields.
     const { member_id, nickname, player_id } = data.member;
@@ -44,7 +47,7 @@ export class MemberSession {
     this.changed(this.#member);
   }
   async request(path, { method = "GET", body, headers = {}, signal } = {}) {
-    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|uploads\/(?:prepare|complete)|cases(?:\/direct)?)$/.test(path))
+    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|point-transactions|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|uploads\/(?:prepare|complete)|cases(?:\/direct)?)$/.test(path))
       throw new PublicError("INVALID_AUTH_REQUEST");
     return this.#send(path, { method, body, headers, signal });
   }
@@ -87,7 +90,7 @@ export class MemberSession {
     try { result = await response.json(); } catch { throw new PublicError("SERVICE_UNAVAILABLE", response.status); }
     if (!response.ok || result?.ok !== true) {
       const code = result?.error?.code ?? "SERVICE_UNAVAILABLE";
-      if (["AUTH_REQUIRED", "MEMBER_SUSPENDED"].includes(code) && revision === this.#revision) this.clear();
+      if (["AUTH_REQUIRED", "MEMBER_SUSPENDED"].includes(code) && revision === this.#revision) this.clear(this.#blocked?'MEMBER_SUSPENDED':code);
       const error = new PublicError(code, response.status);
       const retry = Number(response.headers.get("Retry-After"));
       error.retryAfter = Number.isFinite(retry) && retry > 0 ? Math.min(retry, 86400) : 0;
@@ -128,6 +131,7 @@ export function adminPath(path) {
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
   if(pathname==='/api/admin/staff' && query===undefined)return true;
+  if(pathname==='/api/admin/member-blocks')return true;
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;
@@ -169,7 +173,7 @@ export const authMessage = (error) => ({
   AUTH_LOGIN_FAILED: "登入未完成，請確認登入資料後重試。",
   AUTH_VERIFICATION_FAILED: "驗證未完成，資料可能有誤、已過期或超過嘗試次數。請重試或重新開始。",
   AUTH_REQUIRED: "登入已失效，請重新登入。未完成的投稿資料仍在此分頁。",
-  MEMBER_SUSPENDED: "登入已失效，請重新登入。未完成的投稿資料仍在此分頁。",
+  MEMBER_SUSPENDED: "此會員已被封鎖，目前無法使用功能。請聯絡管理員。",
   AUTH_IDENTITY_CHANGED: "登入身份已改變。請重新登入原會員後重試，或明確放棄本次投稿。",
   AUTH_RATE_LIMITED: "操作過於頻繁，請等待後再試。",
   AUTH_REGISTRATION_UNAVAILABLE: "會員註冊暫時無法使用，請稍後再試。案件查詢與排行榜仍可使用。",

@@ -89,7 +89,7 @@ test("verification code accepts leading zeros and rejects other alphabets", () =
 });
 test("auth error display never renders internal/provider messages", () => {
   assert.equal(authMessage({ code: "unknown", message: "private upstream" }).includes("private upstream"), false);
-  assert.equal(authMessage({ code: "MEMBER_SUSPENDED" }), authMessage({ code: "AUTH_REQUIRED" }));
+  assert.match(authMessage({ code: "MEMBER_SUSPENDED" }), /已被封鎖/);
 });
 test("QR renderer draws actual modules locally with quiet zone and erases canvas", () => {
   const key = "A".repeat(32), uri = `otpauth://totp/VoteProof:test%40example.com?secret=${key}&issuer=VoteProof&algorithm=SHA1&digits=6&period=30`;

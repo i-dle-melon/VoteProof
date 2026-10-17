@@ -24,6 +24,9 @@ export function reviewActions(status, role) {
   return status === "approved" ? ["complete", "revoke"] : status === "completed" ? ["revoke"] : [];
 }
 export const adminMessage = error => {
+  if(error?.code==='INVALID_MEMBER_BLOCK')return '請填寫粉絲 ID 與 1～500 字原因，並確認操作。';
+  if(error?.code==='MEMBER_NOT_FOUND')return '找不到此粉絲 ID 的會員。';
+  if(error?.code==='MEMBER_BLOCK_PROTECTED')return '不能封鎖自己、主管理員或管理員帳號。';
   if(error?.code==='STAFF_GOOGLE_MEMBER_REQUIRED')return '請對方先使用此 Google 帳號登入並完成會員資料，再新增管理權限。';
   if(error?.code==='STAFF_CONFLICT')return '此帳號已有其他管理權限或資料已更新，請重新載入確認；不會修改主管理員。';
   if(error?.code==='SOLO_TARGET_UNAVAILABLE')return 'Solo 對象不存在或已停用，請重新載入活動設定。歷史對象未被變更。';

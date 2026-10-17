@@ -37,17 +37,18 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), backups: 'Google Drive 備份', announcements:'彈窗公告', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), submissions: copy("admin-copy-021"), audit: copy("admin-copy-022"), staff:'管理員管理' };
+const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), backups: 'Google Drive 備份', announcements:'彈窗公告', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), blocks:'會員封鎖', submissions: copy("admin-copy-021"), audit: copy("admin-copy-022"), staff:'管理員管理' };
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
   let reviewMode="album",selectedReviews=new Map(),thumbnails=null;
   const clearAlbumImages=()=>{thumbnails?.clear();thumbnails=null;};
   let expanded=null;
+  let blockDialog=null;
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
   function clearImages() { for (const url of urls) URL.revokeObjectURL(url); urls = []; }
-  function clearPanel() { clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
+  function clearPanel() { blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
   const access = new AdminAccess(session, actor => {
     $("admin-nav-group").hidden = $("member-admin-entry").hidden = !actor;
     $("admin-content").hidden = !actor; $("admin-gate").hidden = Boolean(actor);
@@ -370,7 +371,7 @@ export function adminUI(session) {
       if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
       if(row.is_current_comeback)c.append(node("span","本次回歸","status neutral"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
-      if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); })); return c;
+      if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); },'btn status rejected')); return c;
     });
   }
   async function boardResults(row) {
@@ -448,7 +449,7 @@ export function adminUI(session) {
   async function audit() {
     heading(copy("admin-copy-022"), copy("admin-copy-130"));
     await paged("audit-logs", "logs", row => {
-      const labels = { bootstrap_membership:'授予管理權限',announcement_create:'建立公告',announcement_update:'更新公告',announcement_enable:'開放公告',announcement_disable:'關閉公告',submission_note_update:'更新投稿說明',example_image_upload:'上傳範例圖片',example_image_replace:'替換範例圖片',example_image_delete:'移除範例圖片', approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
+      const labels = { member_block:'封鎖會員',member_restore:'恢復會員',bootstrap_membership:'授予管理權限',announcement_create:'建立公告',announcement_update:'更新公告',announcement_enable:'開放公告',announcement_disable:'關閉公告',submission_note_update:'更新投稿說明',example_image_upload:'上傳範例圖片',example_image_replace:'替換範例圖片',example_image_delete:'移除範例圖片', approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
       const c = node("article", "", "member-case"); c.append(node("h3", labels[row.action] ?? copy("admin-copy-140")), node("p", stamp(row.created_at)), detailFields(row, [[copy("admin-copy-141"), row.admin_member_id], [copy("admin-copy-142"), row.target_id], [copy("admin-copy-143"), row.reason]])); return c;
     });
   }
@@ -490,7 +491,22 @@ export function adminUI(session) {
     submitButton(f,'儲存公告');bindForm(f,()=>mutate('announcements'+(row?'/'+row.announcement_id+'/update':''),{...(row?{expected_version:row.version}:{}),title:title.value,body:body.value,enabled:value(f,'announcement_enabled')==='true',dismissible:value(f,'announcement_dismissible')==='true',starts_at:value(f,'announcement_start')?utcFromTaipei(value(f,'announcement_start')):null,ends_at:value(f,'announcement_end')?utcFromTaipei(value(f,'announcement_end')):null,button_enabled:enabled.value==='true',button_label:label.value,button_url:url.value}));
     f.append(button('返回公告列表',()=>void load()));
   }
-  const loaders = { overview, cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, submissions, audit, staff };
+  async function blocks(){
+    heading('會員封鎖','請確認粉絲 ID 與封鎖原因。封鎖與恢復都會留下操作紀錄。');
+    const f=formCard('封鎖會員');f.dataset.blockEditor='';field(f,'block_fan_id','粉絲 ID','text','',{required:true,maxLength:100});field(f,'block_reason','封鎖原因','textarea','',{required:true,maxLength:500});
+    const submit=node('button','封鎖會員','btn btn-danger');submit.type='submit';f.append(submit);
+    f.addEventListener('submit',e=>{e.preventDefault();if(!f.reportValidity()||busy)return;const fan=value(f,'block_fan_id'),reason=value(f,'block_reason');if(!fan||!reason)return;confirmMemberStatus({fan_id:fan,reason,action:'block'},submit);});
+    $('admin-panel').append(node('h3','已封鎖會員名單'));
+    await paged('member-blocks','members',row=>{const c=node('article','','member-case blocked-member-row');c.append(node('h3',row.nickname),node('p','粉絲 ID：'+(row.fan_id??'尚未設定')),node('span','已被封鎖','status rejected'),node('p',row.reason,'content-lines'),node('p',stamp(row.blocked_at),'tiny'));const restore=button('恢復會員',()=>confirmMemberStatus({fan_id:row.fan_id,reason:'管理員恢復會員',action:'restore'},restore),'btn btn-white');restore.disabled=!row.fan_id;c.append(restore);return c;});
+  }
+  function confirmMemberStatus(input,opener){
+    if(busy||blockDialog?.open)return;const blocking=input.action==='block',d=node('dialog','','case-dialog');blockDialog=d;d.setAttribute('aria-label',blocking?'確認封鎖會員':'確認恢復會員');
+    d.append(node('h2',blocking?'確認封鎖會員':'確認恢復會員'),node('p','粉絲 ID：'+input.fan_id),node('p',input.reason,'content-lines'),node('p',blocking?'確認後此會員將顯示已被封鎖，無法使用會員功能。':'確認後此會員可重新使用會員功能。'));
+    const status=node('p','','notice error');status.setAttribute('role','status');const cancel=button('取消',()=>d.close()),confirm=button(blocking?'確認封鎖':'確認恢復',()=>{if(busy)return;confirm.disabled=cancel.disabled=true;void run(async current=>{try{await mutate('member-blocks',{...input,confirmed_fan_id:input.fan_id});if(current()){d.close();await load();$('admin-status').textContent=blocking?'會員已被封鎖。':'會員已恢復。';}}catch(e){status.textContent=adminMessage(e);throw e;}}).finally(()=>{if(confirm.isConnected)confirm.disabled=cancel.disabled=false;});},blocking?'btn btn-block-confirm':'btn btn-primary');
+    d.append(status,cancel,confirm);d.addEventListener('close',()=>{d.remove();if(blockDialog===d)blockDialog=null;if(opener?.isConnected)opener.focus();});
+    d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;if(busy){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===cancel){e.preventDefault();confirm.focus();}else if(!e.shiftKey&&document.activeElement===confirm){e.preventDefault();cancel.focus();}});document.body.append(d);d.showModal();cancel.focus();
+  }
+  const loaders = { overview, cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;
     await run(async current => {

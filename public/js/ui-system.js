@@ -57,6 +57,7 @@ export function setupUI() {
   document.addEventListener('click',event=>{const link=event.target.closest('a[href="#about"]');if(!link)return;event.preventDefault();event.stopImmediatePropagation();showAbout(link);},true);
   document.addEventListener('voteproof-about-open',()=>showAbout());
   aboutClose.addEventListener('click',()=>about.close());
+  about.addEventListener('click',e=>{const b=about.getBoundingClientRect();if(e.target===about&&(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom))about.close();});
   about.addEventListener('close',()=>{if(aboutOpener?.isConnected)aboutOpener.focus();});
   about.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const controls=[...about.querySelectorAll('button:not([disabled]),a[href]')].filter(n=>n.getClientRects().length),first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
   about.addEventListener('click',e=>{if(e.target.closest('[data-submission-action]'))about.close();});

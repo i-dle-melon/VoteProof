@@ -47,3 +47,10 @@ test('new footer and both native modals fit mobile and desktop in both themes',a
  }
  await expect(page.locator('.footer-owner')).toHaveAttribute('href','https://i-dle-melon.github.io/vote/');await expect(page.locator('.footer-note')).toContainText('Designed & Maintained by');
 });
+
+test('footer copyright stays on one desktop line and author capsule remains content-sized',async({page})=>{
+ await page.setViewportSize({width:1440,height:900});await page.goto(preview+'#home');await ready(page);
+ const layout=await page.locator('.footer-note').evaluate(footer=>{const owner=footer.querySelector('.footer-owner'),credit=footer.querySelector('.footer-credit'),range=document.createRange();range.selectNodeContents(footer.firstChild);const start=range.getBoundingClientRect(),a=owner.getBoundingClientRect(),b=credit.getBoundingClientRect();return{startY:start.y,ownerY:a.y,creditY:b.y,creditWidth:b.width,footerWidth:footer.getBoundingClientRect().width,ownerDisplay:getComputedStyle(owner).display,creditDisplay:getComputedStyle(credit).display};});
+ expect(layout.ownerDisplay).toBe('inline');expect(layout.creditDisplay).toBe('inline-flex');expect(layout.creditWidth).toBeLessThan(130);expect(layout.creditWidth).toBeLessThan(layout.footerWidth/2);expect(Math.abs(layout.ownerY-layout.startY)).toBeLessThan(8);expect(Math.abs(layout.creditY-layout.startY)).toBeLessThan(8);
+ for(const width of [320,390,430]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
+});

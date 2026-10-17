@@ -29,6 +29,12 @@ export const listAdminCases = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   return jsonSuccess(await adminCases(authDatabase(env), adminPage(url)));
 });
+export const getAdminOverview = adminHandler(async (env, url, request) => {
+  await adminIdentity(request, env);
+  if (url.search) throw new AdminError(400, "INVALID_ADMIN_QUERY", "Unexpected overview query");
+  const { member_count } = await authDatabase(env).prepare("SELECT COUNT(*) AS member_count FROM members").first();
+  return jsonSuccess({ member_count });
+});
 export const getAdminCase = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const db = authDatabase(env), { id, upload_intent_id, ...row } = await requireCase(db, url);
@@ -74,6 +80,7 @@ export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const acto
 const exactRoutes = new Map([
   ["/api/admin/cases/batch-approve",{method:"POST",handler:approveAdminBatch}],
   ["/api/admin/me", { method: "GET", handler: currentAdmin }],
+  ["/api/admin/overview", { method: "GET", handler: getAdminOverview }],
   ["/api/admin/cases", { method: "GET", handler: listAdminCases }],
   ["/api/admin/audit-logs", { method: "GET", handler: listAdminAudit }],
 ]);

@@ -20,7 +20,7 @@ await visit(root);
 const expected = ["_headers", "_redirects", "css/app.css", "index.html", "js/api.js", "js/app.js", "js/submission.js", "js/turnstile.js", "js/ui-system.js", "js/admin.js", "js/admin-api.js", "js/admin-backup.js", "js/admin-duplicate.js", "js/member-api.js", "js/member.js", "js/member-tier-progress.js", "js/qr.js", "js/tier-artwork.js", "js/preview.js", "js/vendor/qrcode.js", ...Object.values(TIER_ARTWORK).map(art => art.src.slice(1))];
 expected.push('js/admin-export.js','js/export-format.js','js/zip-store.js','js/export-worker.js');
 expected.push('js/leaderboard-ui.js','js/vote-date.js');
-expected.push('js/campaign-guidance.js','js/announcements.js');
+expected.push('js/campaign-guidance.js','js/announcements.js','js/admin-proof-thumbnails.js');
 assert.deepEqual(paths.map((p) => relative(root, p).replaceAll("\\", "/")).sort(), expected.sort(), "Unexpected deployable static assets");
 const forbidden = /AUTH_SECRET|AUTH_PASSWORD_PEPPER|AUTH_TOTP_ENCRYPTION_KEY|CASE_QUERY_KEY_SECRET|TURNSTILE_SECRET_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|MAIL_RELAY_(?:URL|SECRET)|SUPABASE_(?:URL|PUBLISHABLE_KEY|SECRET_KEY)|GMAIL_(?:CLIENT_ID|CLIENT_SECRET|REFRESH_TOKEN|SENDER_EMAIL|SENDER_NAME)|X-Amz-(?:Signature|Credential)=|https:\/\/script\.google\.com\/macros\/s\/|-----BEGIN .*PRIVATE KEY-----|(?:C:\\Users\\|C:\/Users\/)/i;
 let totalBytes = 0, gzipBytes = 0;
@@ -32,8 +32,8 @@ for (const path of paths) {
   }
   assert.equal(forbidden.test(source), false, "Sensitive literal found in static asset");
   if (extname(path) === ".js") {
-    assert.equal(/console\.|localStorage\.setItem\((?!"(?:voteproof-theme|voteproof-announcement-dismissals)")|sessionStorage|indexedDB/.test(source), false, "Browser module contains logging, credentials storage");
-    if (!["member-api.js", "admin-api.js", "admin.js", "admin-export.js", "export-worker.js", "preview-fixtures.js"].includes(path.split(/[\\/]/).at(-1)))
+    assert.equal(/console\.|localStorage\.setItem\((?!"(?:voteproof-theme|voteproof-announcement-opt-outs)")|sessionStorage|indexedDB/.test(source), false, "Browser module contains logging, credentials storage");
+    if (!["member-api.js", "admin-api.js", "admin.js", "admin-proof-thumbnails.js", "admin-export.js", "export-worker.js", "preview-fixtures.js"].includes(path.split(/[\\/]/).at(-1)))
       assert.equal(/\/api\/admin\//.test(source), false, "Admin requests must stay in the explicit authorized modules");
     if (!["member-api.js", "member.js", "admin-api.js", "admin.js", "preview-fixtures.js"].includes(path.split(/[\\/]/).at(-1)))
       assert.equal(/\/api\/(?:auth|me)\//.test(source), false, "Public module calls member endpoints");

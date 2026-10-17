@@ -52,5 +52,12 @@ export function setupUI() {
   document.addEventListener("input", (event) => {
     if (event.target.hasAttribute("aria-invalid")) event.target.removeAttribute("aria-invalid");
   });
-  // Static explanation on phones remains reachable from the About page.
+  const about=document.getElementById('about-dialog'),aboutClose=document.getElementById('about-close');let aboutOpener=null;
+  const showAbout=source=>{if(about.open||document.querySelector('dialog[open]'))return;aboutOpener=source??document.activeElement;document.getElementById('view-about').hidden=false;about.showModal();aboutClose.focus();};
+  document.addEventListener('click',event=>{const link=event.target.closest('a[href="#about"]');if(!link)return;event.preventDefault();event.stopImmediatePropagation();showAbout(link);},true);
+  document.addEventListener('voteproof-about-open',()=>showAbout());
+  aboutClose.addEventListener('click',()=>about.close());
+  about.addEventListener('close',()=>{if(aboutOpener?.isConnected)aboutOpener.focus();});
+  about.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const controls=[...about.querySelectorAll('button:not([disabled]),a[href]')].filter(n=>n.getClientRects().length),first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}});
+  about.addEventListener('click',e=>{if(e.target.closest('[data-submission-action]'))about.close();});
 }

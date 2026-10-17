@@ -22,7 +22,7 @@ export async function verifyStaffSecurity(h){
  for(const [path,method] of [['/api/admin/staff','GET'],['/api/admin/staff','POST'],['/api/admin/campaigns','POST'],['/api/admin/leaderboards','GET'],['/api/admin/member-tiers','GET'],['/api/admin/submissions','GET'],['/api/admin/submissions/update','POST'],['/api/admin/backups','GET'],['/api/admin/backups/backfill','POST'],['/api/admin/announcements','GET'],['/api/admin/announcements','POST'],['/api/admin/campaign-assets/C','POST'],['/api/admin/audit-logs','GET'],['/api/admin/points/adjustments','POST']]){
   assert.equal((await h.fetch(path,method,method==='POST'?{}:undefined,reviewer.headers)).status,403,path);
  }
- for(const path of ['/api/admin/me','/api/admin/cases','/api/admin/campaigns','/api/admin/solo-targets','/api/admin/image-exports'])assert.equal((await h.fetch(path,'GET',undefined,reviewer.headers)).status,200,path);
+ for(const path of ['/api/admin/me','/api/admin/overview','/api/admin/cases','/api/admin/campaigns','/api/admin/solo-targets','/api/admin/image-exports'])assert.equal((await h.fetch(path,'GET',undefined,reviewer.headers)).status,200,path);
  for(const action of ['complete','revoke'])assert.equal((await h.fetch('/api/admin/cases/VP-20261016-'+ 'A'.repeat(16)+'/review','POST',{action,expected_version:0,reason:'forged'},reviewer.headers)).status,403);
  assert.equal((await h.fetch('/api/admin/members/'+member.memberId+'/points','GET',undefined,reviewer.headers)).status,403);
  const extra=await h.identity('super_admin');assert.equal((await call(owner,payload)).status,503);await h.db.prepare("UPDATE admin_memberships SET status='disabled' WHERE member_id=?").bind(extra.memberId).run();

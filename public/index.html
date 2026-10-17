@@ -635,44 +635,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
      ⚠️ DO NOT CHANGE：id / data-* / name / type / required / hidden / aria-*。
      API 動態容器請保持原狀；不要填入固定活動、分數或身份。
 ========================================================= -->
-          <section
-            data-view-panel
-            class="view"
-            id="view-about"
-            hidden
-            aria-labelledby="about-title"
-          >
-            <div class="page-head">
-              <span class="eyebrow">VOTEPROOF GUIDE</span>
-              <h1 data-view-title id="about-title" tabindex="-1">使用說明與隱私</h1>
-            </div>
-            <div class="card form-card prose">
-              <h2>如何投稿</h2>
-              <p>
-                選擇開放中的活動與投票日期，選取 1～20 張清楚的證明圖片。
-                投稿類型由活動決定；匿名投稿不需填寫粉絲 ID 或暱稱。
-                完成人機驗證後送出，會員可至「我的案件」查看；匿名投稿需要追蹤進度時再保存查詢資訊。
-              </p>
-              <h2>案件狀態</h2>
-              <p>
-                待審核 → 已通過 →
-                已完成。案件也可能標記為未通過、重複投稿或已撤銷；請使用查詢資訊查看最新狀態。
-              </p>
-              <h2>圖片與查詢資訊</h2>
-              <p>
-                圖片用於案件審核，不提供公開圖片網址。請避免上傳無關的私人資訊。查詢碼相當於案件的鑰匙，請自行保存並避免公開分享。
-              </p>
-              <h2>瀏覽器資料</h2>
-              <p>
-                本頁只長期保存深／淺色主題偏好與已關閉的公告版本，不保存案件查詢碼。未完成的投稿資料只保留在目前分頁，離開或重新整理前請先完成投稿。
-              </p>
-              <h2>排行榜</h2>
-              <p>僅顯示已公開的排行榜與成績快照。尚未公開的排行榜不會顯示。</p>
-              <button class="btn btn-primary" type="button" data-submission-action disabled>
-                投稿暫停
-              </button>
-            </div>
-          </section>
+
 
           <!-- =========================================================
      REGISTER · 信箱註冊
@@ -1553,7 +1516,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             </div>
           </section>
           <footer class="footer-note">
-            VoteProof · 每一票，都留下證明 <a href="#about">使用說明與隱私</a>
+            © 2026 <a href="https://i-dle-melon.github.io/vote/" target="_blank" rel="noopener noreferrer" class="footer-owner">i-dle西瓜嬸</a> GigiBoss. All rights reserved. <span>Designed &amp; Maintained by <a href="https://i-dle-melon.github.io/vote/" target="_blank" rel="noopener noreferrer" class="footer-credit">GigiBoss</a></span> <a href="#about">使用說明與隱私</a>
           </footer>
         <dialog id="owned-case-detail" aria-labelledby="owned-case-detail-title" class="case-dialog"><button type="button" id="owned-case-close" class="btn btn-white">關閉</button>
                 <h3 tabindex="-1" id="owned-case-detail-title">案件詳情</h3>
@@ -1830,7 +1793,47 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       </p>
       <p>圖片只供授權審核。查詢碼不會顯示在頁面上，可複製或下載至自己的安全筆記。</p>
     </dialog>
+    <dialog id="about-dialog" aria-labelledby="about-title" class="case-dialog about-dialog"><button id="about-close" type="button" class="btn btn-white">關閉</button>
+          <section
+            data-view-panel
+            class="view"
+            id="view-about"
+            hidden
+            aria-labelledby="about-title"
+          >
+            <div class="page-head">
+              <span class="eyebrow">VOTEPROOF GUIDE</span>
+              <h1 data-view-title id="about-title" tabindex="-1">使用說明與隱私</h1>
+            </div>
+            <div class="card form-card prose">
+              <h2>如何投稿</h2>
+              <p>
+                選擇開放中的活動與投票日期，選取 1～20 張清楚的證明圖片。
+                投稿類型由活動決定；匿名投稿不需填寫粉絲 ID 或暱稱。
+                完成人機驗證後送出，會員可至「我的案件」查看；匿名投稿需要追蹤進度時再保存查詢資訊。
+              </p>
+              <h2>案件狀態</h2>
+              <p>
+                待審核 → 已通過 →
+                已完成。案件也可能標記為未通過、重複投稿或已撤銷；請使用查詢資訊查看最新狀態。
+              </p>
+              <h2>圖片與查詢資訊</h2>
+              <p>
+                圖片用於案件審核，不提供公開圖片網址。請避免上傳無關的私人資訊。查詢碼相當於案件的鑰匙，請自行保存並避免公開分享。
+              </p>
+              <h2>瀏覽器資料</h2>
+              <p>
+                本頁只長期保存深／淺色主題偏好與主動勾選「不再提醒」的公告版本，不保存案件查詢碼。未完成的投稿資料只保留在目前分頁，離開或重新整理前請先完成投稿。
+              </p>
+              <h2>排行榜</h2>
+              <p>僅顯示已公開的排行榜與成績快照。尚未公開的排行榜不會顯示。</p>
+              <button class="btn btn-primary" type="button" data-submission-action disabled>
+                投稿暫停
+              </button>
+            </div>
+          </section>
+    </dialog>
     <dialog id="campaign-example-dialog" class="case-dialog" aria-labelledby="campaign-example-title"><div class="dialog-head"><h2 id="campaign-example-title">投稿範例</h2><button id="campaign-example-close" type="button" class="btn btn-white">關閉</button></div><img id="campaign-example-large" alt="本活動投稿範例放大圖" /></dialog>
-    <dialog id="announcement-dialog" class="case-dialog" aria-labelledby="announcement-title"><div class="dialog-head"><h2 id="announcement-title">公告</h2><button id="announcement-close" type="button" class="btn btn-white" aria-label="關閉公告">關閉</button></div><div id="announcement-body"></div><a id="announcement-security" href="#security">登入與安全設定</a></dialog>
+    <dialog id="announcement-dialog" class="case-dialog" aria-labelledby="announcement-title"><div class="dialog-head"><h2 id="announcement-title" tabindex="-1">公告</h2><button id="announcement-close" type="button" class="btn btn-white" aria-label="關閉公告">關閉</button></div><div id="announcement-body"></div><label id="announcement-opt-out" class="announcement-opt-out"><input id="announcement-never" type="checkbox" />此公告不再提醒</label></dialog>
   </body>
 </html>

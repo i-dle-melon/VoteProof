@@ -130,7 +130,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
   const content=await contentFixture(p,{method,body},state,previewPicture,reply);if(content)return content;
-  if(state.identity==='reviewer'&&p.startsWith('/api/admin/')&&!['/api/admin/me','/api/admin/campaigns','/api/admin/solo-targets'].includes(p)&&!p.startsWith('/api/admin/cases')&&!p.startsWith('/api/admin/image-exports'))return reply('ADMIN_FORBIDDEN',403);
+  if(state.identity==='reviewer'&&p.startsWith('/api/admin/')&&!['/api/admin/me','/api/admin/overview','/api/admin/campaigns','/api/admin/solo-targets'].includes(p)&&!p.startsWith('/api/admin/cases')&&!p.startsWith('/api/admin/image-exports'))return reply('ADMIN_FORBIDDEN',403);
   if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
   if(p==='/api/admin/staff'){
     if(state.identity!=='super_admin')return reply('ADMIN_FORBIDDEN',403);
@@ -206,6 +206,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
           member: identity,
           elevated_until: isStaff ? 4102444800 : undefined,
         });
+  if (p === "/api/admin/overview") return isStaff ? reply({member_count:state.data==='empty'?0:1284}) : reply("ADMIN_FORBIDDEN",403);
   if (p === "/api/admin/me")
     return isStaff
       ? reply({ member_id: identity.member_id, role: state.identity })

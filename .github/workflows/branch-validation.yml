@@ -58,7 +58,7 @@ jobs:
         run: npm run check
       - run: git diff --check
   migrations:
-    name: Local D1 schema and populated 0018 to 0019 to 0020 to 0021 safety
+    name: Local D1 schema and populated 0018 to 0019 to 0020 to 0021 to 0022 safety
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

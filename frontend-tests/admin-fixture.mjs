@@ -22,6 +22,7 @@ export async function adminFixture(page, options = {}) {
     if (!state.role) return error("ADMIN_FORBIDDEN", 403);
     if (state.elevationUntil <= Date.now() / 1000) return error("ADMIN_STEP_UP_REQUIRED", 403);
     if (state.failAdmin) return error("ADMIN_SERVICE_UNAVAILABLE", 503);
+    if (path === '/api/admin/overview') return reply({member_count:1284});
     if (path === "/api/admin/me") return reply({ member_id: state.member.member_id, role: state.role, csrf_token: state.csrf });
     if (path === '/api/admin/solo-targets') return reply({targets:state.soloTargets});
     if(path==='/api/admin/staff'){
@@ -31,7 +32,7 @@ export async function adminFixture(page, options = {}) {
       if(!['admin','reviewer'].includes(body.role))return error('INVALID_STAFF_REQUEST',400);
       const membership={nickname:'Fixture staff',fan_id:'fixture_staff',role:body.role,status:'active'};state.staff.push(membership);return reply({membership,outcome:'granted'},201);
     }
-    if (state.role === "reviewer" && !path.startsWith("/api/admin/cases") && !(path==='/api/admin/campaigns'&&request.method()==='GET') && !path.startsWith('/api/admin/image-exports')) return error("ADMIN_FORBIDDEN", 403);
+    if (state.role === "reviewer" && !path.startsWith("/api/admin/cases") && path!=='/api/admin/overview' && !(path==='/api/admin/campaigns'&&request.method()==='GET') && !path.startsWith('/api/admin/image-exports')) return error("ADMIN_FORBIDDEN", 403);
     if(path==='/api/admin/image-exports')return reply({jobs:[]});
     if (request.method() === "POST") {
       if (request.headers()["x-csrf-token"] !== state.csrf || request.headers()["x-voteproof-request"] !== "1") return error("CSRF_REJECTED", 403);

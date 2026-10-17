@@ -594,6 +594,7 @@ $("theme-toggle").addEventListener("click", () => {
 });
 function navigate(focus = true) {
   const requested = location.hash.slice(1) || (/^\/admin\/?$/.test(location.pathname)?"admin":"home");
+  if(requested==="about"){history.replaceState(null,"",location.pathname+location.search+"#home");navigate(false);document.dispatchEvent(new Event("voteproof-about-open"));return;}
   if (requested === "main") { $("main").focus(); return; }
   const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"].includes(requested) ? requested : "home";
   document.documentElement.dataset.route=view;

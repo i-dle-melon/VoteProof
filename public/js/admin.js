@@ -1,4 +1,5 @@
 import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage } from "./admin-api.js";
+import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
 import { backupText, backupLink } from "./admin-backup.js";
@@ -40,8 +41,8 @@ const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), backups:
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
-  let reviewMode="album",selectedReviews=new Map(),albumUrls=new Map(),albumObservers=new Set();
-  const clearAlbumImages=()=>{for(const observer of albumObservers)observer.disconnect();albumObservers.clear();for(const url of albumUrls.values())URL.revokeObjectURL(url);albumUrls.clear();};
+  let reviewMode="album",selectedReviews=new Map(),thumbnails=null;
+  const clearAlbumImages=()=>{thumbnails?.clear();thumbnails=null;};
   let expanded=null;
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
@@ -174,13 +175,9 @@ export function adminUI(session) {
           const label=node("label","","album-select"),checkbox=node("input"),circle=node("span","","album-check");checkbox.type="checkbox";checkbox.dataset.reviewSelect="";checkbox.setAttribute("aria-label","選取案件 "+row.case_id);circle.setAttribute("aria-hidden","true");label.append(checkbox,circle);photo.append(label);
           checkbox.addEventListener("change",()=>{if(checkbox.checked && selectedReviews.size>=20 && !selectedReviews.has(row.case_id)){checkbox.checked=false;return;}if(checkbox.checked)selectedReviews.set(row.case_id,{...row});else selectedReviews.delete(row.case_id);syncSelected();});
         }
-        const primary=row.primary_file_id??row.files?.[0]?.file_id;
-        if(primary){
-          const born=sequence,observer=new IntersectionObserver(entries=>{if(!entries.some(e=>e.isIntersecting))return;observer.disconnect();albumObservers.delete(observer);
-            void session.adminProof("/api/admin/cases/"+row.case_id+"/files/"+primary,controller.signal).then(blob=>{if(born!==sequence || !visible || !image.isConnected)return;const url=URL.createObjectURL(blob);albumUrls.set(row.case_id,url);const img=node("img");img.src=url;img.alt="投票證明 "+row.case_id;image.replaceChildren(img);}).catch(error=>{if(born!==sequence || !image.isConnected)return;if(["ADMIN_FORBIDDEN","ADMIN_STEP_UP_REQUIRED","AUTH_REQUIRED","MEMBER_SUSPENDED"].includes(error.code)){access.clear();return;}image.textContent="圖片暫時無法載入，展開重試";});
-          });albumObservers.add(observer);observer.observe(image);
-        }
+
       }
+      thumbnails.observe(image,row);
       if(row.review_stage==="detailed")summary.append(node("span","詳細審核 · "+(riskNames[row.review_risk_reason]??"其他原因"),"tiny"));
       for(const b of [image,...actions.children]){b.setAttribute("aria-expanded","false");b.setAttribute("aria-controls","review-"+row.case_id);}
       card.dataset.search=[row.case_id,row.nickname,row.player_id].filter(Boolean).join(" ").toLocaleLowerCase();card.hidden=!matches(row);
@@ -190,6 +187,7 @@ export function adminUI(session) {
     const loadFiltered = async () => {
       // Lists are attached to the panel; remove only the prior list/page button.
       collapseReview();clearAlbumImages();selectedReviews.clear();syncSelected();while (batchBox.nextSibling) batchBox.nextSibling.remove();
+      const born=sequence;thumbnails=proofThumbnails({session,signal:controller.signal,isCurrent:()=>visible&&sequence===born,onAuthError:()=>access.clear()});
       await paged("cases", "cases", render, params);
     };
     const syncTabs=()=>{for(const tab of statusTabs.children){const active=tab.dataset.status===status.value;tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));}};
@@ -303,7 +301,7 @@ export function adminUI(session) {
             collapseReview();selectedReviews.delete(data.case_id);const check=card.querySelector("[data-review-select]");if(check){check.checked=false;check.disabled=true;}if($("admin-batch-approve"))$("admin-batch-approve").disabled=!selectedReviews.size;
             if(result.review_stage==="detailed" && reviewMode==="album")card.hidden=true;
             const filter=$("admin-field-filter-status");if(filter?.value && result.status!==filter.value)card.hidden=true;
-            if(card.hidden){const url=albumUrls.get(data.case_id);if(url){URL.revokeObjectURL(url);albumUrls.delete(data.case_id);}}
+            if(card.hidden)thumbnails?.release(data.case_id);
             scrollTo({top:Math.min(position,Math.max(0,document.documentElement.scrollHeight-innerHeight)),behavior:"instant"});
           } catch(error){
             errorText.textContent=adminMessage(error);
@@ -455,8 +453,9 @@ export function adminUI(session) {
     });
   }
   async function overview(){
-    heading('工作總覽','以下摘要來自本次載入的案件資料，並非全站即時總數。');
-    const data=await request('cases?limit=20'),grid=node('div','','grid grid-3');
+    heading('工作總覽','會員總數為全站已建立的會員數（包含停權會員）；案件摘要僅計算本次載入的資料。');
+    const [data,totals]=await Promise.all([request('cases?limit=20'),request('overview')]),grid=node('div','','grid grid-4');
+    const members=node('article','','activity-card');members.dataset.memberTotal='';members.append(node('span','會員總數','tiny'),node('strong',String(totals.member_count)));grid.append(members);
     for(const [state,label] of [['pending','待審核'],['approved','已通過'],['rejected','未通過']]){
       const card=node('article','','activity-card');card.append(node('span',label,'tiny'),node('strong',String(data.cases.filter(c=>c.status===state).length)));grid.append(card);
     }
@@ -484,10 +483,11 @@ export function adminUI(session) {
     field(f,'announcement_enabled','公告狀態','select',row?.enabled?'true':'false',{choices:[['false','關閉'],['true','開放']]});
     field(f,'announcement_start','開始顯示時間（台灣時間，選填）','datetime-local',row?.starts_at?taipeiInput(row.starts_at):'');field(f,'announcement_end','結束顯示時間（台灣時間，選填）','datetime-local',row?.ends_at?taipeiInput(row.ends_at):'');
     field(f,'announcement_dismissible','是否允許關閉','select',row?.dismissible===false?'false':'true',{choices:[['true','是'],['false','否']]});
+    const enabled=field(f,'announcement_button_enabled','顯示連結按鈕','select',(row?.button_enabled??Boolean(row?.button_url))?'true':'false',{choices:[['false','關閉'],['true','顯示']]});
     const label=field(f,'announcement_button_label','按鈕文字（選填）','text',row?.button_label,{maxLength:60}),url=field(f,'announcement_button_url','按鈕連結（http／https，選填）','url',row?.button_url,{maxLength:2048});
     const preview=node('section','','card announcement-editor-preview');preview.hidden=true;preview.setAttribute('aria-label','公告預覽');f.append(button('預覽公告',()=>{preview.replaceChildren(node('h3',title.value),node('p',body.value,'content-lines'));preview.hidden=false;}),preview);
-    const sync=()=>{label.required=Boolean(url.value);url.required=Boolean(label.value);};label.addEventListener('input',sync);url.addEventListener('input',sync);sync();
-    submitButton(f,'儲存公告');bindForm(f,()=>mutate('announcements'+(row?'/'+row.announcement_id+'/update':''),{...(row?{expected_version:row.version}:{}),title:title.value,body:body.value,enabled:value(f,'announcement_enabled')==='true',dismissible:value(f,'announcement_dismissible')==='true',starts_at:value(f,'announcement_start')?utcFromTaipei(value(f,'announcement_start')):null,ends_at:value(f,'announcement_end')?utcFromTaipei(value(f,'announcement_end')):null,button_label:label.value,button_url:url.value}));
+    const sync=()=>{const on=enabled.value==='true';label.disabled=url.disabled=!on;label.required=on;url.required=on;};enabled.addEventListener('change',sync);sync();
+    submitButton(f,'儲存公告');bindForm(f,()=>mutate('announcements'+(row?'/'+row.announcement_id+'/update':''),{...(row?{expected_version:row.version}:{}),title:title.value,body:body.value,enabled:value(f,'announcement_enabled')==='true',dismissible:value(f,'announcement_dismissible')==='true',starts_at:value(f,'announcement_start')?utcFromTaipei(value(f,'announcement_start')):null,ends_at:value(f,'announcement_end')?utcFromTaipei(value(f,'announcement_end')):null,button_enabled:enabled.value==='true',button_label:label.value,button_url:url.value}));
     f.append(button('返回公告列表',()=>void load()));
   }
   const loaders = { overview, cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, submissions, audit, staff };

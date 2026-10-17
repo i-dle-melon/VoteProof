@@ -28,7 +28,7 @@ const handler=adminHandler(async(env,url,request)=>{
  const actor=await adminIdentity(request,env,ELEVATED_ROLES);
  if(request.method==='POST')await adminCsrf(request,env,actor);
  if(parts[3]==='announcements'){
-  if(request.method==='GET')return jsonSuccess({announcements:(await db.prepare('SELECT * FROM site_announcements ORDER BY updated_at DESC,announcement_id').all()).results.map(({last_mutation_id,...r})=>({...r,enabled:Boolean(r.enabled),dismissible:Boolean(r.dismissible)}))});
+  if(request.method==='GET')return jsonSuccess({announcements:(await db.prepare('SELECT * FROM site_announcements ORDER BY updated_at DESC,announcement_id').all()).results.map(({last_mutation_id,...r})=>({...r,enabled:Boolean(r.enabled),dismissible:Boolean(r.dismissible),button_enabled:Boolean(r.button_enabled)}))});
   return jsonSuccess(await saveAnnouncement(db,actor,announcementInput(await readReviewJson(request),Boolean(parts[4])),parts[4]??null),'no-store',parts[4]?200:201);
  }
  if(parts[3]==='campaigns'){

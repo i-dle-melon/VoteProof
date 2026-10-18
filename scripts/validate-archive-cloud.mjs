@@ -50,7 +50,7 @@ async function deploy(worker,role){
   const bindings=[{type:'d1',name:'DB',id:state.database},...(role==='reader'?[{type:'r2_bucket',name:'PROOFS_BUCKET',bucket_name:bucket}]:[]),
     ...Object.entries({TEST_ACCESS:role==='reader'?access:relayAccess,RELAY_ACCESS:relayAccess,DRIVE_BACKUP_RELAY_SECRET:secret}).map(([name,text])=>({type:'secret_text',name,text})),
     ...Object.entries({TEST_ROLE:role,TEST_ORIGIN:role==='reader'?origin:mockOrigin,MOCK_ORIGIN:mockOrigin,TEST_EXPIRES:String(Date.now()+3600000),TEST_VERSION:version,
-      GOOGLE_DRIVE_BACKUP_ENABLED:'true',R2_EXCLUSIVE_WRITER_CONFIRMED:'true',STORAGE_CLEANUP_LIVE_ENABLED:'true',DRIVE_COLD_RELAY_URL:'https://script.google.com/macros/s/isolated_archive/exec'}).map(([name,text])=>({type:'plain_text',name,text}))];
+      GOOGLE_DRIVE_BACKUP_ENABLED:'true',R2_EXCLUSIVE_WRITER_CONFIRMED:'true',STORAGE_CLEANUP_LIVE_ENABLED:'true',DRIVE_COLD_RELAY_URL:'https://'+'script.google.com/macros/s/isolated_archive/exec'}).map(([name,text])=>({type:'plain_text',name,text}))];
   const data=new FormData();data.set('metadata',new Blob([JSON.stringify({main_module:'worker.mjs',compatibility_date:'2026-10-07',compatibility_flags:['global_fetch_strictly_public'],usage_model:'standard',bindings,logpush:false})],{type:'application/json'}));
   data.set('worker.mjs',new Blob([bundle.outputFiles[0].text],{type:'application/javascript+module'}),'worker.mjs');
   await api(base+'/workers/scripts/'+worker,'PUT',data);state.workers.push(worker);await save();

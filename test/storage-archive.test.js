@@ -96,6 +96,10 @@ test('only reviewed and 7-day-old, Drive-confirmed proofs archive; no browser co
     assert.equal((await db.prepare("SELECT state FROM cold_proofs WHERE file_id=?").bind(f.id).first()).state,'cold');
     assert.equal((await db.prepare("SELECT status FROM proof_backups WHERE file_id=?").bind(f.id).first()).status,'confirmed');
     assert.equal((await db.prepare("SELECT submissions_enabled FROM submission_settings WHERE id=1").first()).submissions_enabled,0);
+    await assert.rejects(db.prepare("UPDATE cases SET status='pending' WHERE id=?").bind(c.id).run());
+    await db.prepare("UPDATE cold_proofs SET state='deleting',lease_token=?,lease_until=? WHERE file_id=?").bind('fixture-lease',nowSeconds()+300,f.id).run();
+    await assert.rejects(db.prepare("UPDATE cases SET updated_at=? WHERE id=?").bind(new Date().toISOString(),c.id).run());
+    await db.prepare("UPDATE cold_proofs SET state='cold',lease_token=NULL,lease_until=NULL WHERE file_id=?").bind(f.id).run();
     await assert.rejects(privateProofResponse(env(),f),e=>e.code==='PROOF_ARCHIVED_IN_DRIVE'&&e.status===410);
   } finally {await h.local.runtime.dispose();}
 });

@@ -9,7 +9,7 @@ import {
   nowSeconds,
   evaluateCapacity,
 } from "../lib/storage-capacity.js";
-import { cleanupDryRun } from "../lib/cold-storage.js";
+import { cleanupArchive } from "../lib/storage-archive.js";
 import { processStorageAlerts } from "../lib/storage-alerts.js";
 const validObject = (v) => v && typeof v === "object" && !Array.isArray(v);
 export async function quotaSnapshot(env, v) {
@@ -43,13 +43,13 @@ export async function quotaSnapshot(env, v) {
 const admin = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES);
   if (url.search) throw new AdminError(400, "INVALID_STORAGE_REQUEST", "不支援查詢參數。");
-  if (request.method === "GET") return jsonSuccess(await storageSummary(env.DB));
+  if (request.method === "GET") return jsonSuccess(await storageSummary(env.DB, {live:env.STORAGE_CLEANUP_LIVE_ENABLED==="true"}));
   await adminCsrf(request, env, actor);
   const v = await readReviewJson(request);
   if (!validObject(v) || Object.keys(v).length)
     throw new AdminError(400, "INVALID_STORAGE_REQUEST", "參數無效。");
   return jsonSuccess(
-    url.pathname.endsWith("/inventory") ? await inventoryPage(env) : await cleanupDryRun(env),
+    url.pathname.endsWith("/inventory") ? await inventoryPage(env) : await cleanupArchive(env, {previewOnly:true}),
   );
 });
 const internal = async (env, url, request) => {
@@ -62,7 +62,7 @@ const internal = async (env, url, request) => {
     await evaluateCapacity(env.DB);
     const inventory = await inventoryPage(env);
     let cleanup = null;
-    if (inventory.complete) cleanup = await cleanupDryRun(env);
+    if (inventory.complete) cleanup = await cleanupArchive(env);
     const alerts = await processStorageAlerts(env);
     return jsonSuccess({ inventory, cleanup, alerts });
   } catch (e) {

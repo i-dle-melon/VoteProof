@@ -1,4 +1,3 @@
-import {coldContext,readColdProof,coldError} from '../lib/cold-storage.js';
 import {batchReviewInput,batchApprove} from "../lib/review-batch.js";
 import { jsonSuccess } from "./response.js";
 import { adminHandler } from "./admin-response.js";
@@ -61,11 +60,9 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
 export async function privateProofResponse(env,file) {
   let object = await env.PROOFS_BUCKET.get(file.object_key);
   if (!object) {
-    const row=await coldContext(env.DB,file.object_key);
-    if(!row)throw new AdminError(404,'PROOF_NOT_FOUND','Proof not found');
-    if(row.etag!==file.etag||row.size!==file.size||row.content_type!==file.content_type)throw coldError();
-    const bytes=await readColdProof(env,row,row.known_sha??row.manifest_sha);
-    object={body:new Response(bytes).body,size:bytes.length,etag:row.etag,httpMetadata:{contentType:row.content_type}};
+    const archived=await env.DB.prepare("SELECT p.state FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?").bind(file.object_key).first();
+    if(archived?.state==='cold')throw new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已封存至 Google Drive，請由管理員手動開啟備份。');
+    throw new AdminError(404,'PROOF_NOT_FOUND','Proof not found');
   }
   if (!allowedMime(file.content_type) || object.httpMetadata?.contentType !== file.content_type ||
       object.size !== file.size || object.etag !== file.etag || object.size > UPLOAD_LIMITS.maxFileBytes || object.size <= 0) {

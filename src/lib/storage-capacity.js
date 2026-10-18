@@ -181,7 +181,7 @@ export async function inventoryPage(env) {
   });
   return { complete: true, bytes: total, anomaly };
 }
-export async function storageSummary(db) {
+export async function storageSummary(db,{live=false}={}) {
   const row = await capacityRow(db);
   const history = (
     await db.prepare("SELECT * FROM storage_history ORDER BY created_at DESC LIMIT 20").all()
@@ -199,8 +199,9 @@ export async function storageSummary(db) {
     anomaly: row.anomaly,
     scanning: !!row.inventory_id,
     cleanup_requested: !!row.cleanup_requested,
-    cleanup_mode: "dry-run",
-    retention_approved: false,
+    cleanup_mode: live?"live":"dry-run",
+    retention_days: 7,
+    retention_approved: true,
     history,
     drive_quota: quota
       ? {

@@ -50,7 +50,12 @@ export function classify(files, inventory, forceFull = false) {
   return { full, migrations, node: [...node].sort(), browser: [...browser].sort() };
 }
 export async function baseline(runs, head, isAncestor) {
-  for (const run of runs) if (trustedRun(run) && run.conclusion === 'success' && run.head_sha !== head && await isAncestor(run.head_sha)) return run.head_sha;
+  const seen=new Set();
+  for (const run of [...runs].sort((a,b)=>b.id-a.id)) {
+    if(!trustedRun(run)||seen.has(run.head_sha))continue;
+    seen.add(run.head_sha);
+    if(run.status==='completed'&&run.conclusion==='success'&&run.head_sha!==head&&await isAncestor(run.head_sha))return run.head_sha;
+  }
   return null;
 }
 const git = args => execFileSync('git', args, { encoding:'utf8', windowsHide:true }).trim();
@@ -66,7 +71,7 @@ async function main() {
     const api = githubClient();
     // Only successful ancestor runs count. A failed previous push cannot hide
     // its unvalidated source changes behind a later test-only fix.
-    const runs = await api('/actions/workflows/branch-validation.yml/runs?status=success&per_page=100');
+    const runs = await api('/actions/workflows/branch-validation.yml/runs?per_page=100');
     base = await baseline(runs.workflow_runs, head, sha => {
       try { execFileSync('git',['merge-base','--is-ancestor',sha,head],{stdio:'ignore',windowsHide:true}); return true; } catch { return false; }
     });

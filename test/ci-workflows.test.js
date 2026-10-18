@@ -29,9 +29,15 @@ test('migrations, dependency changes and explicit full run include local schema 
   assert.equal(classify([],inventory,true).migrations,true);
 });
 test('failed, unrelated, fork and PR runs cannot establish a trusted baseline',async()=>{
-  const runs=[run({head_sha:other,conclusion:'failure'}),run({head_sha:other,event:'pull_request'}),run({head_sha:other,head_repository:{full_name:'fork/VoteProof'}}),run({head_sha:other})];
+  const runs=[run({id:10,head_sha:other,conclusion:'failure'}),run({id:14,head_sha:other,event:'pull_request'}),run({id:13,head_sha:other,head_repository:{full_name:'fork/VoteProof'}}),run({id:12,head_sha:other})];
   const prior=process.env.GITHUB_REPOSITORY;process.env.GITHUB_REPOSITORY=repository;
   try{assert.equal(await baseline(runs,sha,async s=>s===other),other);assert.equal(await baseline(runs,sha,async()=>false),null);}finally{if(prior===undefined)delete process.env.GITHUB_REPOSITORY;else process.env.GITHUB_REPOSITORY=prior;}
+});
+test('newer failure cannot be hidden by an older success for the same SHA',async()=>{
+  const runs=[run({id:12}),run({id:13,conclusion:'failure'})];
+  await assert.rejects(ensureValidation({sha,repository,api:async()=>({workflow_runs:runs})}),/failed|cancelled/);
+  const prior=process.env.GITHUB_REPOSITORY;process.env.GITHUB_REPOSITORY=repository;
+  try{assert.equal(await baseline(runs,other,async()=>true),null);}finally{if(prior===undefined)delete process.env.GITHUB_REPOSITORY;else process.env.GITHUB_REPOSITORY=prior;}
 });
 test('Production reuses only exact-SHA trusted success without dispatch or test rerun',async()=>{
   const calls=[];const result=await ensureValidation({sha,repository,api:async(p,b)=>{calls.push({p,b});return p.startsWith('/actions/workflows/')?{workflow_runs:[run({head_sha:other}),run()]}:run();},sleep:async()=>{throw Error('Successful CI must not wait');}});

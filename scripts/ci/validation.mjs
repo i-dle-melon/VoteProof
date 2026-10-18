@@ -16,21 +16,21 @@ export function githubClient({ token=process.env.GITHUB_TOKEN, repository=proces
 export async function ensureValidation({api,sha,repository,ref='main',sleep=ms=>new Promise(r=>setTimeout(r,ms)),now=Date.now,timeout=45*60000}) {
   if (!shaPattern.test(sha??'') || ref !== 'main') throw Error('Exact approved main SHA required');
   const started = now();
-  const candidates = async () => (await api(`/actions/workflows/branch-validation.yml/runs?head_sha=${sha}&per_page=100`)).workflow_runs.filter(r=>trustedRun(r,repository)&&r.head_sha===sha);
-  let runs = await candidates(), run = runs.find(r=>r.status==='completed'&&r.conclusion==='success') ?? runs.find(r=>r.status!=='completed');
-  if (!run && runs.length) throw Error('Validation failed or cancelled for this SHA; inspect and repair before deployment');
+  const candidates = async () => (await api(`/actions/workflows/branch-validation.yml/runs?head_sha=${sha}&per_page=100`)).workflow_runs.filter(r=>trustedRun(r,repository)&&r.head_sha===sha).sort((a,b)=>b.id-a.id);
+  let runs = await candidates(), run = runs[0];
+  if (run?.status==='completed' && run.conclusion!=='success') throw Error('Validation failed or cancelled for this SHA; inspect and repair before deployment');
   if (!run) {
     // Allow an already-triggered push validation to appear before dispatching.
     await sleep(15000); runs=await candidates();
-    run=runs.find(r=>r.conclusion==='success') ?? runs.find(r=>r.status!=='completed');
-    if (!run && runs.length) throw Error('Validation failed for this SHA');
+    run=runs[0];
+    if (run?.status==='completed' && run.conclusion!=='success') throw Error('Validation failed for this SHA');
     if (!run) {
       const main=await api('/git/ref/heads/main'); if(main.object.sha!==sha)throw Error('main changed before validation dispatch');
       await api('/actions/workflows/branch-validation.yml/dispatches',{ref,inputs:{approved_sha:sha}});
     }
   }
   while (now()-started < timeout) {
-    if (!run) { await sleep(30000); runs=await candidates(); run=runs.find(r=>r.status!=='completed') ?? runs[0]; continue; }
+    if (!run) { await sleep(30000); runs=await candidates(); run=runs[0]; continue; }
     if (!Number.isSafeInteger(run.id)) throw Error('Invalid validation run ID');
     run=await api(`/actions/runs/${run.id}`);
     if (!trustedRun(run,repository)||run.head_sha!==sha) throw Error('Validation provenance mismatch');

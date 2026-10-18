@@ -64,3 +64,13 @@ CREATE INDEX storage_cleanup_queue ON cold_proofs(state,lease_until);
 CREATE TRIGGER storage_cancel_count AFTER UPDATE OF state ON storage_reservations WHEN OLD.state='reserved' AND NEW.state='cancelled' BEGIN
  UPDATE storage_capacity SET reserved_bytes=reserved_bytes-NEW.bytes WHERE id=1;
 END;
+
+-- New export snapshots cannot race R2 archival or silently omit a cold proof.
+CREATE TRIGGER archive_export_insert_guard BEFORE INSERT ON export_job_items
+WHEN EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=NEW.file_id AND p.state IN('verifying','deleting','cold'))
+BEGIN SELECT RAISE(ABORT,'EXPORT_ARCHIVED_PROOF'); END;
+-- A cold proof must be restored under a separate capacity-controlled operation before reopening.
+CREATE TRIGGER archive_case_reopen_guard BEFORE UPDATE OF status ON cases
+WHEN NEW.status NOT IN('completed','rejected','revoked') AND EXISTS(
+ SELECT 1 FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.case_id=NEW.id AND p.state='cold')
+BEGIN SELECT RAISE(ABORT,'ARCHIVED_PROOF_REQUIRES_RESTORE'); END;

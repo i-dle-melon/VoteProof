@@ -22,7 +22,7 @@ export async function ensureCaseBackups(env, caseInternalId, committedFiles) {
   }
 }
 export const backupRows = async (db, caseId) => (await db.prepare(`SELECT b.id,b.file_id,b.status,b.drive_file_id,
-  b.completed_at,b.last_error_code,b.attempts,b.next_attempt_at,b.version FROM proof_backups b
+  b.completed_at,b.last_error_code,b.attempts,b.next_attempt_at,b.version,(SELECT p.state FROM cold_proofs p WHERE p.file_id=b.file_id) AS archive_state FROM proof_backups b
   JOIN case_files f ON f.id=b.file_id JOIN cases c ON c.id=f.case_id WHERE c.case_id=? ORDER BY b.file_id`).bind(caseId).all()).results;
 export async function backupSummary(db) {
   const counts = { pending: 0, processing: 0, confirmed: 0, failed: 0 };

@@ -1,3 +1,4 @@
+import {storageRoute} from '../src/api/storage.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -89,6 +90,7 @@ test('only reviewed and 7-day-old, Drive-confirmed proofs archive; no browser co
     assert.equal(before.mode,'dry-run');
     assert.equal(before.deleted,0);
     assert.ok(await h.local.bucket.head(f.object_key));
+    assert.equal((await cleanupArchive(env(true),{read})).state,'verification_ready');
     const result=await cleanupArchive(env(true),{read});
     assert.equal(result.state,'cold');
     assert.equal(result.deleted,1);
@@ -102,4 +104,14 @@ test('only reviewed and 7-day-old, Drive-confirmed proofs archive; no browser co
     await db.prepare("UPDATE cold_proofs SET state='cold',lease_token=NULL,lease_until=NULL WHERE file_id=?").bind(f.id).run();
     await assert.rejects(privateProofResponse(env(),f),e=>e.code==='PROOF_ARCHIVED_IN_DRIVE'&&e.status===410);
   } finally {await h.local.runtime.dispose();}
+});
+
+test('archive continuation is server-only authenticated and rejects client deletion parameters',async()=>{
+  const path='/api/internal/drive-backup/storage/archive',url=new URL('https://fixture.invalid'+path);
+  const route=storageRoute(path),env={DRIVE_BACKUP_RELAY_SECRET:secret,GOOGLE_DRIVE_BACKUP_ENABLED:'true',DB:{prepare:()=>assert.fail('Rejected requests must not reach DB')}};
+  for(const [headers,status] of [[{},401],[{Authorization:'Bearer '+'0'.repeat(64)},401],[{Authorization:'Bearer '+secret,Origin:'https://fixture.invalid'},403]]){
+    const r=await route.handler(env,url,new Request(url,{method:'POST',headers,body:'{}'}));assert.equal(r.status,status);
+  }
+  const bad=await route.handler(env,url,new Request(url,{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({file_id:'forged',sha256:'0'.repeat(64)})}));
+  assert.equal(bad.status,503); // empty-input contract rejects before any D1 lookup
 });

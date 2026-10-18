@@ -1,0 +1,650 @@
+{
+  "baseline": "6b70f294aee9a7c920b25ab85cc238fc97c3aa3c",
+  "functional_scenarios": [
+    "at-target",
+    "below-start",
+    "below-target",
+    "cleanup-concurrent",
+    "commit-ack-lost",
+    "commit-failure",
+    "delete-ack-lost",
+    "delete-failure",
+    "dry-run",
+    "etag-mismatch",
+    "exact-seven-days",
+    "expired",
+    "export-existing",
+    "export-race",
+    "handoff-capacity",
+    "handoff-expired",
+    "handoff-gate",
+    "handoff-persisted",
+    "handoff-source",
+    "handoff-upload",
+    "handoff-version",
+    "hysteresis",
+    "no-review",
+    "nonce-mismatch",
+    "response-lost",
+    "review-race",
+    "sha-mismatch",
+    "signature-mismatch",
+    "unclosed",
+    "unconfirmed",
+    "upload-inflight",
+    "upload-stop",
+    "verify-response-lost",
+    "version-mismatch",
+    "writer-race",
+    "young"
+  ],
+  "functional_verdict": "PASS",
+  "cpu_readiness": "UNKNOWN",
+  "cpu_requests": 90,
+  "valid_cpu": 79,
+  "missing_cpu_unknown": 11,
+  "cpu": [
+    {
+      "stage": "verify",
+      "mib": 1,
+      "requests": 15,
+      "success": 15,
+      "cpu_ms": {
+        "n": 11,
+        "p50": 8,
+        "p95": 9,
+        "p99": 9,
+        "max": 9,
+        "over10": 0
+      },
+      "missing_cpu": 4,
+      "wall_ms": {
+        "n": 15,
+        "p50": 557.3457999999955,
+        "p95": 687.181500000006,
+        "p99": 687.181500000006,
+        "max": 687.181500000006,
+        "over10": 15
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented phase",
+        "samples": [
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          }
+        ]
+      }
+    },
+    {
+      "stage": "verify",
+      "mib": 3,
+      "requests": 15,
+      "success": 15,
+      "cpu_ms": {
+        "n": 14,
+        "p50": 6,
+        "p95": 9,
+        "p99": 9,
+        "max": 9,
+        "over10": 0
+      },
+      "missing_cpu": 1,
+      "wall_ms": {
+        "n": 15,
+        "p50": 553.6493999999948,
+        "p95": 609.1837999999989,
+        "p99": 609.1837999999989,
+        "max": 609.1837999999989,
+        "over10": 15
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented phase",
+        "samples": [
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          }
+        ]
+      }
+    },
+    {
+      "stage": "verify",
+      "mib": 5,
+      "requests": 15,
+      "success": 15,
+      "cpu_ms": {
+        "n": 15,
+        "p50": 7,
+        "p95": 10,
+        "p99": 10,
+        "max": 10,
+        "over10": 0
+      },
+      "missing_cpu": 0,
+      "wall_ms": {
+        "n": 15,
+        "p50": 546.1695999999938,
+        "p95": 670.9891999999818,
+        "p99": 670.9891999999818,
+        "max": 670.9891999999818,
+        "over10": 15
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented phase",
+        "samples": [
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 9,
+            "trips": 6,
+            "r2": {
+              "head": 2,
+              "get": 0,
+              "put": 0,
+              "delete": 0,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          }
+        ]
+      }
+    },
+    {
+      "stage": "delete",
+      "mib": 1,
+      "requests": 15,
+      "success": 15,
+      "cpu_ms": {
+        "n": 9,
+        "p50": 6,
+        "p95": 7,
+        "p99": 7,
+        "max": 7,
+        "over10": 0
+      },
+      "missing_cpu": 6,
+      "wall_ms": {
+        "n": 15,
+        "p50": 685.562900000019,
+        "p95": 805.2392000000109,
+        "p99": 805.2392000000109,
+        "max": 805.2392000000109,
+        "over10": 15
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented phase",
+        "samples": [
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          }
+        ]
+      }
+    },
+    {
+      "stage": "delete",
+      "mib": 3,
+      "requests": 15,
+      "success": 15,
+      "cpu_ms": {
+        "n": 15,
+        "p50": 6,
+        "p95": 9,
+        "p99": 9,
+        "max": 9,
+        "over10": 0
+      },
+      "missing_cpu": 0,
+      "wall_ms": {
+        "n": 15,
+        "p50": 703.2624999999971,
+        "p95": 997.6915000000008,
+        "p99": 997.6915000000008,
+        "max": 997.6915000000008,
+        "over10": 15
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented phase",
+        "samples": [
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          }
+        ]
+      }
+    },
+    {
+      "stage": "delete",
+      "mib": 5,
+      "requests": 15,
+      "success": 15,
+      "cpu_ms": {
+        "n": 15,
+        "p50": 6,
+        "p95": 9,
+        "p99": 9,
+        "max": 9,
+        "over10": 0
+      },
+      "missing_cpu": 0,
+      "wall_ms": {
+        "n": 15,
+        "p50": 707.2657000000036,
+        "p95": 900.3133000000089,
+        "p99": 900.3133000000089,
+        "max": 900.3133000000089,
+        "over10": 15
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented phase",
+        "samples": [
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 3,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 0,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          }
+        ]
+      }
+    }
+  ],
+  "inventory": {
+    "complete": true,
+    "bytes": 1048576,
+    "anomaly": null
+  },
+  "integrity": {
+    "quick_check": "ok",
+    "fk_errors": 0,
+    "submissions": 0,
+    "backups": 56,
+    "budget": [
+      {
+        "id": "reader",
+        "used": 175,
+        "ceiling": 2400
+      },
+      {
+        "id": "relay",
+        "used": 110,
+        "ceiling": 4800
+      }
+    ]
+  },
+  "resources": [
+    {
+      "state": {
+        "name": "voteproof-archive-e2e-31b0bdac950f",
+        "relay": "voteproof-archive-e2e-31b0bdac950f-relay",
+        "bucket": "voteproof-archive-e2e-31b0bdac950f-data",
+        "database": "84334efe-def7-4420-a951-2dbbd1175e13",
+        "workers": [
+          "voteproof-archive-e2e-31b0bdac950f-relay",
+          "voteproof-archive-e2e-31b0bdac950f"
+        ],
+        "bucket_created": true,
+        "db_created": true
+      },
+      "free_tier": true,
+      "failure": {
+        "name": "TypeError",
+        "message": "Cannot read properties of undefined (reading 'counters')"
+      },
+      "removed": [
+        {
+          "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-31b0bdac950f-relay/settings",
+          "removed": true
+        },
+        {
+          "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-31b0bdac950f/settings",
+          "removed": true
+        },
+        {
+          "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-31b0bdac950f-data",
+          "removed": true
+        },
+        {
+          "path": "/accounts/:account/d1/database/84334efe-def7-4420-a951-2dbbd1175e13",
+          "removed": true
+        }
+      ]
+    },
+    {
+      "state": {
+        "name": "voteproof-archive-e2e-c89afe834e03",
+        "relay": "voteproof-archive-e2e-c89afe834e03-relay",
+        "bucket": "voteproof-archive-e2e-c89afe834e03-data",
+        "database": "523426e8-b8b6-4992-85c8-2e5da8e162c7",
+        "workers": [
+          "voteproof-archive-e2e-c89afe834e03-relay",
+          "voteproof-archive-e2e-c89afe834e03"
+        ],
+        "bucket_created": true,
+        "db_created": true
+      },
+      "free_tier": true,
+      "failure": null,
+      "removed": [
+        {
+          "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-c89afe834e03-relay/settings",
+          "removed": true
+        },
+        {
+          "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-c89afe834e03/settings",
+          "removed": true
+        },
+        {
+          "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-c89afe834e03-data",
+          "removed": true
+        },
+        {
+          "path": "/accounts/:account/d1/database/523426e8-b8b6-4992-85c8-2e5da8e162c7",
+          "removed": true
+        }
+      ]
+    }
+  ],
+  "stage_cpu_rule": "15 requests per stage/size; all successful; at most 10 percent missing CPU; all observed CPU <=10ms. Threshold unchanged after collection.",
+  "collector": {
+    "starts": 1,
+    "parse_errors": 0,
+    "stderr_chunks": 0,
+    "error_signals": 0,
+    "sampling_text_matches": 157,
+    "sampling_rates": [],
+    "connection_lost_signals": 0,
+    "reconnect_signals": 0,
+    "exits": [
+      {
+        "code": null,
+        "signal": "SIGTERM"
+      }
+    ]
+  },
+  "per_invocation_overhead": "One additional harness durable-budget SQL and JSON trace log included, never subtracted; native DB/R2 bindings in CPU phase.",
+  "provider_wall_ms": [
+    {
+      "stage": "verify",
+      "mib": 1,
+      "n": 11,
+      "p50": 462,
+      "p95": 608,
+      "max": 608
+    },
+    {
+      "stage": "verify",
+      "mib": 3,
+      "n": 14,
+      "p50": 473,
+      "p95": 531,
+      "max": 531
+    },
+    {
+      "stage": "verify",
+      "mib": 5,
+      "n": 15,
+      "p50": 460,
+      "p95": 571,
+      "max": 571
+    },
+    {
+      "stage": "delete",
+      "mib": 1,
+      "n": 9,
+      "p50": 614,
+      "p95": 721,
+      "max": 721
+    },
+    {
+      "stage": "delete",
+      "mib": 3,
+      "n": 15,
+      "p50": 624,
+      "p95": 741,
+      "max": 741
+    },
+    {
+      "stage": "delete",
+      "mib": 5,
+      "n": 15,
+      "p50": 624,
+      "p95": 786,
+      "max": 786
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 import {cleanupArchive,verifyDriveArchive} from '../../src/lib/storage-archive.js';
 import {storageSignature} from '../../src/lib/cold-storage.js';
 import {capacityPut,inventoryPage,reserveStorage,nowSeconds} from '../../src/lib/storage-capacity.js';
+import {readReviewJson} from '../../src/api/admin-validation.js';
 import {authenticateRelay} from '../../src/lib/drive-backup-relay.js';
 const denied=()=>new Response(null,{status:404});
 const json=v=>Response.json(v,{headers:{'Cache-Control':'no-store'}});
@@ -38,12 +39,13 @@ export default {async fetch(request,env){
     if(url.pathname!=='/archive'||request.method!=='POST')return denied();
     // Same server-only authentication used by Production maintenance.
     await authenticateRelay(request,env);
+    const input=await readReviewJson(request);if(url.search||!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length)return new Response(null,{status:400});
     const mode=request.headers.get('X-Test-Mode')??'normal',sample=request.headers.get('X-Isolated-Sample')??'unmeasured';
     const instrumented=request.headers.get('X-Test-Profile')!=='pure';
     if(!instrumented&&mode!=='normal')return denied();
     const counters={statements:0,trips:0,r2:{head:0,get:0,put:0,delete:0,list:0},relay:0,harness_budget_statements:1},raw=new WeakMap(),sqls=new WeakMap();
     let lastRow,heads=0,lost=false;const assertions={};
-    const wrap=(s,sql)=>{const p=new Proxy(s,{get(t,k){if(k==='bind')return(...a)=>wrap(t.bind(...a),sql);if(['first','all','run'].includes(k))return(...a)=>{counters.statements++;counters.trips++;return t[k](...a);};return typeof t[k]==='function'?t[k].bind(t):t[k];}});raw.set(p,s);sqls.set(p,sql);return p;};
+    const wrap=(s,sql)=>{const p=new Proxy(s,{get(t,k){if(k==='bind')return(...a)=>wrap(t.bind(...a),sql);if(['first','all','run'].includes(k))return(...a)=>{counters.statements++;counters.trips++;const value=t[k](...a);return k==='first'&&sql.startsWith('SELECT f.id file_id')?value.then(row=>{lastRow=row;return row;}):value;};return typeof t[k]==='function'?t[k].bind(t):t[k];}});raw.set(p,s);sqls.set(p,sql);return p;};
     const db={prepare:s=>wrap(env.DB.prepare(s),s),batch:a=>{counters.statements+=a.length;counters.trips++;
       if(mode==='commit-failure'&&!lost&&a.some(s=>sqls.get(s)?.startsWith("UPDATE cold_proofs SET state='cold'"))){lost=true;throw Error('ISOLATED_D1_ACK_FAILURE');}
       const promise=env.DB.batch(a.map(s=>raw.get(s)??s));
@@ -87,8 +89,8 @@ export default {async fetch(request,env){
     // Count SDK operations in the separate instrumented phase. Never present
     // estimated counts as observed per-request counters in pure CPU samples.
     const metrics=instrumented?{...counters,instrumented:true}:{statements:null,trips:null,r2:null,relay:counters.relay,harness_budget_statements:1,instrumented:false};
-    const record={sample,result,counters:metrics,assertions,file_id:lastRow?.file_id??null};console.log(JSON.stringify(record));
-    if(mode==='response-lost'&&result.state==='cold')return new Response('ISOLATED_RESPONSE_LOST',{status:503});
+    const record={sample,result,counters:metrics,assertions,file_id:lastRow?.file_id??result.file_id??null};console.log(JSON.stringify(record));
+    if((mode==='response-lost'&&result.state==='cold')||(mode==='verify-response-lost'&&result.state==='verification_ready'))return new Response('ISOLATED_RESPONSE_LOST',{status:503});
     return json(record);
   }catch(e){return Response.json({error:e.code??e.message},{status:e.status??503});}
 }};

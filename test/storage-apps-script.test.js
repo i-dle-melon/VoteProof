@@ -17,6 +17,7 @@ function fixture(source, { email = "idle.voteproof.verify@gmail.com" } = {}) {
   const files = new Map(),
     state = {
       sends: 0,
+      archiveCalls: 0,
       quota: 100,
       shared: false,
       mediaFailure: false,
@@ -105,7 +106,7 @@ function fixture(source, { email = "idle.voteproof.verify@gmail.com" } = {}) {
         return {
           getResponseCode: () => 200,
           getContentText: () =>
-            JSON.stringify({ ok: true, data: { inventory: { complete: true }, state: "fixture" } }),
+            JSON.stringify({ ok: true, data: url.endsWith("/storage/archive") ? {cleanup:{state:state.archiveState??(++state.archiveCalls===1?"verification_ready":"cold")}} : { inventory: { complete: true }, state: "fixture" } }),
         };
       },
     },
@@ -411,4 +412,14 @@ test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw
   assert.equal(post(await signed({timestamp:request.timestamp-121})).error,'COLD_UNAVAILABLE');
   assert.equal(post(await signed({nonce:'invalid'})).error,'COLD_UNAVAILABLE');
   assert.equal(f.state.calls.length,before);
+});
+
+test('maintenance sends inventory, verification and deletion as separate authenticated requests',()=>{
+  const f=fixture(backupSource);const result=f.context.runStorageMaintenance();
+  assert.equal(result.cleanup.state,'cold');
+  assert.deepEqual(f.state.calls.map(x=>new URL(x.url).pathname),[
+    '/api/internal/drive-backup/storage/quota','/api/internal/drive-backup/storage/tick',
+    '/api/internal/drive-backup/storage/archive','/api/internal/drive-backup/storage/archive']);
+  const stopped=fixture(backupSource);stopped.state.archiveState='no_eligible_proofs';stopped.context.runStorageMaintenance();
+  assert.equal(stopped.state.calls.filter(x=>x.url.endsWith('/storage/archive')).length,1);
 });

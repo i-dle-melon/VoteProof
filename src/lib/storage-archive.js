@@ -7,7 +7,7 @@ import { STORAGE, capacityRow, nowSeconds } from './storage-capacity.js';
 import { r2VerifiedSha256 } from './r2-verified-checksum.js';
 
 export const ARCHIVE_RETENTION_DAYS = 7;
-const HOUR = 3600;
+export const ARCHIVE_VERIFICATION_TTL = 120;
 const fail = () => new AdminError(503, 'STORAGE_ARCHIVE_UNAVAILABLE', '儲存空間清理暫時無法執行。');
 const live = env => env.STORAGE_CLEANUP_LIVE_ENABLED === 'true';
 
@@ -45,7 +45,7 @@ export async function verifyDriveArchive(env, row, sha, { fetcher = fetch } = {}
       p.campaign_key_hash !== await shaBytes(new TextEncoder().encode(row.campaign_key)) ||
       p.date_key_hash !== await shaBytes(new TextEncoder().encode(row.date_key)))
     throw fail();
-  return {sha256:sha, verified_at:reply.timestamp};
+  return {sha256:sha, verified_at:reply.timestamp, receipt:reply};
 }
 const eligible = (row, at) => {
   if (!validColdSource(row) || !['completed','rejected','revoked'].includes(row.status) ||
@@ -80,105 +80,98 @@ async function markCold(db, row, token, sha, at) {
   ];
   await authAtomic(db,guard(row,token,at,'deleting'),statements);
 }
+// Canonical, server-owned binding. A receipt is never a client deletion token.
+const verificationContext = row => JSON.stringify([
+  row.file_id,row.object_key,row.size,row.content_type,row.etag,row.case_internal_id,
+  row.case_id,row.status,row.reviewed_at,row.closed_at,row.case_version,row.backup_id,
+  row.backup_status,row.backup_version,row.drive_file_id,row.drive_folder_id,
+  row.root_folder_id,row.source_object_key,row.source_size,row.source_mime,
+  row.source_etag,row.campaign_folder_id,row.campaign_key,row.date_key,row.known_sha
+]);
 async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive} = {}) {
   const db=env.DB,at=nowSeconds();
-  // External S3 writers and in-flight multipart uploads invalidate D1's exclusivity proof.
   if(env.R2_EXCLUSIVE_WRITER_CONFIRMED !== 'true') throw fail();
   const cap=await capacityRow(db);
-  if (!cap || cap.anomaly || cap.inventory_id || cap.reserved_bytes ||
-      cap.trusted_until <= at) throw fail();
+  if (!cap || cap.anomaly || cap.inventory_id || cap.reserved_bytes || cap.trusted_until <= at) throw fail();
   if (cap.used_bytes < STORAGE.cleanupStart && !cap.cleanup_requested) return {state:'idle',deleted:0};
   if (cap.used_bytes <= STORAGE.target) return {state:'target_reached',deleted:0};
   const rowKey=await db.prepare(
     "SELECT f.object_key FROM case_files f JOIN cases c ON c.id=f.case_id JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive' AND b.status='confirmed' LEFT JOIN cold_proofs p ON p.file_id=f.id "+
     "WHERE c.status IN('completed','rejected','revoked') AND c.reviewed_at IS NOT NULL AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday('now','-7 days') "+
     "AND (p.file_id IS NULL OR p.state='dry_run' OR (p.state='blocked' AND p.updated_at<?) OR (p.state IN('verifying','deleting') AND p.lease_until<?)) "+
-    "ORDER BY coalesce(c.status_updated_at,c.updated_at),f.id LIMIT 1")
+    "ORDER BY CASE WHEN p.verification_context IS NOT NULL THEN 0 ELSE 1 END,coalesce(c.status_updated_at,c.updated_at),f.id LIMIT 1")
     .bind(at-86400,at).first();
   if(!rowKey) return {state:'no_eligible_proofs',deleted:0};
   const row=await coldContext(db,rowKey.object_key);
   if(!eligible(row,at)) throw fail();
   const prev=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first();
-  const oldDeleting=prev?.state==='deleting';
-  const token=crypto.randomUUID();
+  const oldDeleting=prev?.state==='deleting',context=verificationContext(row);
+  let saved;try{saved=JSON.parse(prev?.verification_context??'null');}catch{}
+  const ready=prev && ['verifying','deleting'].includes(prev.state) && saved?.source===context &&
+    Number.isSafeInteger(prev.verified_at) && prev.verified_at<=at && at-prev.verified_at<=ARCHIVE_VERIFICATION_TTL &&
+    /^[a-f0-9]{64}$/.test(prev.sha256??'') && prev.etag===row.etag && prev.size===row.size && prev.r2_version &&
+    prev.case_version===row.case_version && prev.backup_version===row.backup_version;
+  const phase=ready?'delete':'verify',token=crypto.randomUUID();
   const claim=await db.prepare(
     "INSERT INTO cold_proofs(file_id,state,lease_token,lease_until,attempts,updated_at) VALUES(?,'verifying',?,?,1,?) "+
     "ON CONFLICT(file_id) DO UPDATE SET state=CASE WHEN cold_proofs.state='deleting' THEN 'deleting' ELSE 'verifying' END,lease_token=excluded.lease_token,lease_until=excluded.lease_until,attempts=attempts+1,updated_at=excluded.updated_at "+
     "WHERE state='dry_run' OR (state='blocked' AND updated_at<?) OR (state IN('verifying','deleting') AND lease_until<?) RETURNING file_id,state")
     .bind(row.file_id,token,at+300,at,at-86400,at).first();
-  if(!claim) return {state:'busy',deleted:0};
-  let destructive=false, stage='head';
+  if(!claim) return {state:'busy',deleted:0,phase};
+  let destructive=false,stage='head';
   try {
     let obj=await env.PROOFS_BUCKET.head(row.object_key);
-    // A previous delete may have completed before its D1 acknowledgement.
-    if(!obj && oldDeleting && prev?.sha256 && prev?.etag===row.etag &&
-       prev?.size===row.size && prev?.r2_version &&
-       prev?.case_version===row.case_version && prev?.backup_version===row.backup_version) {
-      stage='reconcile_verify';
-      await read(env,row,prev.sha256);
-      // Never downgrade a destructive pin while reconciling an uncertain delete.
-      await markCold(db,row,token,prev.sha256,nowSeconds());
-      return {state:'cold_reconciled',deleted:1,size:row.size};
+    const missingRecovery=!obj&&oldDeleting&&prev?.sha256&&prev.etag===row.etag&&prev.size===row.size&&prev.r2_version&&
+      prev.case_version===row.case_version&&prev.backup_version===row.backup_version;
+    const sha=missingRecovery?prev.sha256:r2VerifiedSha256(obj),version=missingRecovery?prev.r2_version:obj?.version;
+    if(!missingRecovery&&(!obj||obj.etag!==row.etag||obj.size!==row.size||obj.httpMetadata?.contentType!==row.content_type||
+      !version||!sha||(row.known_sha&&row.known_sha!==sha)))throw fail();
+    if(oldDeleting&&(prev.r2_version!==version||prev.sha256!==sha||prev.etag!==row.etag||prev.size!==row.size||
+      prev.case_version!==row.case_version||prev.backup_version!==row.backup_version))throw fail();
+    if(phase==='verify'){
+      stage='drive_verify';const verified=await read(env,row,sha);
+      const verifiedAt=verified.verified_at??nowSeconds();
+      if(!Number.isSafeInteger(verifiedAt)||verifiedAt>nowSeconds()||nowSeconds()-verifiedAt>ARCHIVE_VERIFICATION_TTL||verified.sha256!==sha)throw fail();
+      stage='recheck';obj=await env.PROOFS_BUCKET.head(row.object_key);
+      if(missingRecovery?!!obj:(!obj||obj.version!==version||obj.etag!==row.etag||obj.size!==row.size||
+        obj.httpMetadata?.contentType!==row.content_type||r2VerifiedSha256(obj)!==sha))throw fail();
+      const dry=!live(env)||previewOnly;
+      await authAtomic(db,guard(row,token,nowSeconds(),claim.state),[
+        db.prepare("UPDATE cold_proofs SET state=?,sha256=?,r2_version=?,etag=?,size=?,case_version=?,backup_version=?,verified_at=?,verification_context=?,lease_until=0,updated_at=?,error_code=NULL WHERE file_id=? AND lease_token=?")
+          .bind(oldDeleting?'deleting':dry?'dry_run':'verifying',sha,version,row.etag,row.size,row.case_version,row.backup_version,verifiedAt,
+            JSON.stringify({source:context,receipt:verified.receipt??null}),nowSeconds(),row.file_id,token),
+        audit(db,nowSeconds(),dry?'archive_dry_run':'archive_verified',row,sha)
+      ]);
+      return {state:dry?'dry_run':'verification_ready',would_delete:dry?1:0,deleted:0,size:row.size,file_id:row.file_id,phase};
     }
-    const sha=r2VerifiedSha256(obj);
-    if(!obj || obj.etag!==row.etag || obj.size!==row.size ||
-      obj.httpMetadata?.contentType!==row.content_type || !obj.version || !sha ||
-      (row.known_sha && row.known_sha!==sha)) throw fail();
-    const firstVersion=obj.version;
-    if(oldDeleting && (prev.r2_version!==firstVersion || prev.sha256!==sha || prev.etag!==row.etag ||
-       prev.size!==row.size || prev.case_version!==row.case_version || prev.backup_version!==row.backup_version)) throw fail();
-    if(oldDeleting && (!live(env)||previewOnly))return {state:'delete_pending',deleted:0};
-    stage='drive_verify';
-    await read(env,row,sha);
-    stage='recheck';
-    obj=await env.PROOFS_BUCKET.head(row.object_key);
-    if(!obj || obj.etag!==row.etag || obj.size!==row.size ||
-       obj.httpMetadata?.contentType!==row.content_type ||
-       r2VerifiedSha256(obj)!==sha || obj.version!==firstVersion) throw fail();
-    const version=obj.version;
-    // This HEAD is already after Drive verification. The next R2 HEAD remains
-    // after the durable deleting claim, immediately before the actual DELETE.
-    const doDelete=live(env)&&!previewOnly;
+    // B consumes only the durable evidence verified by A; no Drive round trip.
+    if(sha!==prev.sha256||version!==prev.r2_version)throw fail();
+    if(!live(env)||previewOnly)return {state:'delete_pending',deleted:0,phase};
+    if(missingRecovery){await markCold(db,row,token,sha,nowSeconds());return {state:'cold_reconciled',deleted:0,size:row.size,file_id:row.file_id,phase};}
     stage='claim';
     await authAtomic(db,guard(row,token,nowSeconds(),claim.state),[
-      db.prepare("UPDATE cold_proofs SET state=?,sha256=?,r2_version=?,etag=?,size=?,case_version=?,backup_version=?,verified_at=?,updated_at=? WHERE file_id=? AND lease_token=?")
-        .bind(doDelete?'deleting':'dry_run',sha,version,row.etag,row.size,row.case_version,row.backup_version,
-          nowSeconds(),nowSeconds(),row.file_id,token),
-      audit(db,nowSeconds(),doDelete?'archive_delete_claim':'archive_dry_run',row,sha)
+      db.prepare("UPDATE cold_proofs SET state='deleting',updated_at=? WHERE file_id=? AND lease_token=?").bind(nowSeconds(),row.file_id,token),
+      audit(db,nowSeconds(),'archive_delete_claim',row,sha)
     ]);
-    if(!doDelete) {
-      await db.prepare("UPDATE cold_proofs SET lease_token=NULL,lease_until=NULL WHERE file_id=? AND state='dry_run' AND lease_token=?")
-        .bind(row.file_id,token).run();
-      return {state:'dry_run',would_delete:1,deleted:0,size:row.size};
-    }
-    // Object keys are immutable; the exclusive-writer gate is mandatory because
-    // R2.delete does not support an If-Match/version precondition.
-    stage='last_head';
-    const last=await env.PROOFS_BUCKET.head(row.object_key);
-    if(!last || last.version!==version || last.etag!==row.etag ||
-       last.size!==row.size || r2VerifiedSha256(last)!==sha) throw fail();
-    stage='delete'; destructive=true;
-    await env.PROOFS_BUCKET.delete(row.object_key);
-    stage='confirm';
-    if(await env.PROOFS_BUCKET.head(row.object_key)) throw fail();
-    stage='commit';
-    await markCold(db,row,token,sha,nowSeconds());
-    return {state:'cold',deleted:1,size:row.size};
-  } catch {
-    if(!destructive) {
-      // A claim in deleting state is intentionally durable for manual inspection.
+    stage='last_head';const last=await env.PROOFS_BUCKET.head(row.object_key);
+    if(!last||last.version!==version||last.etag!==row.etag||last.size!==row.size||
+      last.httpMetadata?.contentType!==row.content_type||r2VerifiedSha256(last)!==sha||nowSeconds()-prev.verified_at>ARCHIVE_VERIFICATION_TTL)throw fail();
+    stage='delete';destructive=true;await env.PROOFS_BUCKET.delete(row.object_key);
+    stage='confirm';if(await env.PROOFS_BUCKET.head(row.object_key))throw fail();
+    stage='commit';await markCold(db,row,token,sha,nowSeconds());
+    return {state:'cold',deleted:1,size:row.size,file_id:row.file_id,phase};
+  }catch{
+    if(!destructive){
       const old=await db.prepare("SELECT state FROM cold_proofs WHERE file_id=? AND lease_token=?").bind(row.file_id,token).first();
-      if(old?.state==='verifying'){
-        await db.prepare("UPDATE cold_proofs SET state='blocked',lease_token=NULL,lease_until=NULL,error_code=?,updated_at=? WHERE file_id=? AND lease_token=?")
-          .bind('VERIFY_'+stage.toUpperCase(),nowSeconds(),row.file_id,token).run();
-      }
+      if(old?.state==='verifying')await db.prepare("UPDATE cold_proofs SET state='blocked',lease_token=NULL,lease_until=NULL,verification_context=NULL,error_code=?,updated_at=? WHERE file_id=? AND lease_token=?")
+        .bind('VERIFY_'+stage.toUpperCase(),nowSeconds(),row.file_id,token).run();
     }
     await db.prepare("INSERT INTO storage_alerts(id,episode,kind,created_at) VALUES(?,?,'cleanup_failed',?) ON CONFLICT(episode,kind) DO NOTHING")
       .bind(crypto.randomUUID(),cap.episode,nowSeconds()).run().catch(()=>{});
-    return {state:destructive?'delete_ambiguous':'blocked',deleted:0};
+    return {state:destructive?'delete_ambiguous':'blocked',deleted:0,phase};
   }
 }
-export async function cleanupArchive(env, options={}) {
-  try { return {...await archiveOne(env,options),retention_days:ARCHIVE_RETENTION_DAYS,mode:live(env)&&!options.previewOnly?'live':'dry-run'}; }
-  catch { return {state:'unavailable',deleted:0,retention_days:ARCHIVE_RETENTION_DAYS,mode:'dry-run'}; }
+export async function cleanupArchive(env,options={}) {
+  try{return {...await archiveOne(env,options),retention_days:ARCHIVE_RETENTION_DAYS,mode:live(env)&&!options.previewOnly?'live':'dry-run'};}
+  catch{return {state:'unavailable',deleted:0,retention_days:ARCHIVE_RETENTION_DAYS,mode:'dry-run'};}
 }

@@ -194,6 +194,6 @@ function runStorageMaintenance() {
  var lock=LockService.getScriptLock();if(!lock.tryLock(1))return{state:'overlap_skipped'};
  try {var c=vpConfig_(),now=Math.floor(Date.now()/1000),quota={id:Utilities.getUuid(),observed_at:now,state:'unknown',total_bytes:null,used_bytes:null};
  try{var q=Drive.About.get({fields:'storageQuota'}).storageQuota;var used=q&&Number(q.usage),total=q&&q.limit!==undefined?Number(q.limit):null;if(Number.isSafeInteger(used)&&used>=0){quota.used_bytes=used;if(total===null)quota.state='unlimited';else if(Number.isSafeInteger(total)&&total>0&&used<=total){quota.state='known';quota.total_bytes=total;}}}catch(_){quota.state='error';}
- vpJson_(c,'/api/internal/drive-backup/storage/quota',quota);var result;for(var i=0;i<10;i++){result=vpJson_(c,'/api/internal/drive-backup/storage/tick',{});if(!result.inventory||result.inventory.complete)break;}return result;
+ vpJson_(c,'/api/internal/drive-backup/storage/quota',quota);var result;for(var i=0;i<10;i++){result=vpJson_(c,'/api/internal/drive-backup/storage/tick',{});if(!result.inventory||result.inventory.complete)break;}if(result.inventory&&result.inventory.complete){var archive=vpJson_(c,'/api/internal/drive-backup/storage/archive',{});result.cleanup=archive.cleanup;if(archive.cleanup&&archive.cleanup.state==='verification_ready')result.cleanup=vpJson_(c,'/api/internal/drive-backup/storage/archive',{}).cleanup;}return result;
  }finally{lock.releaseLock();}
 }

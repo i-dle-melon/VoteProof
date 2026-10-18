@@ -5,7 +5,7 @@ import {unstable_splitSqlQuery} from 'wrangler';
 import {localCaseRuntime} from '../scripts/lib/local-case-runtime.mjs';
 import worker from '../scripts/lib/archive-isolated-worker.mjs';
 import {fixtures,fixtureSQL,fixtureSchema,image,digest,quote} from '../scripts/lib/archive-isolated-fixtures.mjs';
-import {scenarios,runScenario} from '../scripts/lib/archive-acceptance.mjs';
+import {scenarios,runScenario,archiveFlow} from '../scripts/lib/archive-acceptance.mjs';
 let local,db,adapter,mainEnv;
 const proof=image(1048576),sha=digest(proof),pool=fixtures([...scenarios.map(([name])=>[name,1]),['pure-profile',1],['seed-retry',1]]);
 const secret=randomBytes(32).toString('hex'),access=randomUUID(),relayAccess=randomUUID(),origin='https://archive-isolated.invalid',relayOrigin='https://archive-relay.invalid';
@@ -25,18 +25,19 @@ before(async()=>{
   // local fixture PUT adapter buffers them; cloud uses the native request stream.
   const bucket=new Proxy(local.bucket,{get(target,key){if(key==='put')return async(k,body,options)=>target.put(k,body?.getReader?await new Response(body).arrayBuffer():body,options);return typeof target[key]==='function'?target[key].bind(target):target[key];}});
   const common={DB:db,PROOFS_BUCKET:bucket,GOOGLE_DRIVE_BACKUP_ENABLED:'true',DRIVE_BACKUP_RELAY_SECRET:secret,
-    DRIVE_COLD_RELAY_URL:'https://script.google.com/macros/s/isolated_archive/exec',TEST_EXPIRES:String(Date.now()+3600000),TEST_VERSION:'local',
+    DRIVE_COLD_RELAY_URL:'https://'+'script.google.com'+'/macros/s/isolated_archive/exec',TEST_EXPIRES:String(Date.now()+3600000),TEST_VERSION:'local',
     R2_EXCLUSIVE_WRITER_CONFIRMED:'true',STORAGE_CLEANUP_LIVE_ENABLED:'true'};
   const relayEnv={...common,TEST_ROLE:'relay',TEST_ACCESS:relayAccess,TEST_ORIGIN:relayOrigin};
   mainEnv={...common,TEST_ROLE:'reader',TEST_ACCESS:access,TEST_ORIGIN:origin,MOCK_ORIGIN:relayOrigin,RELAY_ACCESS:relayAccess,MOCK_RELAY:{fetch:r=>worker.fetch(r,relayEnv)}};
   const call=async(path,method='POST',body,mode='normal',expected=200,profile='instrumented')=>{
+    if(path==='/archive')body='{}';
     const r=await worker.fetch(new Request(origin+path,{method,headers:{'X-Isolated-Access':access,Authorization:'Bearer '+secret,'X-Test-Mode':mode,
-      'X-Test-Profile':profile,...(body?{'Content-Length':String(body.length)}:{})},...(body?{body}:{})}),mainEnv);
+      'X-Test-Profile':profile,'Content-Type':'application/json',...(body?{'Content-Length':String(body.length)}:{})},...(body?{body}:{})}),mainEnv);
     assert.equal(r.status,expected,await r.clone().text());return r.status===200?r.json():{};
   };
   adapter={sql,
     seed:f=>call('/seed/'+f.label,'PUT',proof),
-    call:(mode,expected)=>call('/archive','POST',undefined,mode,expected),
+    call:(mode,expected)=>archiveFlow((m,e)=>call('/archive','POST',undefined,m,e),mode,expected),stage:(mode='normal',expected=200)=>call('/archive','POST',undefined,mode,expected),
     putProbe:()=>call('/capacity-put'),
     snapshot:async f=>({exists:!!await local.bucket.head(f.key),archive:(await sql('SELECT * FROM cold_proofs WHERE file_id=?',[f.file]))[0]??null,
       backup:(await sql('SELECT * FROM proof_backups WHERE file_id=?',[f.file]))[0],audit:(await sql("SELECT count(*) n FROM storage_audit WHERE target=? AND action='archive_r2_deleted'",[f.file]))[0].n}),
@@ -47,9 +48,9 @@ for(const [name,run] of scenarios)test('archive isolated E2E: '+name,async()=>{
   const f=pool.find(f=>f.label===name);await runScenario(adapter,f,name,run);
 });
 test('pure CPU profile keeps real deletion and security path without pretending to count SDK operations',async()=>{
-  const f=pool.find(f=>f.label==='pure-profile');await adapter.seed(f);const r=await adapter.pure();
+  const f=pool.find(f=>f.label==='pure-profile');await adapter.seed(f);assert.equal((await adapter.stage()).result.state,'verification_ready');const r=await adapter.pure();
   assert.equal(r.result.state,'cold');assert.equal(r.file_id,f.file);assert.equal(r.counters.instrumented,false);
-  assert.equal(r.counters.statements,null);assert.equal(r.counters.r2,null);assert.equal(r.counters.relay,2);
+  assert.equal(r.counters.statements,null);assert.equal(r.counters.r2,null);assert.equal(r.counters.relay,0);
   const snapshot=await adapter.snapshot(f);assert.equal(snapshot.exists,false);assert.equal(snapshot.archive.state,'cold');assert.equal(snapshot.audit,1);
 });
 test('synthetic seed retry preserves object version and cannot reset an archived pin',async()=>{
@@ -70,4 +71,9 @@ test('archive inventory reconciles actual bytes and preserves Drive rows, OFF an
   assert.equal((await sql('PRAGMA foreign_key_check')).length,0);
   assert.equal((await sql('PRAGMA quick_check'))[0].quick_check,'ok');
   await assert.rejects(sql("UPDATE storage_audit SET action='tamper'"));
+});
+
+test('controller accepts an intentionally lost non-JSON B response without dereferencing it',async()=>{
+ let calls=0;const result=await archiveFlow(async()=>++calls===1?{result:{state:'verification_ready'},counters:{instrumented:true}}:undefined,'response-lost',503);
+ assert.equal(result,undefined);assert.equal(calls,2);
 });

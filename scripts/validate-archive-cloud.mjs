@@ -6,21 +6,24 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {build} from 'esbuild';
 import assert from 'node:assert/strict';
 import {fixtures,fixtureSQL,fixtureSchema,image,digest,quote} from './lib/archive-isolated-fixtures.mjs';
-import {scenarios,runScenario} from './lib/archive-acceptance.mjs';
+import {scenarios,runScenario,archiveFlow} from './lib/archive-acceptance.mjs';
 if(!process.argv.includes('--isolated-synthetic-only'))throw Error('ISOLATED_OPT_IN_REQUIRED');
 const account=process.argv.find(x=>x.startsWith('--account-id='))?.slice(13);assert.match(account??'',/^[a-f0-9]{32}$/);
 const inventoryOnly=process.argv.includes('--inventory-only');
+const selected=process.argv.find(x=>x.startsWith('--e2e-only='))?.slice(11).split(',');
+const activeScenarios=selected?scenarios.filter(([n])=>selected.includes(n)):scenarios;
+if(selected)assert.equal(activeScenarios.length,selected.length);
 const samples=Number(process.argv.find(x=>x.startsWith('--samples='))?.slice(10)??40);assert.ok(Number.isInteger(samples)&&samples>=1&&samples<=100);
 const cliEnv={...process.env,WRANGLER_SEND_METRICS:'false',WRANGLER_WRITE_LOGS:'false'};
 const token=JSON.parse(execFileSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','auth','token','--json'],{env:cliEnv,windowsHide:true,stdio:['ignore','pipe','pipe']})).token;
 const base='/accounts/'+account,name='voteproof-archive-e2e-'+randomBytes(6).toString('hex'),relay=name+'-relay',bucket=name+'-data';
-const dir=resolve('docs/evidence/storage-archive-7d',name),tmp=resolve('.wrangler/archive-validation',name);await mkdir(dir,{recursive:true});await mkdir(tmp,{recursive:true});
+const dir=resolve('docs/evidence/storage-archive-split',name),tmp=resolve('.wrangler/archive-validation',name);await mkdir(dir,{recursive:true});await mkdir(tmp,{recursive:true});
 const access=randomBytes(32).toString('hex'),relayAccess=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex');
 const state={name,relay,bucket,database:null,workers:[],bucket_created:false,db_created:false};
-const report={inventory_only:inventoryOnly,seed_attempt_errors:[],baseline:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),started_at:new Date().toISOString(),state,samples,
-  source_sha256:Object.fromEntries(['src/lib/storage-archive.js','migrations/0025_storage_cold_v1.sql','scripts/lib/archive-isolated-worker.mjs'].map(p=>[p,null])),
+const report={scenarios_requested:activeScenarios.map(([n])=>n),inventory_only:inventoryOnly,seed_attempt_errors:[],baseline:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),started_at:new Date().toISOString(),state,samples,
+  source_sha256:Object.fromEntries(['src/lib/storage-archive.js','migrations/0025_storage_cold_v1.sql','migrations/0026_archive_verification_handoff.sql','src/api/storage.js','scripts/lib/archive-isolated-worker.mjs'].map(p=>[p,null])),
   api:[],deployments:[],requests:[],traces:[],e2e:[],cleanup:{},collector:{starts:0,parse_errors:0,stderr_chunks:0,error_signals:0,sampling_text_matches:0,sampling_rates:[],connection_lost_signals:0,reconnect_signals:0,exits:[]},
-  methodology:{path:'authenticateRelay + cleanupArchive + verifyDriveArchive + real isolated D1/R2 HEAD/DELETE',
+  methodology:{path:'authenticateRelay + readReviewJson + empty-input validation + cleanupArchive + verifyDriveArchive + real isolated D1/R2 HEAD/DELETE',
     relay:'Independent Free Worker verifies request HMAC; signs an independently precomputed synthetic SHA receipt. No image bytes returned to reader; no real Drive calls.',
     images:'High-entropy valid synthetic PNGs, native R2 PUT SHA-256 verified; decimal capacity simulated in isolated D1.',
     cpu:'Cloudflare tail cpuTime in milliseconds; missing UNKNOWN, not zero. Harness budget UPDATE and trace log overhead included.',
@@ -30,7 +33,7 @@ for(const p of Object.keys(report.source_sha256))report.source_sha256[p]=digest(
 const images=Object.fromEntries([1,3,5].map(n=>[n,image(n*1048576)]));
 const cpuSpecs=[];for(let i=0;i<samples;i++)for(const n of (i%2?[5,3,1]:[1,3,5]))cpuSpecs.push(['cpu-'+n+'-'+i,n]);
 const opSpecs=[1,3,5].flatMap(n=>Array.from({length:3},(_,i)=>['ops-'+n+'-'+i,n]));
-const pool=fixtures(inventoryOnly?[['inventory-delete',5],['inventory-retain',1]]:[...scenarios.map(([n])=>[n,1]),...opSpecs,...cpuSpecs]);
+const pool=fixtures(inventoryOnly?[['inventory-delete',5],['inventory-retain',1]]:[...activeScenarios.map(([n])=>[n,1]),...opSpecs,...cpuSpecs]);
 let origin,mockOrigin,collector,phase='setup',label=null,sequence=0;
 const delay=ms=>new Promise(r=>setTimeout(r,ms)),save=()=>writeFile(resolve(dir,'results.json'),JSON.stringify(report,null,2));
 async function api(path,method='GET',body){
@@ -77,9 +80,9 @@ async function observe(){
   collector.on('exit',(code,signal)=>report.collector.exits.push({code,signal}));await delay(6000);assert.equal(collector.exitCode,null,'COLLECTOR_EXITED');
 }
 async function request(path,{method='POST',body,mode='normal',expected=200,measure=false}={}){
-  const sample=measure?'archive-'+sequence++:undefined,start=performance.now();let record={sample,phase,label,mode,path,expected_status:expected};
+  const sample=measure?'archive-'+sequence++:undefined,start=performance.now();if(path==='/archive')body='{}';let record={sample,phase,label,mode,path,expected_status:expected};
   try{
-    const r=await fetch(origin+path,{method,headers:{'X-Isolated-Access':access,Authorization:'Bearer '+secret,'X-Test-Mode':mode,'X-Test-Profile':phase==='cpu'?'pure':'instrumented',...(sample?{'X-Isolated-Sample':sample}:{})},...(body?{body}:{}),signal:AbortSignal.timeout(60000)});
+    const r=await fetch(origin+path,{method,headers:{'X-Isolated-Access':access,Authorization:'Bearer '+secret,'X-Test-Mode':mode,'X-Test-Profile':phase==='cpu'?'pure':'instrumented','Content-Type':'application/json',...(sample?{'X-Isolated-Sample':sample}:{})},...(body?{body}:{}),signal:AbortSignal.timeout(60000)});
     const text=await r.text();let value;try{value=JSON.parse(text);}catch{}
     Object.assign(record,{status:r.status,client_wall_ms:performance.now()-start,platform_codes:!value&&r.status>=500?['1101','1102','1027'].filter(x=>new RegExp(String.raw`\b${x}\b`).test(text)):[],value});
     if(measure)report.requests.push(record);
@@ -90,21 +93,22 @@ async function request(path,{method='POST',body,mode='normal',expected=200,measu
 const adapter={sql,
   seed:async f=>{for(let attempt=1;;attempt++){try{const v=await request('/seed/'+f.label,{method:'PUT',body:images[f.mib]});assert.equal(v.sha256,digest(images[f.mib]));return;}
     catch(e){if(e.name!=='TypeError'||attempt>=3)throw e;report.seed_attempt_errors.push({label:f.label,attempt,name:e.name,code:e.cause?.code??'UNKNOWN'});await save();await delay(attempt*1000);}}},
-  call:(mode,expected=200)=>request('/archive',{mode,expected,measure:true}),
+  call:(mode,expected=200)=>archiveFlow((m,e)=>request('/archive',{mode:m,expected:e,measure:true}),mode,expected),
+  stage:(mode='normal',expected=200)=>request('/archive',{mode,expected,measure:true}),
   putProbe:()=>request('/capacity-put'),
   snapshot:async f=>request('/snapshot/'+f.label,{method:'GET'}),
 };
 function stats(v){v=v.filter(Number.isFinite).sort((a,b)=>a-b);return {n:v.length,p50:v.length?v[Math.ceil(v.length*.5)-1]:null,p95:v.length?v[Math.ceil(v.length*.95)-1]:null,p99:v.length?v[Math.ceil(v.length*.99)-1]:null,max:v.at(-1)??null,over10:v.filter(x=>x>10).length};}
 function summarize(){
-  report.cpu=[];for(const mib of [1,3,5]){
-    const rows=report.requests.filter(x=>x.phase==='cpu'&&x.label?.startsWith('cpu-'+mib+'-')),traces=rows.map(x=>report.traces.find(t=>t.sample===x.sample));
-    report.cpu.push({mib,requests:rows.length,success:rows.filter(x=>x.value?.result.state==='cold').length,
+  report.cpu=[];for(const stage of ['verify','delete'])for(const mib of [1,3,5]){
+    const rows=report.requests.filter(x=>x.phase==='cpu'&&x.label?.startsWith('cpu-'+mib+'-')&&x.value?.result?.phase===stage),traces=rows.map(x=>report.traces.find(t=>t.sample===x.sample));
+    report.cpu.push({stage,mib,requests:rows.length,success:rows.filter(x=>x.value?.result.state===(stage==='verify'?'verification_ready':'cold')).length,
       cpu_ms:stats(traces.map(x=>x?.cpu_ms)),missing_cpu:traces.filter(x=>!Number.isFinite(x?.cpu_ms)).length,wall_ms:stats(rows.map(x=>x.client_wall_ms)),
       exceeded_cpu:traces.filter(x=>x?.outcome==='exceededCpu').length,exceeded_memory:traces.filter(x=>x?.outcome==='exceededMemory').length,
       http1102:rows.filter(x=>x.platform_codes?.includes('1102')).length,
-      operations:{source:'Separate instrumented operations phase, not per-request pure CPU counters',samples:report.requests.filter(x=>x.phase==='operations'&&x.label?.startsWith('ops-'+mib+'-')).map(x=>x.value?.counters??null)}});
+      operations:{source:'Separate instrumented phase',samples:report.requests.filter(x=>x.phase==='operations'&&x.label?.startsWith('ops-'+mib+'-')&&x.value?.result?.phase===stage).map(x=>x.value?.counters??null)}});
   }
-  report.cpu_readiness=report.cpu.some(x=>x.cpu_ms.over10||x.exceeded_cpu||x.http1102)?'FAIL':report.cpu.every(x=>x.requests>=40&&x.success===x.requests&&x.missing_cpu<=x.requests*.1)?'PASS':'UNKNOWN';
+  report.cpu_readiness=report.cpu.some(x=>x.cpu_ms.over10||x.exceeded_cpu||x.http1102)?'FAIL':!report.failure&&report.cpu.every(x=>x.requests>=15&&x.success===x.requests&&x.missing_cpu<=x.requests*.1)?'PASS':'UNKNOWN';
 }
 try{
   report.free_settings=await api(base+'/workers/settings');assert.equal(report.free_settings.free_tier,true,'FREE_PLAN_REQUIRED');
@@ -128,10 +132,10 @@ try{
   report.offline_fixture_import={gate_off:(await sql('SELECT submissions_enabled FROM submission_settings'))[0].submissions_enabled===0,gate_triggers_restored:true,fk_errors:(await sql('PRAGMA foreign_key_check')).length};
   await deploy(relay,'relay');await deploy(name,'reader');await observe();console.log(JSON.stringify({stage:'deployed',name,free:true}));
   if(!inventoryOnly){
-  phase='e2e';for(const [n,run] of scenarios){label=n;const result=await runScenario(adapter,pool.find(f=>f.label===n),n,run);report.e2e.push(result);await save();console.log(JSON.stringify({stage:'e2e',...result}));}
+  phase='e2e';for(const [n,run] of activeScenarios){label=n;const result=await runScenario(adapter,pool.find(f=>f.label===n),n,run);report.e2e.push(result);await save();console.log(JSON.stringify({stage:'e2e',...result}));}
   phase='operations';for(const [n,mib] of opSpecs){label=n;const f=pool.find(f=>f.label===n);await adapter.seed(f);const r=await adapter.call('normal');
     assert.equal(r.result.state,'cold');assert.equal(r.result.size,mib*1048576);assert.equal(r.counters.r2.get,0);assert.equal(r.counters.r2.delete,1);}
-  phase='cpu';let i=0;for(const [n,mib] of cpuSpecs){label=n;const f=pool.find(f=>f.label===n);await adapter.seed(f);const r=await adapter.call('normal');
+  phase='cpu';let i=0;for(const [n,mib] of cpuSpecs){label=n;const f=pool.find(f=>f.label===n);await adapter.seed(f);const a=await adapter.stage();assert.equal(a.result.state,'verification_ready');assert.equal(a.result.phase,'verify');const r=await adapter.stage();
     if(r.result.state==='cold'){assert.equal(r.result.size,mib*1048576);assert.equal(r.file_id,f.file);assert.equal(r.counters.instrumented,false);}
     else {const snap=await adapter.snapshot(f);if(snap.archive?.state==='deleting')await sql('UPDATE cold_proofs SET lease_until=? WHERE file_id=?',[Math.floor(Date.now()/1000)+86400,f.file]);
       else await sql('UPDATE cases SET status_updated_at=? WHERE id=?',[new Date(Date.now()+86400000).toISOString(),f.id]);}

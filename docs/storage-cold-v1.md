@@ -1,3 +1,62 @@
+# 方案 A：兩階段清理修正（本輪）
+
+基線：`codex/storage-archive-7d` / `6b70f294`（先唯讀確認並 fast-forward，開始時工作樹乾淨）。本輪只調整封存清理，沒有修改 UI、投稿流程、舊冷讀或正式環境。
+
+- **A 驗證**：原 server-only relay auth / bounded JSON；R2 HEAD 原生 SHA、ETag、size、MIME、version；Drive signed receipt 的 SHA-256、HMAC、nonce、timestamp 與完整來源身分核對；再次 HEAD；同一 D1 transaction 保存 manifest、server-owned verification_context、小型簽名收據及 immutable audit。A 的 DELETE 永遠是 0。
+- **B 刪除**：新的獨立請求，重新讀可信容量、案件、備份與 persisted manifest。只接受 120 秒內且完整來源／版本仍一致的 A 結果；claim D1 lease，重新核對 native SHA / ETag / version，持久 deleting pin，刪除前最後 HEAD，DELETE，HEAD 確認缺檔，再 transaction 記錄 cold / audit。B 不呼叫 Drive，不重讀圖片或解碼 Base64。此 HMAC 信任來自 A 已驗證並寫入受信任 D1 的結果，並非客戶端 deletion token；API 不接受 file ID、SHA 或 receipt payload。
+- 沿用 verifying / deleting / cold 狀態：完成 A 時 verifying 仍阻擋 writer、reopen 與新 export，lease_until=0 代表可由下一次請求 claim。沒有新表、沒有第三套清理系統。過期或來源改變先回到 A 重新驗證，該次請求不刪。deleting pin 不降級；DELETE 或 D1 ACK 不明時，重試只依受限新鮮證據 reconcile；缺檔恢復不再 DELETE，immutable success audit 仍只有一次。
+- `storage/tick` 現在只做容量盤點與告警；新增既有 server-only auth 保護的 `POST /api/internal/drive-backup/storage/archive`，每次只做 A 或 B。Apps Script source 的 runStorageMaintenance 在 inventory 完成後送第一個 archive 請求，僅 verification_ready 時送第二個；不在單一 Worker invocation 內串跑 A+B。實際 Apps Script 未部署、trigger 未安裝／修改。
+- 7 天結案保留、十進位 10 GB、90% 啟動、85%（含等於）停止、95% 上傳封鎖、低於 90% 可信盤點才恢復、Google Drive 手動查看全部保留。live flag 預設 OFF，任何容量恢復均不開投稿。
+
+## Migration 與回復
+
+新增 `0026_archive_verification_handoff.sql`，只為 cold_proofs 增加 nullable verification_context；未改寫 0025。既有列為 NULL，不能直接跳 B；destructive pin、audit、容量與投稿 OFF 都保持。只套本機與新隔離 D1，未套正式 migration。
+
+啟用前必須先 migration、再相容 Worker／Apps Script caller 的受控發布，保持 live OFF；舊 Apps Script 只呼叫 tick 將不再執行刪圖，是安全停止而非自動沿用舊單階段刪除。回復時關 live 並停止新 archive 呼叫，保留新欄位及不確定 deleting pin；不得以回退到舊版忽略 handoff／lease 的方式恢復自動刪除。已刪圖片不可能靠 DB rollback 還原，Drive 備份永不刪。
+
+## 本輪測試與量測
+
+- 本機相關測試 **48 PASS**：36 個隔離情境、原生 binding profile、seed retry、inventory/audit/OFF、非 JSON lost-response controller、既有 archive 安全／7 天／手動 Drive、continuation auth/Origin/forged body、Apps Script quota/receipt/兩請求 orchestration、兩個 populated migration。
+- Local schema migration registry replay / foreign_key_check / quick_check PASS；Worker deploy dry-run build PASS。僅測受影響範圍，未跑全站 browser、舊 5 MiB Base64 雲端冷讀或全 backend release regression。
+- 第一輪隔離環境完成 34 個情境後，test controller 把預期 lost-response 的非 JSON body 解讀成物件而中斷；清理程式沒有相應錯誤，資源已 teardown。修正 controller optional handling 並加回歸後，只補 response-lost、upload-stop 兩項，不重跑前 34 項。原始失敗證據保留。
+
+### 結果：功能 PASS；CPU readiness UNKNOWN
+
+原始證據：[split evidence](evidence/storage-archive-split/README.md)。合併兩輪不重複情境共 **36 PASS**；第二輪正常 workload 為 45 張圖片、A/B 各 45 次獨立 invocation，90 / 90 HTTP 200 / 預期狀態成功。
+
+| 階段 | 圖片 | 有效 CPU / requests | 缺失 UNKNOWN | P50 / P95 / P99 / Max ms |
+|---|---|---:|---:|---|
+| A verify | 1 MiB | 11 / 15 | 4 | 8 / 9 / 9 / 9 |
+| A verify | 3 MiB | 14 / 15 | 1 | 6 / 9 / 9 / 9 |
+| A verify | 5 MiB | 15 / 15 | 0 | 7 / 10 / 10 / 10 |
+| B delete | 1 MiB | 9 / 15 | 6 | 6 / 7 / 7 / 7 |
+| B delete | 3 MiB | 15 / 15 | 0 | 6 / 9 / 9 / 9 |
+| B delete | 5 MiB | 15 / 15 | 0 | 6 / 9 / 9 / 9 |
+
+- 79 筆有效 CPU 全部 <=10 ms；11 筆缺失不當 0。1 MiB A / B 缺失 4 / 6 筆，超過本輪預設每組最多 10% 的門檻，**不能判 PASS**。3 MiB、5 MiB 觀測通過該 bounded gate；整體仍 UNKNOWN，停止本輪效能迭代。
+- 正常 CPU workload 沒有 HTTP failure、1102；已收到 traces 沒有 exceededCpu / exceededMemory。Collector 1 次啟動，0 parse errors、0 error/disconnect/reconnect 訊號；平台未提供的事件／heap peak 不捏造。sampling_text_matches 只是 stdout 字詞計數，不是實際 sampling loss；缺失以 sample ID 對應為準。
+- Client wall P50：A 約 0.55 秒，B 約 0.69–0.71 秒；provider wallTime 在 summary.json 分列，均不是 CPU。
+- 每階段／尺寸另有 3 個 instrumented 操作樣本：A **D1 9 statements / 6 trips、R2 HEAD 2、DELETE 0、relay HTTP 2**；B **D1 13 / 7、HEAD 3、DELETE 1、relay 0**。每 invocation 額外一個 harness budget SQL / trip 包含在 CPU，未扣除。兩階段 source 合計 D1 22 / 13、HEAD 5，但不能將 A+B CPU 相加冒充單 request CPU。
+- 原有 7 天、90 / 85 / 95 門檻、Drive confirmed / raw SHA / HMAC、writer/export/review concurrency、lost-ACK、immutable success audit、95% 無 PUT、可信 inventory 扣帳與 OFF 均通過。Inventory 得到 1,048,576 bytes，56 筆 Drive backup 保留，quick_check=ok、FK errors=0。
+- 兩輪各 2 Workers + 1 D1 + 1 R2 均已刪除，8 / 8 獨立 GET 404 確認。沒有長期保留的可呼叫測試 endpoint 或 credentials。Formal source hashes 與兩輪部署證據一致。
+
+**剩餘阻擋**：需要補足可靠 CPU traces（尤其 1 MiB A/B）才能完成 Free readiness，不能因這次有效樣本較舊版下降就推定正式可用；另有真實 Drive E2E、完整 inventory/alert tick CPU 與正式前 schema／唯一 writer 預檢。遵照本輪限制，不再追加雲端測試或微調。Production 保持 NO-GO。
+
+
+## 真實 Google Drive 最小驗收與授權
+
+本輪 **沒有**登入 Google、建立 Drive 檔案／資料夾、部署 Apps Script、改正式 trigger 或呼叫真實 Drive API。仍需另行授權：
+
+1. 專用測試 Google 帳號、私有測試 root/folders、完全合成 1 / 3 / 5 MiB 檔案；僅測試範圍的檔案建立與讀取權限，不能使用正式備份。
+2. 專用 Apps Script 測試部署／Script Properties secret、Advanced Drive API 及必要 scope；使用隔離 Worker 測 archive_verify 正常簽名收據、原始 SHA、私有階層、size/MIME/source，以及錯 SHA、換 folder／權限／trash、過期／nonce／簽章不符與 relay failure。收據不能回傳圖 bytes 或 credentials。
+3. 手動執行測試 maintenance，確認 inventory→A→B 確為獨立請求、lost-ACK 安全恢復及 Drive 手動存取權限；不修改正式 Script、trigger 或任何正式 Drive 資料。
+
+Workers Free CPU 未達標、缺少真實 Drive E2E 或正式前 schema/writer exclusivity 預檢時，一律 **Production NO-GO**。R2 DELETE 仍沒有 conditional version，必須排除外部 S3 writer／舊 presigned URL／multipart；兩階段無法取代這項前提。Inventory/alert tick CPU 與 heap peak 不是本輪 A/B 清理 CPU 的驗收結論。
+
+完成後只 commit / push 開發分支，不合併 main、不部署 Production、不套正式 migration、不刪正式圖片、不開投稿、不等 GitHub CI。以下舊報告作歷史參考；本輪以本段與新的 split evidence 為準。
+
+---
+
 # 方案 A：R2 容量管理及 7 天封存（隔離驗收候選）
 
 開發分支 `codex/storage-archive-7d`；驗收基線 `6a436d3e7b5e496940288deec2ffcf714d17226f`。本輪只執行本機與一次性 Cloudflare 隔離驗證，**Production NO-GO**。沒有正式 migration、R2 刪圖、Google Drive 變更、Email、Pages 發布或投稿啟用。

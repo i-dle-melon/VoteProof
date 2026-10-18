@@ -59,10 +59,11 @@ const internal = async (env, url, request) => {
     const v = await readReviewJson(request);
     if (url.pathname.endsWith("/quota")) return jsonSuccess(await quotaSnapshot(env, v));
     if (!validObject(v) || Object.keys(v).length) throw Error();
+    if (url.pathname.endsWith("/archive")) return jsonSuccess({cleanup:await cleanupArchive(env)});
     await evaluateCapacity(env.DB);
     const inventory = await inventoryPage(env);
     let cleanup = null;
-    if (inventory.complete) cleanup = await cleanupArchive(env);
+    // Archival A and B run in separate authenticated requests after inventory.
     const alerts = await processStorageAlerts(env);
     return jsonSuccess({ inventory, cleanup, alerts });
   } catch (e) {
@@ -81,6 +82,7 @@ export function storageRoute(path) {
     [
       "/api/internal/drive-backup/storage/quota",
       "/api/internal/drive-backup/storage/tick",
+      "/api/internal/drive-backup/storage/archive",
     ].includes(path)
   )
     return { method: "POST", handler: internal };

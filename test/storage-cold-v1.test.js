@@ -428,18 +428,14 @@ test("Drive confirmed but content mismatch or R2 replaced during verification bl
     "blocked",
   );
 });
-test("missing hot proof safely reads cold bytes through shared Admin/export response; errors never fabricate an image", async (t) => {
+test("missing R2 proof never invokes automatic Drive cold-read; archived proofs return a clear 410", async () => {
   const row = await coldFixture();
   await h.local.bucket.delete(row.object_key);
-  t.mock.method(globalThis, "fetch", await bridge(row));
-  const response = await privateProofResponse(env(), row);
-  assert.equal(response.headers.get("cache-control"), "no-store");
-  assert.equal(response.headers.get("cross-origin-resource-policy"), "same-origin");
-  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
-  t.mock.method(globalThis, "fetch", async () => {
-    throw Error("Drive offline");
-  });
-  await assert.rejects(privateProofResponse(env(), row));
+  await assert.rejects(privateProofResponse(env(), row), e => e.code === "PROOF_NOT_FOUND");
+  await db.prepare("INSERT INTO cold_proofs(file_id,state,updated_at) VALUES(?,'cold',?) ON CONFLICT(file_id) DO UPDATE SET state='cold',updated_at=excluded.updated_at")
+    .bind(row.file_id, nowSeconds()).run();
+  await assert.rejects(privateProofResponse(env(), row),
+    e => e.code === "PROOF_ARCHIVED_IN_DRIVE" && e.status === 410);
 });
 test("storage alerts have fixed sender, dedup recipients, durable send reservation and no retries after ambiguous send", async () => {
   assert.deepEqual(await storageRecipients(env()), [

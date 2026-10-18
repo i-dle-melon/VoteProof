@@ -531,10 +531,16 @@ test("real legacy/final/member/guest and Admin image HTTP paths return fixed cap
     assert.equal(adminPath(path), true);
   assert.equal(adminPath("/api/admin/storage/delete"), false);
 });
-test("actual private Admin and snapshotted export endpoints read missing R2 proof safely with Drive; other owner denied", async (t) => {
+test("archived R2 proof requires manual Drive access; export rejects archived scope explicitly", async () => {
   const row = await coldFixture();
   await h.local.bucket.delete(row.object_key);
-  t.mock.method(globalThis, "fetch", await bridge(row));
+  await db.prepare("INSERT INTO cold_proofs(file_id,state,updated_at) VALUES(?,'cold',?) ON CONFLICT(file_id) DO UPDATE SET state='cold',updated_at=excluded.updated_at")
+    .bind(row.file_id, nowSeconds()).run();
+  const proof = "/api/admin/cases/" + row.case_id + "/files/" + row.file_id;
+  const response = await worker.fetch(
+    new Request("https://voteproof.example" + proof, { headers: actor.headers }), env());
+  assert.equal(response.status, 410, await response.clone().text());
+  assert.equal((await response.json()).error.code, "PROOF_ARCHIVED_IN_DRIVE");
   const filters = {
     from: "2020-01-01T00:00",
     to: "2030-01-01T00:00",
@@ -544,48 +550,11 @@ test("actual private Admin and snapshotted export endpoints read missing R2 proo
     vote_types: ["Solo", "團體"],
     sources: ["guest", "member"],
   };
-  const jobId = randomUUID(),
-    job = await h.local.fetch(
-      "/api/admin/image-exports/jobs",
-      "POST",
-      { job_id: jobId, filters },
-      actor.headers,
-    );
-  assert.equal(job.status, 200, await job.clone().text());
-  const attempt = randomUUID(),
-    started = await h.local.fetch(
-      "/api/admin/image-exports/jobs/" + jobId + "/packages/1/start",
-      "POST",
-      { attempt_id: attempt, expected_attempt_id: null },
-      actor.headers,
-    );
-  assert.equal(started.status, 200, await started.clone().text());
-  const proof = "/api/admin/cases/" + row.case_id + "/files/" + row.file_id;
-  const exported =
-    "/api/admin/image-exports/jobs/" +
-    jobId +
-    "/packages/1/attempts/" +
-    attempt +
-    "/files/" +
-    row.file_id;
-  for (const path of [proof, exported]) {
-    const response = await worker.fetch(
-      new Request("https://voteproof.example" + path, { headers: actor.headers }),
-      env(),
-    );
-    assert.equal(response.status, 200, await response.clone().text());
-    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([1, 2, 3]));
-  }
-  const other = await h.identity({ role: "admin" });
-  assert.equal(
-    (
-      await worker.fetch(
-        new Request("https://voteproof.example" + exported, { headers: other.headers }),
-        env(),
-      )
-    ).status,
-    404,
-  );
+  const result = await h.local.fetch(
+    "/api/admin/image-exports/jobs", "POST",
+    { job_id: randomUUID(), filters }, actor.headers);
+  assert.equal(result.status, 409, await result.clone().text());
+  assert.equal((await result.json()).error.code, "EXPORT_ARCHIVED_PROOF");
 });
 test("verified active managers are added, normalized and deduplicated; reviewers and suspended managers are excluded", async () => {
   async function add(role, email, status = "active") {

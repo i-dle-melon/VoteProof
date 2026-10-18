@@ -36,7 +36,7 @@ function fixture(source, { email = "idle.voteproof.verify@gmail.com" } = {}) {
       getUuid: randomUUID,
       Charset: { UTF_8: "utf8" },
       DigestAlgorithm: { SHA_256: "sha256" },
-      computeDigest: (_algorithm, text) => [...createHash("sha256").update(text).digest()],
+      computeDigest: (_algorithm, text) => [...createHash("sha256").update(typeof text==="string"?text:Buffer.from(text)).digest()],
       computeHmacSha256Signature: (text, key) => [
         ...createHmac("sha256", key).update(text).digest(),
       ],
@@ -361,4 +361,40 @@ test("cold transport checks maximum-size bytes through bounded signed result, no
       includes_mock_response_encoding: true,
     }),
   );
+});
+
+test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw or base64 image bytes', async () => {
+  const f=fixture(backupSource);
+  coldFiles(f);
+  f.files.get('proof').appProperties={
+    source:'voteproof',storage_source:'r2',
+    voteproof_case_id:'VP-fixture',voteproof_proof_id:'proof-id'
+  };
+  const sha=createHash('sha256').update(Buffer.from([1,2,3])).digest('hex');
+  const request={version:1,purpose:'archive_verify',nonce:randomUUID(),
+    timestamp:Math.floor(Date.now()/1000),file_id:'proof',expected_sha256:sha,expected_size:3};
+  request.signature=await storageSignature(f.secret,JSON.stringify([
+    'VoteProof/archive-verify',request.version,request.purpose,request.nonce,
+    request.timestamp,request.file_id,sha,3
+  ]));
+  const post=v=>JSON.parse(f.context.doPost({postData:{contents:JSON.stringify(v)}}).value);
+  assert.equal(post({...request,signature:'invalid'}).error,'COLD_UNAVAILABLE');
+  assert.equal(f.state.calls.length,0);
+  const reply=post(request),payload=JSON.parse(reply.payload);
+  assert.equal(payload.sha256,sha);
+  assert.equal(payload.file_id,'proof');
+  assert.equal(payload.root_folder_id,'root');
+  assert.equal(payload.case_id,'VP-fixture');
+  assert.equal(JSON.stringify(reply).includes('base64'),false);
+  assert.ok(JSON.stringify(reply).length<2048);
+  assert.equal(reply.signature,await storageSignature(f.secret,JSON.stringify([
+    'VoteProof/archive-verified-result',reply.nonce,reply.timestamp,reply.payload
+  ])));
+  f.state.shared=true;
+  assert.equal(post(request).error,'COLD_UNAVAILABLE');
+  f.state.shared=false;
+  f.files.get('campaign').parents=['wrong-root'];
+  assert.equal(post(request).error,'COLD_UNAVAILABLE');
+  f.files.get('campaign').parents=['root'];
+  assert.equal(post({...request,expected_sha256:'0'.repeat(64)}).error,'COLD_UNAVAILABLE');
 });

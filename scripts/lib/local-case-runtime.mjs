@@ -58,6 +58,8 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       if (resourcePersistencePath) await db.prepare('INSERT INTO local_fixture_migrations(name) VALUES(?)').bind(name).run();
       if (migrationHook) await migrationHook(db, name);
     }
+    // Disposable fixture only; Production migration remains unknown/blocked.
+    if(!migrationThrough || migrationThrough>='0025_storage_cold_v1.sql')await db.prepare("UPDATE storage_capacity SET blocked=0,observed_at=0,trusted_until=CAST(strftime('%s','now') AS INTEGER)+86400 WHERE id=1").run();
     // Explicit fixture opt-in only. The migration/Production default stays OFF.
     if (submissionsEnabled) await db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
     // Explicit disposable fixture only. Migrations/Worker never seed Campaigns.

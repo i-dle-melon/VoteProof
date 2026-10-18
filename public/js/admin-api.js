@@ -30,6 +30,10 @@ export const adminMessage = error => {
   if(error?.code==='STAFF_GOOGLE_MEMBER_REQUIRED')return '請對方先使用此 Google 帳號登入並完成會員資料，再新增管理權限。';
   if(error?.code==='STAFF_CONFLICT')return '此帳號已有其他管理權限或資料已更新，請重新載入確認；不會修改主管理員。';
   if(error?.code==='SOLO_TARGET_UNAVAILABLE')return 'Solo 對象不存在或已停用，請重新載入活動設定。歷史對象未被變更。';
+  if (error?.code === 'R2_STORAGE_CAPACITY_EXCEEDED') return '目前儲存空間不足，暫時停止圖片上傳，請稍後再試。';
+  if (error?.code === 'COLD_PROOF_UNAVAILABLE') return '冷儲存圖片暫時無法讀取，請稍後再試。';
+  if (error?.code === 'STORAGE_WRITER_UNVERIFIED') return '尚未確認唯一寫入來源，容量盤點安全封鎖。';
+  if (error?.code === 'STORAGE_WRITER_BUSY') return '仍有未完成或結果不確定的上傳，請先人工確認。';
   if (error?.code === 'DRIVE_BACKUP_DISABLED') return 'Google Drive 備份尚未啟用。';
   if (error?.code === 'DRIVE_BACKUP_NOT_CONFIGURED') return 'Google Drive 備份尚未設定完成。';
   if (error?.code === 'BACKUP_PROCESS_FAILED') return '備份未完成，請重新載入確認狀態；未自動重送。';

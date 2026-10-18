@@ -122,3 +122,30 @@ function vpCreatePrivateRoot_(name,tag) {
   var permissions=Drive.Permissions.list(id,{fields:'permissions(type,role),nextPageToken'});vpCheck_(permissions.permissions.length===1&&!permissions.nextPageToken&&permissions.permissions[0].type==='user'&&permissions.permissions[0].role==='owner','ROOT_NOT_PRIVATE');
   console.log('PRIVATE_ROOT_READY');
 }
+
+// Cold-read endpoint. Read-only Google operations; no public Drive URL or OAuth token leaves this script.
+function vpStorageSign_(secret,text) { return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(text,secret,Utilities.Charset.UTF_8)).replace(/=+$/,''); }
+function vpStorageSame_(a,b) { if(typeof a!=='string'||a.length!==b.length)return false;var n=0;for(var i=0;i<a.length;i++)n|=a.charCodeAt(i)^b.charCodeAt(i);return n===0; }
+function doPost(e) {
+ try {
+  vpCheck_(e&&e.postData&&typeof e.postData.contents==='string'&&e.postData.contents.length<=2048,'INVALID_REQUEST');var c=vpConfig_(),r=JSON.parse(e.postData.contents);
+  vpCheck_(Object.keys(r).sort().join(',')==='file_id,nonce,purpose,signature,timestamp,version'&&r.version===1&&r.purpose==='cold_read'&&/^[a-f0-9-]{36}$/.test(r.nonce)&&Number.isSafeInteger(r.timestamp)&&Math.abs(Math.floor(Date.now()/1000)-r.timestamp)<=120&&/^[A-Za-z0-9_-]{1,200}$/.test(r.file_id),'INVALID_REQUEST');
+  vpCheck_(vpStorageSame_(r.signature,vpStorageSign_(c.secret,JSON.stringify(['VoteProof/storage-read',r.version,r.purpose,r.nonce,r.timestamp,r.file_id]))),'UNAUTHORIZED');
+  var m=vpGetFile_(r.file_id);vpCheck_(m&&!m.trashed&&m.appProperties&&m.appProperties.source==='voteproof'&&m.appProperties.storage_source==='r2'&&Number(m.size)>0&&Number(m.size)<=VP_BACKUP_MAX_BYTES&&m.parents&&m.parents.length===1,'VERIFY_FAILED');
+  var day=vpGetFile_(m.parents[0]);vpCheck_(day&&!day.trashed&&day.mimeType===VP_FOLDER_MIME&&day.parents&&day.parents.length===1&&day.appProperties&&day.appProperties.source==='voteproof','VERIFY_FAILED');
+  var campaign=vpGetFile_(day.parents[0]);vpCheck_(campaign&&!campaign.trashed&&campaign.mimeType===VP_FOLDER_MIME&&campaign.parents&&campaign.parents.length===1&&campaign.parents[0]===c.root&&campaign.appProperties&&campaign.appProperties.source==='voteproof','VERIFY_FAILED');
+  var root=vpGetFile_(c.root);vpCheck_(root&&!root.trashed&&root.mimeType===VP_FOLDER_MIME,'ROOT_INACCESSIBLE');
+  [m.id,day.id,campaign.id,c.root].forEach(function(id){var permissions=Drive.Permissions.list(id,{fields:'permissions(type,role),nextPageToken'});vpCheck_(!permissions.nextPageToken&&permissions.permissions.length===1&&permissions.permissions[0].type==='user'&&permissions.permissions[0].role==='owner','NOT_PRIVATE');});
+  var media=UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(m.id)+'?alt=media',{headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()},muteHttpExceptions:true,followRedirects:false});vpCheck_(media.getResponseCode()===200,'COLD_UNAVAILABLE');var bytes=media.getBlob().getBytes();vpCheck_(bytes.length===Number(m.size)&&bytes.length<=VP_BACKUP_MAX_BYTES,'VERIFY_FAILED');
+  var payload=JSON.stringify({metadata:m,base64:Utilities.base64Encode(bytes),root_folder_id:c.root,campaign_folder_id:campaign.id,date_folder_id:day.id,campaign_key_hash:campaign.appProperties.folder_key,date_key_hash:day.appProperties.folder_key});
+  var result={nonce:r.nonce,timestamp:Math.floor(Date.now()/1000),payload:payload};result.signature=vpStorageSign_(c.secret,JSON.stringify(['VoteProof/storage-read-result',result.nonce,result.timestamp,result.payload]));return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+ } catch(_){return ContentService.createTextOutput(JSON.stringify({error:'COLD_UNAVAILABLE'})).setMimeType(ContentService.MimeType.JSON);}
+}
+// Separate optional trigger; never installed by this source change or by runBackup.
+function runStorageMaintenance() {
+ var lock=LockService.getScriptLock();if(!lock.tryLock(1))return{state:'overlap_skipped'};
+ try {var c=vpConfig_(),now=Math.floor(Date.now()/1000),quota={id:Utilities.getUuid(),observed_at:now,state:'unknown',total_bytes:null,used_bytes:null};
+ try{var q=Drive.About.get({fields:'storageQuota'}).storageQuota;var used=q&&Number(q.usage),total=q&&q.limit!==undefined?Number(q.limit):null;if(Number.isSafeInteger(used)&&used>=0){quota.used_bytes=used;if(total===null)quota.state='unlimited';else if(Number.isSafeInteger(total)&&total>0&&used<=total){quota.state='known';quota.total_bytes=total;}}}catch(_){quota.state='error';}
+ vpJson_(c,'/api/internal/drive-backup/storage/quota',quota);var result;for(var i=0;i<10;i++){result=vpJson_(c,'/api/internal/drive-backup/storage/tick',{});if(!result.inventory||result.inventory.complete)break;}return result;
+ }finally{lock.releaseLock();}
+}

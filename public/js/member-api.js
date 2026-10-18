@@ -126,6 +126,7 @@ export class MemberSession {
 // Explicit admin surface: no arbitrary endpoint, external URL, dot segment,
 // fragment or proof path carrying credentials in query parameters.
 export function adminPath(path) {
+  if (/^\/api\/admin\/storage(?:\/(?:inventory|dry-run))?$/.test(path)) return true;
   if (typeof path !== "string" || /[.#\\]/.test(path)) return false;
   const [pathname, query, extra] = path.split("?");
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;

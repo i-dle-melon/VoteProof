@@ -39,7 +39,7 @@ export function putImage(upload, file, onProgress) {
         // Create-only replay does not attest to the retried body. Legacy
         // Complete or direct Case HEAD verifies the original provider checksum.
         if(xhr.status===409&&code==='UPLOAD_ALREADY_UPLOADED'){onProgress(1);resolve();}
-        else reject(new PublicError(code==='UPLOAD_REPREPARE_REQUIRED'?code:'PUT_FAILED',xhr.status));
+        else reject(new PublicError(['UPLOAD_REPREPARE_REQUIRED','R2_STORAGE_CAPACITY_EXCEEDED'].includes(code)?code:'PUT_FAILED',xhr.status));
       }
     };
     xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new PublicError("PUT_FAILED"));
@@ -49,6 +49,7 @@ export function putImage(upload, file, onProgress) {
 
 const messages = {
   DIRECT_INTENT_DISABLED: "投稿服務尚未完成啟用，請稍後重試；已送出的案件不會重複建立。",
+  R2_STORAGE_CAPACITY_EXCEEDED: "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。",
   UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認，請按重試以重新準備安全上傳。",
   SUBMISSIONS_IMMUTABLE_DISABLED: "安全上傳目前暫停開放，請稍後重試。",
   UI_PREVIEW_ONLY: "這是 UI 預覽，無法登入、投稿或保存變更。",

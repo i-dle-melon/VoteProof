@@ -1,3 +1,4 @@
+import {capacityPut,StorageCapacityError} from '../lib/storage-capacity.js';
 import { jsonSuccess, jsonError } from "./response.js";
 import { readUploadJson, validatePrepare, validateComplete, validUploadedObject, MIME_EXTENSIONS, UPLOAD_LIMITS, UploadError } from "./upload-validation.js";
 import { verifyTurnstile } from "./turnstile.js";
@@ -34,7 +35,7 @@ export async function prepareUpload(env, _url, request) {
     }));
     return jsonSuccess({ session_id: sessionId, expires_in: UPLOAD_LIMITS.expiresSeconds, uploads });
   } catch (error) {
-    if (error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status, error.code, error.message);
+    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status, error.code, error.message);
     return jsonError(500, "INTERNAL_ERROR", "Upload request failed");
   }
 }
@@ -50,13 +51,13 @@ export async function putUpload(env, url, request) {
     // Pass the original native request stream directly to R2. R2 verifies bytes;
     // no arrayBuffer(), tee(), digest(), Blob or per-chunk JS hashing here.
     let object;
-    try { object = await env.PROOFS_BUCKET.put(grant.key, request.body, {sha256:grant.sha256,httpMetadata:{contentType:grant.type}}); }
-    catch { throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload'); }
+    try { object = await capacityPut(env,grant.key,request.body,{sha256:grant.sha256,httpMetadata:{contentType:grant.type}},grant.size); }
+    catch(error) { if(error instanceof StorageCapacityError)throw error; throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload'); }
     if (!object || object.size!==grant.size || r2VerifiedSha256(object)!==grant.sha256 || !validUploadedObject(grant.key,object))
       throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload');
     return jsonSuccess({uploaded:true});
   } catch (error) {
-    if (error instanceof UploadError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status,error.code,error.message);
+    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status,error.code,error.message);
     return jsonError(502,'R2_UPLOAD_ERROR','Upload storage is unavailable');
   }
 }
@@ -101,7 +102,7 @@ export async function completeUpload(env, _url, request) {
     await rememberCompletedUpload(env, sessionId, files);
     return jsonSuccess({ session_id: sessionId, files: files.map(({sha256:_verified,...file})=>file) });
   } catch (error) {
-    if (error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status, error.code, error.message);
+    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status, error.code, error.message);
     return jsonError(500, "INTERNAL_ERROR", "Upload request failed");
   }
 }

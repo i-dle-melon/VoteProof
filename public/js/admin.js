@@ -1,3 +1,4 @@
+import {renderStorage} from './admin-storage.js';
 import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage } from "./admin-api.js";
 import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
@@ -206,6 +207,7 @@ export function adminUI(session) {
     box.append(node('h3', copy('backup-title')));
     try {
       const data = await request('backups');
+      renderStorage(box,data.storage,{node,button:(label,action)=>button(label,()=>void run(action)),mutate,reload:load});
       box.append(node('p', Object.entries(backupLabels).map(([key, label]) => label + '：' + data.counts[key]).join(' · ')));
       if (!data.ready) box.append(node('p', copy(data.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
       if (data.transport === 'apps_script_pull') box.append(node('p', copy('backup-relay'), 'tiny'));

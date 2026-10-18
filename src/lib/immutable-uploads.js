@@ -1,3 +1,4 @@
+import {capacityPut,StorageCapacityError} from './storage-capacity.js';
 import {UploadError,UPLOAD_LIMITS,validUploadedObject,MIME_EXTENSIONS} from '../api/upload-validation.js';
 import {memberSession,memberCsrf,requestOrigin} from './auth-session.js';
 import {newQueryKey,sha256,equalQueryHash} from './case-keys.js';
@@ -71,12 +72,13 @@ export async function putFinalUpload(env,request,grant) {
   try {
     // Storage-enforced create-only, including simultaneous PUTs. The SHA is
     // verified by R2 against the native request stream, never by JS buffering.
-    object=await env.PROOFS_BUCKET.put(intent.object_key,request.body,{onlyIf:new Headers({'If-None-Match':'*'}),
+    object=await capacityPut(env,intent.object_key,request.body,{onlyIf:new Headers({'If-None-Match':'*'}),
       sha256:intent.expected_sha256,httpMetadata:{contentType:intent.content_type},
-      customMetadata:{voteproof_upload:intent.session_id,voteproof_write:token}});
+      customMetadata:{voteproof_upload:intent.session_id,voteproof_write:token}},intent.size);
     if(!object){existing=true;object=await env.PROOFS_BUCKET.head(intent.object_key);}
     if(!matches(intent,object))fail('UPLOAD_CHECKSUM_FAILED',502);
-  } catch {
+  } catch(error) {
+    if(error instanceof StorageCapacityError){if(error.noWrite)await env.DB.prepare('UPDATE proof_upload_intents SET write_token=NULL WHERE session_id=? AND write_token=?').bind(intent.session_id,token).run();throw error;}
     // Ambiguous native write: retain the durable pin. A fresh prepare is safe;
     // timeouts must never allow cleanup to race an unacknowledged PUT.
     fail('UPLOAD_REPREPARE_REQUIRED',502);

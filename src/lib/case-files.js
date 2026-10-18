@@ -1,8 +1,10 @@
+import {capacityPut,StorageCapacityError} from './storage-capacity.js';
 import { CaseError } from "../api/case-validation.js";
 import { validUploadedObject, MIME_EXTENSIONS } from "../api/upload-validation.js";
 import { r2VerifiedSha256, validSha256 } from './r2-verified-checksum.js';
 
-export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
+export async function archiveCaseFiles(env, caseId, files, cleanupKeys) {
+  const bucket=env.PROOFS_BUCKET;
   if (!["get", "put", "delete"].every(method => typeof bucket?.[method] === "function")) {
     throw new CaseError(503, "R2_UPLOAD_NOT_CONFIGURED", "Upload service is not configured");
   }
@@ -29,13 +31,13 @@ export async function archiveCaseFiles(bucket, caseId, files, cleanupKeys) {
         await object.body.cancel();
         throw new CaseError(409,'UPLOAD_CHANGED','Verified upload checksum changed; prepare a new upload');
       }
-      const copy = await bucket.put(key, object.body, { sha256:file.sha256,httpMetadata: { contentType: file.type } });
+      const copy = await capacityPut(env,key,object.body,{sha256:file.sha256,httpMetadata:{contentType:file.type}},file.size);
       if (!copy || copy.size !== file.size || !copy.etag || r2VerifiedSha256(copy)!==file.sha256) throw new Error("Archive failed");
       archived.push({ id, key, sourceKey: file.key, type: file.type, size: copy.size, etag: copy.etag, sha256:r2VerifiedSha256(copy) });
     }
     return archived;
   } catch (error) {
-    if (error instanceof CaseError) throw error;
+    if (error instanceof StorageCapacityError || error instanceof CaseError) throw error;
     throw new CaseError(500, "R2_STORAGE_ERROR", "Proof storage is unavailable");
   }
 }

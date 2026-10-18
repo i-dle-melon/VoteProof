@@ -1,3 +1,4 @@
+import {storageSummary} from '../lib/storage-capacity.js';
 import { jsonSuccess } from './response.js';
 import { adminHandler } from './admin-response.js';
 import { AdminError, adminIdentity, adminCsrf, ELEVATED_ROLES, ELEVATED_AUTH_GUARD, actorBindings } from '../lib/admin-identity.js';
@@ -16,7 +17,7 @@ const requireReady = env => {
 const summary = adminHandler(async (env, _url, request) => {
   await adminIdentity(request, env, ELEVATED_ROLES);
   const audit = (await env.DB.prepare('SELECT created_at,action,target_id,affected_count FROM backup_admin_audit ORDER BY created_at DESC,id DESC LIMIT 10').all()).results;
-  return jsonSuccess({ ...backupReadiness(env), ...await backupSummary(env.DB), audit });
+  return jsonSuccess({ ...backupReadiness(env), ...await backupSummary(env.DB), storage:await storageSummary(env.DB), audit });
 });
 const caseBackups = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);

@@ -1,3 +1,4 @@
+import {capacityPut} from '../lib/storage-capacity.js';
 import { adminHandler } from './admin-response.js';
 import { jsonSuccess } from './response.js';
 import { authDatabase } from '../lib/auth-session.js';
@@ -48,7 +49,7 @@ const handler=adminHandler(async(env,url,request)=>{
  const raster=size>=12&&(mime==='image/png'&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v)||mime==='image/jpeg'&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255||mime==='image/webp'&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP');
  if(!raster)throw new AdminError(400,'INVALID_IMAGE_TYPE','圖片內容與格式不符。');
  const asset_id=crypto.randomUUID(),key='campaign-assets/'+id+'/example/'+asset_id+'.'+MIME_EXTENSIONS[mime],now=new Date().toISOString();
- const object=await env.PROOFS_BUCKET.put(key,bytes,{httpMetadata:{contentType:mime},onlyIf:new Headers({'If-None-Match':'*'})});if(!object)throw new AdminError(409,'CONTENT_CONFLICT','圖片上傳衝突，請重試。');
+ const object=await capacityPut(env,key,bytes,{httpMetadata:{contentType:mime},onlyIf:new Headers({'If-None-Match':'*'})},size);if(!object)throw new AdminError(409,'CONTENT_CONFLICT','圖片上傳衝突，請重試。');
  try{const results=await db.batch([
   db.prepare(`INSERT INTO campaign_example_assets(asset_id,campaign_id,object_key,content_type,size,etag,created_at,created_by) SELECT ?,?,?,?,?,?,?,? WHERE ${ELEVATED_AUTH_GUARD}`).bind(asset_id,id,key,mime,size,object.etag,now,actor.member.member_id,...actorBindings(actor)),
   db.prepare(`INSERT INTO admin_content_audit(id,created_at,admin_member_id,admin_role,action,target_type,target_id,before_json,after_json)

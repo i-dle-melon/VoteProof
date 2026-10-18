@@ -175,6 +175,12 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     if(!input||!['admin','reviewer'].includes(input.role)||typeof input.email!=='string'||!input.email.includes('@'))return reply('INVALID_STAFF_REQUEST',400);
     const row={nickname:'展示新成員・假資料',fan_id:'preview_staff_'+(staffMembers.length+1),role:input.role,status:'active'};staffMembers.push(row);return reply({membership:row,outcome:'granted'},201);
   }
+  const storageFixture={budget:{budget:10000000000},used_bytes:{normal:7200000000,high:9100000000,stopped:9600000000,recovered:8400000000}[state.storage]??0,reserved_bytes:20000000,blocked:['stopped','unknown'].includes(state.storage),observed_at:1791979200,trusted_until:1791979800,cleanup_mode:'dry-run',retention_approved:false,anomaly:state.storage==='cleanup_failed'?'CLEANUP_VERIFICATION_FAILED':state.storage==='unknown'?'USAGE_UNKNOWN':null,history:[{created_at:1791975600,bytes:7000000000,object_count:1400,staging_bytes:10000000,other_bytes:20000000}],drive_quota:{state:state.storage==='drive_error'?'error':state.storage==='unknown'?'unknown':'known',total_bytes:state.storage==='unknown'?null:15000000000,used_bytes:10000000000,remaining_percent:['unknown','drive_error'].includes(state.storage)?null:33.3,observed_at:1791979200,stale:false}};
+  if(state.storage==='unknown'){storageFixture.used_bytes=null;storageFixture.observed_at=null;}
+  if(p.startsWith('/api/admin/storage')&&(!isManager||previewLoggedOut))return reply('ADMIN_FORBIDDEN',403);
+  if(p==='/api/admin/storage')return reply(storageFixture);
+  if(p==='/api/admin/storage/inventory')return reply({complete:true,bytes:storageFixture.used_bytes});
+  if(p==='/api/admin/storage/dry-run')return reply({dry_run:true,retention_approved:false,items:state.storage==='cleanup_failed'?[{state:'blocked',would_delete:false}]:[{state:'dry_run',would_delete:true}]});
   if(method!=="GET") {
     if(method==='POST' && isManager && /^\/api\/admin\/leaderboards(?:\/[^/]+\/update)?$/.test(p)) {
       if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
@@ -337,6 +343,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       ready: false,
       configured: false,
       transport: "apps_script_pull",
+      storage:storageFixture,
       counts: { pending: 0, processing: 0, confirmed: 0, failed: 0 },
       missing: 0,
       audit: [],

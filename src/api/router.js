@@ -1,3 +1,4 @@
+import {storageRoute} from './storage.js';
 import { getHealth } from "./health.js";
 import { getCampaigns } from "./campaigns.js";
 import { getLeaderboards } from "./leaderboards.js";
@@ -105,6 +106,7 @@ export async function routeApi(request, env, url) {
     (/^\/api\/auth\/trusted-devices\/[^/]+\/revoke$/.test(url.pathname)
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??
+    storageRoute(url.pathname) ??
     internalBackupRoute(url.pathname) ??
     internalDuplicateRoute(url.pathname) ??
     backupAdminRoute(url.pathname) ??

@@ -1,3 +1,4 @@
+import {StorageCapacityError} from '../lib/storage-capacity.js';
 import { jsonSuccess, jsonError } from "./response.js";
 import { CaseError, readCaseJson, validateCase } from "./case-validation.js";
 import { caseDatabase, uploadState } from "../lib/completed-uploads.js";
@@ -60,7 +61,7 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
     const queryKey = identity ? await reconstructQueryKey(identity, id, seed) : newQueryKey();
     const queryHash = await sha256(queryKey);
     const files = direct ? [await directProofFile(env.PROOFS_BUCKET, preflight.intent)] : completed.intent ? await linkFinalProof(env.PROOFS_BUCKET,completed)
-      : await archiveCaseFiles(env.PROOFS_BUCKET, id, completed.files, cleanupKeys);
+      : await archiveCaseFiles(env, id, completed.files, cleanupKeys);
     const record = { id, caseId, now: new Date().toISOString(), queryHash,
       idempotency: identity ? { keyHash: identity.keyHash, requestHash: identity.requestHash, seed } : null };
     if (direct) await insertDirectCase(db, input, record, files[0]);
@@ -71,6 +72,7 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {
     if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);
+    if(error instanceof StorageCapacityError)return jsonError(error.status,error.code,error.message);
     if (error instanceof AuthError) return errorResponse(error);
     // A competing atomic transaction may win after the initial replay lookup.
     // Resolve its persistent response even when it already removed staging data.

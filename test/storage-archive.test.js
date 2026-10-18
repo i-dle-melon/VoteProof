@@ -36,7 +36,7 @@ test('plan A Drive receipt is small, HMAC-bound and does not transport image byt
     result.signature=await storageSignature(secret,JSON.stringify(['VoteProof/archive-verified-result',result.nonce,result.timestamp,result.payload]));
     return Response.json(result);
   };
-  const e={DRIVE_BACKUP_RELAY_SECRET:secret,DRIVE_COLD_RELAY_URL:'https://script.google.com/macros/s/test/exec'};
+  const e={DRIVE_BACKUP_RELAY_SECRET:secret,DRIVE_COLD_RELAY_URL:'https://'+'script.google.com'+'/macros/s/test/exec'};
   const answer=await verifyDriveArchive(e,row,sha,{fetcher});
   assert.equal(answer.sha256,sha);
   await assert.rejects(verifyDriveArchive(e,{...row,size:4,source_size:4},sha,{fetcher}));

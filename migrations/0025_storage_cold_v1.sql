@@ -34,7 +34,7 @@ CREATE TRIGGER storage_audit_no_update BEFORE UPDATE ON storage_audit BEGIN SELE
 CREATE TRIGGER storage_audit_no_delete BEFORE DELETE ON storage_audit BEGIN SELECT RAISE(ABORT,'Storage audit is immutable'); END;
 CREATE TRIGGER storage_audit_no_replace BEFORE INSERT ON storage_audit WHEN EXISTS(SELECT 1 FROM storage_audit WHERE id=NEW.id) BEGIN SELECT RAISE(ABORT,'Storage audit is immutable'); END;
 CREATE TABLE cold_proofs (
- file_id TEXT PRIMARY KEY REFERENCES case_files(id), state TEXT NOT NULL CHECK(state IN('verifying','dry_run','blocked','cold')),
+ file_id TEXT PRIMARY KEY REFERENCES case_files(id), state TEXT NOT NULL CHECK(state IN('verifying','dry_run','blocked','deleting','cold')),
  lease_token TEXT, lease_until INTEGER, attempts INTEGER NOT NULL DEFAULT 0, error_code TEXT,
  backup_version INTEGER, case_version INTEGER, sha256 TEXT, r2_version TEXT, etag TEXT, size INTEGER,
  verified_at INTEGER, updated_at INTEGER NOT NULL

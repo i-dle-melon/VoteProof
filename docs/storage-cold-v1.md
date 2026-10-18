@@ -1,14 +1,92 @@
-# 方案 A：R2 容量管理及 7 天封存（實作候選）
+# 方案 A：R2 容量管理及 7 天封存（隔離驗收候選）
 
-狀態：開發分支 `codex/storage-archive-7d`；**Production NO-GO**。已確認保留期限從 30 天改為 **結案後 7 天**。舊的 Google Drive → Worker → Browser 大圖片即時冷讀已取消；R2 清理後只提供管理員手動開啟受限 Drive 備份。
+開發分支 `codex/storage-archive-7d`；驗收基線 `6a436d3e7b5e496940288deec2ffcf714d17226f`。本輪只執行本機與一次性 Cloudflare 隔離驗證，**Production NO-GO**。沒有正式 migration、R2 刪圖、Google Drive 變更、Email、Pages 發布或投稿啟用。
 
-- 十進位容量預算 10,000,000,000 bytes；90%（9 GB）啟動清理，直到 85%（8.5 GB），95%（9.5 GB）阻擋新 R2 PUT。恢復需可信盤點且低於 90%，不自動開投稿。
-- 只清理已審核結案（completed/rejected/revoked）、結案滿 7 天、Drive confirmed 且可再次驗證原始 bytes SHA-256 的案例圖片。其他圖片、投稿素材、D1 案件及 Google Drive 備份不得刪除。
-- Apps Script `archive_verify` 使用原私有 Drive API 權限，重新驗證檔案、四層私有階層、SHA-256，僅回傳小型 HMAC 收據；Workers 不再解碼 5 MiB Base64 / 大型 JSON。沒有可信原生 R2 SHA-256 或 Drive 不一致時不刪。
-- 清理使用 D1 lease、來源 ETag/version/大小/原生 SHA、案件與備份版本、匯出佔用、唯一 writer attestation、immutable audit。R2.delete 無 conditional version，因此不允許未確認外部 writer 或 multipart；刪除 ACK 不明時保留 deleting，重新核對後再恢復。已清理圖片的 Admin GET 回 410 `PROOF_ARCHIVED_IN_DRIVE`；匯出含已封存圖片明確拒絕。
-- `STORAGE_CLEANUP_LIVE_ENABLED` **預設 OFF**；只有正式另行設定精確 `true` 才允許每次 maintenance tick 最多刪 1 張。Admin 手動預覽永遠不刪。實際釋放容量由 R2 全量 inventory 重新確認，不憑 DELETE 直接減少計數。
-- 如需查看已清理圖片，管理員在「Google Drive 備份」個案區使用受限 Drive 連結手動查看。暫不新增自動 Drive 取回或繞過 95% 限制的 R2 還原入口。
-- 仍待驗證：完整 GitHub CI、隔離環境真實 Apps Script 5 MiB 原圖回讀、Workers Free archive 驗證/清理 CPU、R2 刪除 lost-ACK、並發匯出、Production pre-0025 backup、migration、安全切換及受控 pilot。前次 **390 ms 冷讀 CPU FAIL** 不再是本方案的執行路徑，但不能因此宣稱新的清理路徑 CPU PASS。
+## 規則與驗收邊界
+
+- 十進位管理預算 10,000,000,000 bytes，並非 R2 硬上限。9,000,000,000 啟動清理，8,500,000,000（包含等於）停止；9,500,000,000 拒絕新 PUT。恢復須可信 inventory 且低於 9,000,000,000，從不自動開啟投稿。
+- 只有 completed / rejected / revoked、已審核且結案滿 7 天、Drive confirmed 的 case proof 能成為候選。未結案、未審核、未滿 7 天、沒有可信原生 R2 SHA-256、身分／大小／MIME／SHA／ETag／version 不符均不刪。
+- `STORAGE_CLEANUP_LIVE_ENABLED` 預設 OFF；精確 `true` 才能 live，每次最多一張。Admin 預覽固定 dry-run。實際容量只由全 Bucket inventory 重新確認，不從 DELETE 回應直接減帳。
+- 方案 A 不再同步回傳 Drive 圖片 bytes：已封存 Admin proof API 為 410 `PROOF_ARCHIVED_IN_DRIVE`，含封存圖片的 ZIP 明確拒絕；管理員另以受限 Drive 連結手動查看。這是既有方案 A 的產品取捨，並非本輪新增自動冷讀或還原。
+
+## 本輪發現及修正
+
+1. 8.5 GB 恰好達標時原本仍會多刪一張，改為 `<= target` 停止。
+2. Drive 驗證期間同內容重新 PUT 可以保持相同 ETag，但 version 已變；現在把初次 HEAD version 一路比對到最後 HEAD，不接受換版。
+3. 交易檢查之後仍可能進入新的容量 reservation：在尚未正式套用的 `0025_storage_cold_v1.sql` 增加 `archive_writer_reservation_guard`，禁止 verifying / deleting / cold key 新增 writer reservation。現有 in-flight reservation 仍使清理 fail closed；同步 schema 檢查清單。
+4. lost-ACK 重試原本先把 deleting 降回 verifying，破壞持久刪除 pin；現在 claim 保留 deleting。缺檔恢復重新驗證 Drive 與已保存版本／大小，原物件仍存在則必須符合已保存 R2 version。任何不確定狀態維持 pin，不重複刪除、不開放審核或新匯出。
+5. 限定清理路徑效能調整：每 invocation 共用一把 HMAC CryptoKey，原生 `subtle.verify` 驗證回覆，保留 canonical signature、nonce、timestamp、來源身分與完整 SHA 檢查；刪除一個緊鄰且重複的 HEAD。仍保留初次、Drive 後、持久 deleting claim 後刪除前、刪除後四次 HEAD，未取消安全驗證。
+
+## 隔離方法、成本及證據
+
+測試入口 `scripts/validate-archive-cloud.mjs` 必須明確帶 `--isolated-synthetic-only --account-id=<test-account> --samples=40`。每次建立獨立 reader Worker、mock relay Worker、D1、私有 R2；名稱全部為 `voteproof-archive-e2e-*`。啟動時確認帳戶 `free_tier=true`，不啟用付費功能。D1 明確排除正式 UUID，config 與 mutations guard 只允許本次建立的資源；正式 bucket 從未綁定。
+
+- 1 / 3 / 5 MiB 高熵、有效合成 PNG；R2 PUT 使用 provider-native SHA-256 驗證。容量用隔離 D1 模擬 9 / 8.5 / 9.5 GB，沒有上傳 9 GB。
+- 完整 migrations 只套用本機 disposable DB 與新隔離 DB。歷史測試資料在 Worker 尚未建立前匯入，三個投稿 INSERT trigger 暫停後原樣恢復；submission_settings 始終 OFF。
+- 入口有 256-bit 隨機存取限制、固定 origin、不接受瀏覽器 Origin、一小時有效期、D1 持久有限請求配額。隨機密鑰與 OAuth token 只在記憶體，不寫入結果、config、repo 或 console。
+- CPU 路徑為真正 `authenticateRelay → cleanupArchive → verifyDriveArchive → D1 → R2 HEAD/DELETE`。只替換 relay transport；另一個 Free Worker 核對 request HMAC，使用獨立預先計算 SHA 的 fixture 簽小收據，模擬 ContentService redirect。不回傳圖 bytes、不呼叫 Google API。
+- CPU 取 Cloudflare tail 的 `cpuTime`，不是 Node CPU 或 wall time。CPU phase 直接使用原生 DB/R2 binding；SDK 操作量另用 instrumented phase 每尺寸 3 筆量測，不把估算冒充每個 CPU request 的實測操作數。測試防濫用的額外一個 D1 budget UPDATE 與 trace log 成本均包含在 CPU，沒有事後扣除。
+- 正常清理每張觀測為 **13 D1 statements / 7 trips + 1 harness budget statement/trip、4 R2 HEAD + 1 DELETE、0 GET / PUT、2 mock HTTP calls**。D1 statements 不是 rows read/written；trigger 與 index 會增加 row operations。圖尺寸不增加 Worker 圖 bytes 處理量。
+- 真實 Apps Script 預估每次驗證 4 metadata GET、4 Permissions.list、1 media GET、1 次原圖 SHA-256；這是 source 計數，並非已量到 Google quota／延遲。Worker mock 不證明 Google 端到端可用。
+- 真實 Production `/storage/tick` 還包含 evaluateCapacity、inventoryPage、alerts；本輪獨立驗證 inventory 正確性，**未量測完整 maintenance tick CPU**。不得把各 invocation CPU 相加當作一個可用的單 request 上限，或把 core 結果宣稱成整條排程已驗收。
+
+## 真實 CPU 結果：FAIL
+
+完整原始資料與資源清理證據：[evidence 目錄](evidence/storage-archive-7d/README.md)。
+
+第一輪 `67447ae42d27`：26 個隔離情境 PASS，instrumented CPU 取得 55 / 55 traces；1 / 3 / 5 MiB 的 P50 為 11 / 10 / 10 ms，P95 為 14 / 13 / 13 ms，max 為 14 / 13 / 13 ms。21 筆 >10 ms，沒有 1102 或 exceededCpu。下一張未量測的 seed PUT 遇到 `TypeError: fetch failed`，故提前結束；完整錯誤與部分樣本保留，不冒稱完成全部樣本。
+
+第二輪 `1427b4b800e2`：28 個情境全部 PASS，9 個 instrumented 操作量樣本完成；原生 DB/R2 binding CPU 原計畫每尺寸 40 次，於完成 94 次後，下一張未量測 seed PUT 再發生 transport error，安全停止並清除資源。不是 cleanup API 失敗，未盲目重試任何 DELETE。
+
+| 合成圖片 | 原計畫 / 已發送 | 成功 cold | 有效 CPU / 缺失 UNKNOWN | P50 / P95 / P99 / Max ms | >10 ms |
+|---|---:|---:|---:|---|---:|
+| 1 MiB | 40 / 31 | 31 | 29 / 2 | 10 / 13 / 13 / 13 | 11 |
+| 3 MiB | 40 / 31 | 31 | 30 / 1 | 10 / 13 / 14 / 14 | 14 |
+| 5 MiB | 40 / 32 | 32 | 31 / 1 | 10 / 13 / 13 / 13 | 10 |
+
+- 94 / 94 成功，35 / 90 有效 CPU traces 超過 10 ms；4 筆缺失不是 0。尚未送出的 26 次不是 missing trace。樣本不足原計畫但已實測多筆超限，故嚴格 CPU readiness 為 **FAIL**，不是 PASS，也不隱藏為 UNKNOWN。
+- 每尺寸 client wall P50 約 3.54 / 3.58 / 3.57 秒，P95 約 3.82 / 3.75 / 3.81 秒；Cloudflare provider wallTime 分列於 summary.json。延遲包含跨服務與 D1，不能當成 CPU。
+- CPU phase 觀測 HTTP failure / 1102 / exceededCpu / exceededMemory 均為 0；測試注入的 response-lost 503 是預期故障，不混入正常 CPU 成功率。記憶體 peak / 上限 readiness **UNKNOWN**，未取得 heap 指標。
+- 第二輪 collector 一次啟動，0 parse errors，6 個符合 error/disconnect/reconnect 字樣的 stderr chunks；沒有保存原診斷，不能換算確切事件／重連次數。歷史 sampling_signals 是 stdout 關鍵字粗略計數（含 JSON 欄位名），不是實際丟 trace 數；以 sample ID 對應的 4 筆缺失為準。後續 runner 已區分欄位與診斷。
+- 兩輪 instrumentation 不同且非交錯 A/B，不作為優化收益或回歸的因果比較。已知改善僅是少一個 HEAD 與少一次 importKey；實測仍不足以符合 10 ms。
+- 熱點只能作結構分析：Worker 圖 bytes / Base64 / 大型 JSON／逐像素 SHA 已不在此路徑；仍有多次 D1/native subrequests、auth、bounded JSON、HMAC 及兩個資料夾 key hash、序列化與 response/log。未取得逐函式 CPU attribution，不猜是哪一個佔最多，也未做 native profiler hunting。
+
+補充 `727786352ed1` cloud inventory-only **PASS**：真實刪除 5 MiB，保留 1 MiB 物件，正式 inventoryPage 盤點為 1,048,576 bytes、blocked=0、cleanup_requested=0；兩筆 Drive backup 保留、foreign_key_check=0、quick_check=ok、投稿 OFF。此 run 不量 CPU，readiness=UNKNOWN 不參與 CPU 結論。
+
+補充的 cloud inventory-only 驗證另列於 evidence，專門補足中斷前未到達的重新盤點／Drive records／OFF 檢查，不重新跑舊冷讀或整輪 CPU。合成 seed 已增加可重入處理：只能重用未進入 cold_proofs 且 checksum/size/MIME 一致的物件，保留 version；有 pin 一律拒絕。僅 seed transport failure 可有限重試，破壞性清理 request 絕不自動重送。
+
+
+## 測試資源清單與清除
+
+| Run / Worker 前綴（另有 -relay） | 隔離 D1 UUID | 隔離 R2 | 清理 |
+|---|---|---|---|
+| `voteproof-archive-e2e-1427b4b800e2` | `d81ab9aa-3b02-4533-ade3-74fe5dc4b66e` | `voteproof-archive-e2e-1427b4b800e2-data` | 兩 Worker / D1 / R2 皆 DELETE 後 GET 404 |
+| `voteproof-archive-e2e-67447ae42d27` | `cd79fa41-dff4-447a-9fd5-c493aa5c5ce6` | `voteproof-archive-e2e-67447ae42d27-data` | 兩 Worker / D1 / R2 皆 DELETE 後 GET 404 |
+| `voteproof-archive-e2e-727786352ed1` | `1d1479e2-bf2d-4f9c-9f0c-f1976d821900` | `voteproof-archive-e2e-727786352ed1-data` | 兩 Worker / D1 / R2 皆 DELETE 後 GET 404 |
+
+三輪共 6 Workers、3 D1、3 R2 Buckets 均已清除；沒有保留可被外部呼叫的測試 endpoint。合成物件清除不涉及任何 Google Drive 備份。建議只保留 repo 中的 sanitized evidence，未來另建短期隔離環境，不保留長期測試 credentials。
+
+## 本機檢查與回歸
+
+- 新隔離 E2E：31 PASS（28 個故障／邊界／併發情境、原生 binding CPU profile、seed 重試不能重置 cold pin、inventory / immutable audit / OFF）。
+- 既有 archive 2、容量及 storage 22、populated migration 1、Apps Script archive_verify 1、Admin export 35、direct-intent migration 1；合計 **93 個不同相關測試 PASS**。重跑次數不重複計入。
+- Apps Script 測試新增「重新簽名的錯 SHA」以確實到達原始 bytes digest 驗證，並確認過期 timestamp / 非法 nonce 不讀 media；不是只因 stale HMAC 而拒絕。
+- Local migration registry replay、foreign_key_check、quick_check PASS；空資料庫未寫入會員／案件 fixture，投稿 OFF，容量預設 unknown + blocked。
+- 8 個變動 JS/MJS syntax、Worker deploy dry-run build、`git diff --check` PASS。未重跑無關 backend 全套或舊 5 MiB Base64 雲端冷讀。
+- 基線 6a436d3 的 GitHub Backend 1246 / migration / Desktop / Android / WebKit PASS 為使用者已確認的既有結果，本輪不冒稱重新執行。新 commit push 後依指示停止，不等待、查詢或分析 GitHub CI。
+
+## 真實 Drive E2E 尚缺與 Production 阻擋
+
+Apps Script `archive_verify` source / 本機測試確認：先 HMAC，nonce / timestamp window，私有檔案與四層資料夾身分，重新讀取原始 media bytes 算 SHA，回傳 <=4 KiB 小收據而非圖 bytes／Google credentials。真實 Google 端尚未驗收；需要另行授權專用測試 Google 帳號、私有測試 root/folders、合成檔案、Apps Script 測試部署及 Drive API 權限，再測 permissions、SHA 改變、移動／trash、quota、逾時與 ContentService redirect。**本輪沒有登入 Google、建資料夾、部署 Apps Script 或呼叫真實 Drive API。**
+
+- Workers Free CPU 結果未達標前，維持 live OFF、Production NO-GO。即使有 HTTP 200 或沒有 1102，也不能掩蓋 >10 ms 樣本。下一輪先設計清理專用 durable 分段 invocation，保留完整 signed receipt 綁定、freshness、lease、容量與版本重查，再獨立量測；本輪不擴張實作。
+- 真實 Drive E2E 與完整 maintenance tick CPU 均為阻擋條件。平台未提供 peak heap，不能宣稱記憶體達標。
+- R2.delete 沒有 conditional version：四次 HEAD 與 D1 pin 仍依賴 exclusive writer；必須先確認沒有外部 S3 writer、既有 presigned URL、multipart 或其他未受控寫入。對不合作的外部 writer 不能宣稱消除最後 HEAD → DELETE 的競爭窗口。
+- 沒有原生可信 R2 checksum 的舊物件 fail closed，不以 Drive 自報 SHA 或任意 metadata 取代。Google owner 之後修改／刪除備份也不是 Worker 可以保證的長期不可變性，需要營運權限與保留策略。
+- 正式 0025 從未套用；修改的是未上線 migration 草稿，不可拿來覆寫已套用環境的 migration registry。正式前先檢查實際 schema／備份及升級計畫，必要時另建前向 migration。
+- 回復：保留 live OFF、投稿 OFF；未知／失敗維持封鎖或 deleting pin，不粗暴清 lease。尚未刪除時可回復程式；已真實刪除圖片不能靠 DB rollback 還原，必須另行授權受控 Drive 還原流程。Google Drive 備份永不因本輪清理而刪除。
+
+本輪完成後只 commit / push `codex/storage-archive-7d`。該分支 push 僅觸發 Branch Validation；Production workflow 只接受 main 的手動 dispatch，Pages push 只限 main。工作流程：[VoteProof Branch Validation](https://github.com/i-dle-melon/VoteProof/actions/workflows/branch-validation.yml?query=branch%3Acodex%2Fstorage-archive-7d)。
 
 以下保留 4328870 原報告作為歷史參考；其中「30 天候選」、「即時冷讀」、「無 live 刪除程式」屬舊版狀態，以本段為準。
 

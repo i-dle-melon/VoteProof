@@ -61,6 +61,14 @@ CREATE INDEX storage_quota_time ON drive_quota_snapshots(received_at DESC);
 CREATE INDEX idx_cases_storage_closed ON cases(status,coalesce(status_updated_at,updated_at),id);
 CREATE INDEX storage_cleanup_queue ON cold_proofs(state,lease_until);
 
+-- A writer cannot enter the gap after archival's transaction guard. Object keys
+-- remain pinned through an ambiguous delete and after archival until a separate
+-- operator-approved restore protocol exists.
+CREATE TRIGGER archive_writer_reservation_guard BEFORE INSERT ON storage_reservations
+WHEN EXISTS(SELECT 1 FROM case_files f JOIN cold_proofs p ON p.file_id=f.id
+ WHERE f.object_key=NEW.object_key AND p.state IN('verifying','deleting','cold'))
+BEGIN SELECT RAISE(ABORT,'R2_STORAGE_CAPACITY_EXCEEDED'); END;
+
 CREATE TRIGGER storage_cancel_count AFTER UPDATE OF state ON storage_reservations WHEN OLD.state='reserved' AND NEW.state='cancelled' BEGIN
  UPDATE storage_capacity SET reserved_bytes=reserved_bytes-NEW.bytes WHERE id=1;
 END;

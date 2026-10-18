@@ -1,0 +1,536 @@
+[
+  {
+    "run": "voteproof-archive-e2e-1427b4b800e2",
+    "complete": true,
+    "inventory_only": false,
+    "free_tier": true,
+    "cpu_readiness": "FAIL",
+    "sizes": [
+      {
+        "mib": 1,
+        "requests": 31,
+        "cpu_ms": {
+          "n": 29,
+          "p50": 10,
+          "p95": 13,
+          "p99": 13,
+          "max": 13
+        },
+        "over10": 11,
+        "valid_cpu": 29,
+        "missing_unknown": [
+          "archive-79",
+          "archive-115"
+        ],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 29,
+          "p50": 3372,
+          "p95": 3581,
+          "p99": 3743,
+          "max": 3743
+        },
+        "client_wall_ms": {
+          "n": 31,
+          "p50": 3543.2700000000186,
+          "p95": 3821.2188000000315,
+          "p99": 3926.95550000004,
+          "max": 3926.95550000004
+        },
+        "http_status": {
+          "200": 31
+        },
+        "outcomes": {
+          "ok": 29,
+          "UNKNOWN": 2
+        },
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      },
+      {
+        "mib": 3,
+        "requests": 31,
+        "cpu_ms": {
+          "n": 30,
+          "p50": 10,
+          "p95": 13,
+          "p99": 14,
+          "max": 14
+        },
+        "over10": 14,
+        "valid_cpu": 30,
+        "missing_unknown": [
+          "archive-113"
+        ],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 30,
+          "p50": 3395,
+          "p95": 3561,
+          "p99": 3765,
+          "max": 3765
+        },
+        "client_wall_ms": {
+          "n": 31,
+          "p50": 3581.8244000000414,
+          "p95": 3753.7121000000043,
+          "p99": 3937.7927999999374,
+          "max": 3937.7927999999374
+        },
+        "http_status": {
+          "200": 31
+        },
+        "outcomes": {
+          "ok": 30,
+          "UNKNOWN": 1
+        },
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      },
+      {
+        "mib": 5,
+        "requests": 32,
+        "cpu_ms": {
+          "n": 31,
+          "p50": 10,
+          "p95": 13,
+          "p99": 13,
+          "max": 13
+        },
+        "over10": 10,
+        "valid_cpu": 31,
+        "missing_unknown": [
+          "archive-124"
+        ],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 31,
+          "p50": 3400,
+          "p95": 3648,
+          "p99": 3682,
+          "max": 3682
+        },
+        "client_wall_ms": {
+          "n": 32,
+          "p50": 3570.472899999935,
+          "p95": 3812.717599999858,
+          "p99": 3926.9727999999886,
+          "max": 3926.9727999999886
+        },
+        "http_status": {
+          "200": 32
+        },
+        "outcomes": {
+          "ok": 31,
+          "UNKNOWN": 1
+        },
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      }
+    ],
+    "failure": {
+      "name": "TypeError",
+      "message": "fetch failed"
+    },
+    "collector": {
+      "starts": 1,
+      "parse_errors": 0,
+      "stderr_chunks": 6,
+      "error_signals": 6,
+      "sampling_signals": 337,
+      "exits": [
+        {
+          "code": null,
+          "signal": "SIGTERM"
+        }
+      ]
+    },
+    "collector_exact_reconnect_count": "UNKNOWN",
+    "historical_sampling_signals_meaning": "Broad stdout substring count; not trace loss",
+    "e2e_pass": 28,
+    "cleanup_verified": [
+      {
+        "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-1427b4b800e2-relay/settings",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-1427b4b800e2/settings",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-1427b4b800e2-data",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/d1/database/d81ab9aa-3b02-4533-ade3-74fe5dc4b66e",
+        "removed": true
+      }
+    ],
+    "source_sha256": {
+      "src/lib/storage-archive.js": "a754968c9244da776d2e0a21f81e4e76959ba69ed3a91ecad55e67f79d7ea4f3",
+      "migrations/0025_storage_cold_v1.sql": "0e1b5788bbd34a8f2dc94fc122e378f1a9ecba3440fcea79854e5089848919b8",
+      "scripts/lib/archive-isolated-worker.mjs": "784db33fc735c961a833b83401c0905b5cca1171fd127aca9a50f7f6a0908443"
+    },
+    "inventory": null,
+    "final_capacity": null,
+    "integrity": null
+  },
+  {
+    "run": "voteproof-archive-e2e-67447ae42d27",
+    "complete": true,
+    "inventory_only": false,
+    "free_tier": true,
+    "cpu_readiness": "FAIL",
+    "sizes": [
+      {
+        "mib": 1,
+        "requests": 19,
+        "cpu_ms": {
+          "n": 19,
+          "p50": 11,
+          "p95": 14,
+          "p99": 14,
+          "max": 14
+        },
+        "over10": 10,
+        "valid_cpu": 19,
+        "missing_unknown": [],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 19,
+          "p50": 2538,
+          "p95": 2801,
+          "p99": 2801,
+          "max": 2801
+        },
+        "client_wall_ms": {
+          "n": 19,
+          "p50": 2716.045000000042,
+          "p95": 2981.7755999999936,
+          "p99": 2981.7755999999936,
+          "max": 2981.7755999999936
+        },
+        "http_status": {
+          "200": 19
+        },
+        "outcomes": {
+          "ok": 19
+        },
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      },
+      {
+        "mib": 3,
+        "requests": 18,
+        "cpu_ms": {
+          "n": 18,
+          "p50": 10,
+          "p95": 13,
+          "p99": 13,
+          "max": 13
+        },
+        "over10": 7,
+        "valid_cpu": 18,
+        "missing_unknown": [],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 18,
+          "p50": 2529,
+          "p95": 2746,
+          "p99": 2746,
+          "max": 2746
+        },
+        "client_wall_ms": {
+          "n": 18,
+          "p50": 2720.0564000000013,
+          "p95": 2948.7646999999997,
+          "p99": 2948.7646999999997,
+          "max": 2948.7646999999997
+        },
+        "http_status": {
+          "200": 18
+        },
+        "outcomes": {
+          "ok": 18
+        },
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      },
+      {
+        "mib": 5,
+        "requests": 18,
+        "cpu_ms": {
+          "n": 18,
+          "p50": 10,
+          "p95": 13,
+          "p99": 13,
+          "max": 13
+        },
+        "over10": 4,
+        "valid_cpu": 18,
+        "missing_unknown": [],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 18,
+          "p50": 2514,
+          "p95": 4252,
+          "p99": 4252,
+          "max": 4252
+        },
+        "client_wall_ms": {
+          "n": 18,
+          "p50": 2696.4447999999975,
+          "p95": 4440.899600000004,
+          "p99": 4440.899600000004,
+          "max": 4440.899600000004
+        },
+        "http_status": {
+          "200": 18
+        },
+        "outcomes": {
+          "ok": 18
+        },
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      }
+    ],
+    "failure": {
+      "name": "TypeError",
+      "message": "fetch failed"
+    },
+    "collector": {
+      "starts": 1,
+      "parse_errors": 0,
+      "stderr_chunks": 0,
+      "error_signals": 0,
+      "sampling_signals": 239,
+      "exits": [
+        {
+          "code": null,
+          "signal": "SIGTERM"
+        }
+      ]
+    },
+    "collector_exact_reconnect_count": "UNKNOWN",
+    "historical_sampling_signals_meaning": "Broad stdout substring count; not trace loss",
+    "e2e_pass": 26,
+    "cleanup_verified": [
+      {
+        "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-67447ae42d27-relay/settings",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-67447ae42d27/settings",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-67447ae42d27-data",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/d1/database/cd79fa41-dff4-447a-9fd5-c493aa5c5ce6",
+        "removed": true
+      }
+    ],
+    "source_sha256": {
+      "src/lib/storage-archive.js": "094781ed1d4e26b9e38cabc1b99da469f119d960ab138d9efaae284fbcd3fd06",
+      "migrations/0025_storage_cold_v1.sql": "0e1b5788bbd34a8f2dc94fc122e378f1a9ecba3440fcea79854e5089848919b8",
+      "scripts/lib/archive-isolated-worker.mjs": "53a7317b76096320be9c426cf974e721709bdd7ee6b1a080e5031a008cec30ab"
+    },
+    "inventory": null,
+    "final_capacity": null,
+    "integrity": null
+  },
+  {
+    "run": "voteproof-archive-e2e-727786352ed1",
+    "complete": true,
+    "inventory_only": true,
+    "free_tier": true,
+    "cpu_readiness": "UNKNOWN",
+    "sizes": [
+      {
+        "mib": 1,
+        "requests": 0,
+        "cpu_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "over10": 0,
+        "valid_cpu": 0,
+        "missing_unknown": [],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "client_wall_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "http_status": {},
+        "outcomes": {},
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      },
+      {
+        "mib": 3,
+        "requests": 0,
+        "cpu_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "over10": 0,
+        "valid_cpu": 0,
+        "missing_unknown": [],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "client_wall_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "http_status": {},
+        "outcomes": {},
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      },
+      {
+        "mib": 5,
+        "requests": 0,
+        "cpu_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "over10": 0,
+        "valid_cpu": 0,
+        "missing_unknown": [],
+        "duplicate_trace_samples": [],
+        "provider_wall_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "client_wall_ms": {
+          "n": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null,
+          "max": null
+        },
+        "http_status": {},
+        "outcomes": {},
+        "memory_peak": "UNKNOWN",
+        "exceeded_memory": 0
+      }
+    ],
+    "failure": null,
+    "collector": {
+      "starts": 1,
+      "parse_errors": 0,
+      "stderr_chunks": 1,
+      "error_signals": 1,
+      "sampling_text_matches": 6,
+      "sampling_rates": [],
+      "connection_lost_signals": 1,
+      "reconnect_signals": 1,
+      "exits": [
+        {
+          "code": null,
+          "signal": "SIGTERM"
+        }
+      ]
+    },
+    "collector_exact_reconnect_count": 1,
+    "historical_sampling_signals_meaning": "Broad stdout substring count; not trace loss",
+    "e2e_pass": 0,
+    "cleanup_verified": [
+      {
+        "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay/settings",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1/settings",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-727786352ed1-data",
+        "removed": true
+      },
+      {
+        "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+        "removed": true
+      }
+    ],
+    "source_sha256": {
+      "src/lib/storage-archive.js": "a754968c9244da776d2e0a21f81e4e76959ba69ed3a91ecad55e67f79d7ea4f3",
+      "migrations/0025_storage_cold_v1.sql": "0e1b5788bbd34a8f2dc94fc122e378f1a9ecba3440fcea79854e5089848919b8",
+      "scripts/lib/archive-isolated-worker.mjs": "84cff85c5f183c3281c31f26dead3fdf1dba3488661ff95ee013ebcb49411fdb"
+    },
+    "inventory": {
+      "complete": true,
+      "bytes": 1048576,
+      "anomaly": null
+    },
+    "final_capacity": {
+      "id": 1,
+      "used_bytes": 1048576,
+      "reserved_bytes": 0,
+      "trusted_until": 1792331594,
+      "blocked": 0,
+      "episode": 2,
+      "inventory_id": null,
+      "inventory_cursor": null,
+      "inventory_bytes": 1048576,
+      "inventory_count": 1,
+      "inventory_staging": 0,
+      "inventory_other": 0,
+      "inventory_version": 2,
+      "anomaly": null,
+      "observed_at": 1792330994,
+      "cleanup_requested": 0
+    },
+    "integrity": {
+      "quick_check": "ok",
+      "fk_errors": 0,
+      "submissions": 0,
+      "backups": 2,
+      "budget": [
+        {
+          "id": "reader",
+          "used": 6,
+          "ceiling": 2400
+        },
+        {
+          "id": "relay",
+          "used": 2,
+          "ceiling": 4800
+        }
+      ]
+    }
+  }
+]

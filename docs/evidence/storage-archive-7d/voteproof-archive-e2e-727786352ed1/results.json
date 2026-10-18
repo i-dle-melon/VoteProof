@@ -1,0 +1,567 @@
+{
+  "inventory_only": true,
+  "seed_attempt_errors": [],
+  "baseline": "6a436d3e7b5e496940288deec2ffcf714d17226f",
+  "started_at": "2026-10-18T13:42:37.299Z",
+  "state": {
+    "name": "voteproof-archive-e2e-727786352ed1",
+    "relay": "voteproof-archive-e2e-727786352ed1-relay",
+    "bucket": "voteproof-archive-e2e-727786352ed1-data",
+    "database": "1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+    "workers": [
+      "voteproof-archive-e2e-727786352ed1-relay",
+      "voteproof-archive-e2e-727786352ed1"
+    ],
+    "bucket_created": true,
+    "db_created": true
+  },
+  "samples": 1,
+  "source_sha256": {
+    "src/lib/storage-archive.js": "a754968c9244da776d2e0a21f81e4e76959ba69ed3a91ecad55e67f79d7ea4f3",
+    "migrations/0025_storage_cold_v1.sql": "0e1b5788bbd34a8f2dc94fc122e378f1a9ecba3440fcea79854e5089848919b8",
+    "scripts/lib/archive-isolated-worker.mjs": "84cff85c5f183c3281c31f26dead3fdf1dba3488661ff95ee013ebcb49411fdb"
+  },
+  "api": [
+    {
+      "path": "/accounts/:account/workers/settings",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/subdomain",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1/settings",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay/settings",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-727786352ed1-data",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/accounts/:account/r2/buckets",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay/subdomain",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay/settings",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1/subdomain",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1/settings",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900/query",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1",
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay",
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-727786352ed1-data",
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay/settings",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1/settings",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-727786352ed1-data",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+      "method": "GET",
+      "status": 404
+    }
+  ],
+  "deployments": [
+    {
+      "worker": "voteproof-archive-e2e-727786352ed1-relay",
+      "role": "relay",
+      "version": "a754968c9244-relay",
+      "bundle_sha256": "8a10fa9c2807ded2895db3687ad069f2b6a83989e5ccc18834e0f78dc708cbbc",
+      "bindings": [
+        {
+          "database_id": "1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+          "id": "1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+          "name": "DB",
+          "type": "d1"
+        }
+      ],
+      "usage_model": "standard"
+    },
+    {
+      "worker": "voteproof-archive-e2e-727786352ed1",
+      "role": "reader",
+      "version": "a754968c9244-reader",
+      "bundle_sha256": "8a10fa9c2807ded2895db3687ad069f2b6a83989e5ccc18834e0f78dc708cbbc",
+      "bindings": [
+        {
+          "database_id": "1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+          "id": "1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+          "name": "DB",
+          "type": "d1"
+        },
+        {
+          "bucket_name": "voteproof-archive-e2e-727786352ed1-data",
+          "name": "PROOFS_BUCKET",
+          "type": "r2_bucket"
+        }
+      ],
+      "usage_model": "standard"
+    }
+  ],
+  "requests": [
+    {
+      "sample": "archive-0",
+      "phase": "inventory-setup",
+      "label": "inventory-delete",
+      "mode": "normal",
+      "path": "/archive",
+      "expected_status": 200,
+      "status": 200,
+      "client_wall_ms": 2406.768600000003,
+      "platform_codes": [],
+      "value": {
+        "sample": "archive-0",
+        "result": {
+          "state": "cold",
+          "deleted": 1,
+          "size": 5242880,
+          "retention_days": 7,
+          "mode": "live"
+        },
+        "counters": {
+          "statements": 13,
+          "trips": 7,
+          "r2": {
+            "head": 4,
+            "get": 0,
+            "put": 0,
+            "delete": 1,
+            "list": 0
+          },
+          "relay": 2,
+          "harness_budget_statements": 1,
+          "instrumented": true
+        },
+        "assertions": {},
+        "file_id": "de079c96-2d0e-4a2b-b3ea-e30fa5772ddf"
+      }
+    }
+  ],
+  "traces": [
+    {
+      "sample": "archive-0",
+      "event_timestamp": 1792330988518,
+      "script_name": "voteproof-archive-e2e-727786352ed1",
+      "cpu_ms": 13,
+      "wall_ms": 2196,
+      "outcome": "ok",
+      "status": 200,
+      "exception_count": 0,
+      "logs": [
+        {
+          "sample": "archive-0",
+          "result": {
+            "state": "cold",
+            "deleted": 1,
+            "size": 5242880,
+            "retention_days": 7,
+            "mode": "live"
+          },
+          "counters": {
+            "statements": 13,
+            "trips": 7,
+            "r2": {
+              "head": 4,
+              "get": 0,
+              "put": 0,
+              "delete": 1,
+              "list": 0
+            },
+            "relay": 2,
+            "harness_budget_statements": 1,
+            "instrumented": true
+          },
+          "assertions": {},
+          "file_id": "de079c96-2d0e-4a2b-b3ea-e30fa5772ddf"
+        }
+      ]
+    }
+  ],
+  "e2e": [],
+  "cleanup": {
+    "objects": {
+      "deleted": 1
+    },
+    "voteproof-archive-e2e-727786352ed1": "removed",
+    "voteproof-archive-e2e-727786352ed1-relay": "removed",
+    "bucket": "removed",
+    "database": "removed"
+  },
+  "collector": {
+    "starts": 1,
+    "parse_errors": 0,
+    "stderr_chunks": 1,
+    "error_signals": 1,
+    "sampling_text_matches": 6,
+    "sampling_rates": [],
+    "connection_lost_signals": 1,
+    "reconnect_signals": 1,
+    "exits": [
+      {
+        "code": null,
+        "signal": "SIGTERM"
+      }
+    ]
+  },
+  "methodology": {
+    "path": "authenticateRelay + cleanupArchive + verifyDriveArchive + real isolated D1/R2 HEAD/DELETE",
+    "relay": "Independent Free Worker verifies request HMAC; signs an independently precomputed synthetic SHA receipt. No image bytes returned to reader; no real Drive calls.",
+    "images": "High-entropy valid synthetic PNGs, native R2 PUT SHA-256 verified; decimal capacity simulated in isolated D1.",
+    "cpu": "Cloudflare tail cpuTime in milliseconds; missing UNKNOWN, not zero. Harness budget UPDATE and trace log overhead included.",
+    "cpu_profile": "Raw DB/R2 bindings without Proxy instrumentation. SDK operation counts are measured in a separate instrumented phase.",
+    "memory": "Not measured; no heap or memory peak claim",
+    "production_mutations": 0,
+    "google_api_calls": 0,
+    "paid_features_enabled": 0
+  },
+  "free_settings": {
+    "enabled": true,
+    "multiscript": true,
+    "free_tier": true,
+    "wildcard_host": false,
+    "num_allowed_scripts": 100,
+    "allowed_script_size_bytes": 67004006
+  },
+  "offline_fixture_import": {
+    "gate_off": true,
+    "gate_triggers_restored": true,
+    "fk_errors": 0
+  },
+  "inventory": {
+    "complete": true,
+    "bytes": 1048576,
+    "anomaly": null
+  },
+  "final_capacity": {
+    "id": 1,
+    "used_bytes": 1048576,
+    "reserved_bytes": 0,
+    "trusted_until": 1792331594,
+    "blocked": 0,
+    "episode": 2,
+    "inventory_id": null,
+    "inventory_cursor": null,
+    "inventory_bytes": 1048576,
+    "inventory_count": 1,
+    "inventory_staging": 0,
+    "inventory_other": 0,
+    "inventory_version": 2,
+    "anomaly": null,
+    "observed_at": 1792330994,
+    "cleanup_requested": 0
+  },
+  "integrity": {
+    "quick_check": "ok",
+    "fk_errors": 0,
+    "submissions": 0,
+    "backups": 2,
+    "budget": [
+      {
+        "id": "reader",
+        "used": 6,
+        "ceiling": 2400
+      },
+      {
+        "id": "relay",
+        "used": 2,
+        "ceiling": 4800
+      }
+    ]
+  },
+  "cpu": [
+    {
+      "mib": 1,
+      "requests": 0,
+      "success": 0,
+      "cpu_ms": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "over10": 0
+      },
+      "missing_cpu": 0,
+      "wall_ms": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "over10": 0
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented operations phase, not per-request pure CPU counters",
+        "samples": []
+      }
+    },
+    {
+      "mib": 3,
+      "requests": 0,
+      "success": 0,
+      "cpu_ms": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "over10": 0
+      },
+      "missing_cpu": 0,
+      "wall_ms": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "over10": 0
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented operations phase, not per-request pure CPU counters",
+        "samples": []
+      }
+    },
+    {
+      "mib": 5,
+      "requests": 0,
+      "success": 0,
+      "cpu_ms": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "over10": 0
+      },
+      "missing_cpu": 0,
+      "wall_ms": {
+        "n": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null,
+        "over10": 0
+      },
+      "exceeded_cpu": 0,
+      "exceeded_memory": 0,
+      "http1102": 0,
+      "operations": {
+        "source": "Separate instrumented operations phase, not per-request pure CPU counters",
+        "samples": []
+      }
+    }
+  ],
+  "cpu_readiness": "UNKNOWN",
+  "cleanup_verification": [
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1-relay/settings",
+      "removed": true
+    },
+    {
+      "path": "/accounts/:account/workers/scripts/voteproof-archive-e2e-727786352ed1/settings",
+      "removed": true
+    },
+    {
+      "path": "/accounts/:account/r2/buckets/voteproof-archive-e2e-727786352ed1-data",
+      "removed": true
+    },
+    {
+      "path": "/accounts/:account/d1/database/1d1479e2-bf2d-4f9c-9f0c-f1976d821900",
+      "removed": true
+    }
+  ],
+  "finished_at": "2026-10-18T13:43:38.395Z"
+}

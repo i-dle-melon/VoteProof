@@ -397,4 +397,18 @@ test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw
   assert.equal(post(request).error,'COLD_UNAVAILABLE');
   f.files.get('campaign').parents=['root'];
   assert.equal(post({...request,expected_sha256:'0'.repeat(64)}).error,'COLD_UNAVAILABLE');
+  // Re-sign a wrong expected digest so the assertion reaches the media SHA
+  // comparison rather than merely rejecting a stale request HMAC.
+  const signed=async changes=>{
+    const v={...request,...changes};v.signature=await storageSignature(f.secret,JSON.stringify([
+      'VoteProof/archive-verify',v.version,v.purpose,v.nonce,v.timestamp,v.file_id,v.expected_sha256,v.expected_size
+    ]));return v;
+  };
+  const calls=f.state.calls.length;
+  assert.equal(post(await signed({expected_sha256:'0'.repeat(64)})).error,'COLD_UNAVAILABLE');
+  assert.equal(f.state.calls.length,calls+1);
+  const before=f.state.calls.length;
+  assert.equal(post(await signed({timestamp:request.timestamp-121})).error,'COLD_UNAVAILABLE');
+  assert.equal(post(await signed({nonce:'invalid'})).error,'COLD_UNAVAILABLE');
+  assert.equal(f.state.calls.length,before);
 });

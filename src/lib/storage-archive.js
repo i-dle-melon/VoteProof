@@ -2,7 +2,7 @@
 // Production stays dry-run unless a separate, explicit server-only live flag is enabled.
 import { AdminError } from './admin-identity.js';
 import { authAtomic } from './auth-store.js';
-import { boundedJson, scriptPost, storageSignature, coldContext, validColdSource, shaBytes } from './cold-storage.js';
+import { boundedJson, scriptPost, coldContext, validColdSource, shaBytes } from './cold-storage.js';
 import { STORAGE, capacityRow, nowSeconds } from './storage-capacity.js';
 import { r2VerifiedSha256 } from './r2-verified-checksum.js';
 
@@ -14,23 +14,26 @@ const live = env => env.STORAGE_CLEANUP_LIVE_ENABLED === 'true';
 export async function verifyDriveArchive(env, row, sha, { fetcher = fetch } = {}) {
   if (!validColdSource(row) || !/^[a-f0-9]{64}$/.test(sha) ||
       !/^[a-f0-9]{64}$/.test(env.DRIVE_BACKUP_RELAY_SECRET ?? '')) throw fail();
+  // One request-scoped key serves both directions; native verify retains a
+  // constant-time MAC check without reimporting the same secret a second time.
+  const encoder=new TextEncoder();
+  const key=await crypto.subtle.importKey('raw',encoder.encode(env.DRIVE_BACKUP_RELAY_SECRET),
+    {name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
   const nonce = crypto.randomUUID(), timestamp = nowSeconds();
   const request = {version: 1, purpose: 'archive_verify', nonce, timestamp,
     file_id: row.drive_file_id, expected_sha256: sha, expected_size: row.size};
-  request.signature = await storageSignature(env.DRIVE_BACKUP_RELAY_SECRET,
+  const mac=new Uint8Array(await crypto.subtle.sign('HMAC',key,encoder.encode(
     JSON.stringify(['VoteProof/archive-verify', request.version, request.purpose,
-      nonce, timestamp, request.file_id, sha, row.size]));
+      nonce, timestamp, request.file_id, sha, row.size]))));
+  request.signature=btoa(String.fromCharCode(...mac)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
   const reply = await boundedJson(await scriptPost(env.DRIVE_COLD_RELAY_URL, request, fetcher), 4096);
   if (reply.nonce !== nonce || !Number.isSafeInteger(reply.timestamp) ||
       Math.abs(nowSeconds() - reply.timestamp) > 120 ||
       typeof reply.payload !== 'string' || reply.payload.length > 2048 ||
-      typeof reply.signature !== 'string') throw fail();
-  const expected = await storageSignature(env.DRIVE_BACKUP_RELAY_SECRET,
-    JSON.stringify(['VoteProof/archive-verified-result', nonce, reply.timestamp, reply.payload]));
-  if (expected.length !== reply.signature.length) throw fail();
-  let different = 0;
-  for (let i = 0; i < expected.length; i++) different |= expected.charCodeAt(i) ^ reply.signature.charCodeAt(i);
-  if (different) throw fail();
+      typeof reply.signature !== 'string' || !/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(reply.signature)) throw fail();
+  const signature=Uint8Array.from(atob(reply.signature.replaceAll('-','+').replaceAll('_','/')+'='),c=>c.charCodeAt(0));
+  if(!await crypto.subtle.verify('HMAC',key,signature,encoder.encode(
+    JSON.stringify(['VoteProof/archive-verified-result',nonce,reply.timestamp,reply.payload]))))throw fail();
   let p;
   try { p = JSON.parse(reply.payload); } catch { throw fail(); }
   if (!p || p.file_id !== row.drive_file_id || p.sha256 !== sha ||
@@ -85,7 +88,7 @@ async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive} 
   if (!cap || cap.anomaly || cap.inventory_id || cap.reserved_bytes ||
       cap.trusted_until <= at) throw fail();
   if (cap.used_bytes < STORAGE.cleanupStart && !cap.cleanup_requested) return {state:'idle',deleted:0};
-  if (cap.used_bytes < STORAGE.target) return {state:'target_reached',deleted:0};
+  if (cap.used_bytes <= STORAGE.target) return {state:'target_reached',deleted:0};
   const rowKey=await db.prepare(
     "SELECT f.object_key FROM case_files f JOIN cases c ON c.id=f.case_id JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive' AND b.status='confirmed' LEFT JOIN cold_proofs p ON p.file_id=f.id "+
     "WHERE c.status IN('completed','rejected','revoked') AND c.reviewed_at IS NOT NULL AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday('now','-7 days') "+
@@ -100,8 +103,8 @@ async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive} 
   const token=crypto.randomUUID();
   const claim=await db.prepare(
     "INSERT INTO cold_proofs(file_id,state,lease_token,lease_until,attempts,updated_at) VALUES(?,'verifying',?,?,1,?) "+
-    "ON CONFLICT(file_id) DO UPDATE SET state='verifying',lease_token=excluded.lease_token,lease_until=excluded.lease_until,attempts=attempts+1,updated_at=excluded.updated_at "+
-    "WHERE state='dry_run' OR (state='blocked' AND updated_at<?) OR (state IN('verifying','deleting') AND lease_until<?) RETURNING file_id")
+    "ON CONFLICT(file_id) DO UPDATE SET state=CASE WHEN cold_proofs.state='deleting' THEN 'deleting' ELSE 'verifying' END,lease_token=excluded.lease_token,lease_until=excluded.lease_until,attempts=attempts+1,updated_at=excluded.updated_at "+
+    "WHERE state='dry_run' OR (state='blocked' AND updated_at<?) OR (state IN('verifying','deleting') AND lease_until<?) RETURNING file_id,state")
     .bind(row.file_id,token,at+300,at,at-86400,at).first();
   if(!claim) return {state:'busy',deleted:0};
   let destructive=false, stage='head';
@@ -109,12 +112,11 @@ async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive} 
     let obj=await env.PROOFS_BUCKET.head(row.object_key);
     // A previous delete may have completed before its D1 acknowledgement.
     if(!obj && oldDeleting && prev?.sha256 && prev?.etag===row.etag &&
+       prev?.size===row.size && prev?.r2_version &&
        prev?.case_version===row.case_version && prev?.backup_version===row.backup_version) {
       stage='reconcile_verify';
       await read(env,row,prev.sha256);
-      await authAtomic(db,guard(row,token,nowSeconds(),'verifying'),[
-        db.prepare("UPDATE cold_proofs SET state='deleting',updated_at=? WHERE file_id=? AND lease_token=?").bind(nowSeconds(),row.file_id,token)
-      ]);
+      // Never downgrade a destructive pin while reconciling an uncertain delete.
       await markCold(db,row,token,prev.sha256,nowSeconds());
       return {state:'cold_reconciled',deleted:1,size:row.size};
     }
@@ -122,21 +124,23 @@ async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive} 
     if(!obj || obj.etag!==row.etag || obj.size!==row.size ||
       obj.httpMetadata?.contentType!==row.content_type || !obj.version || !sha ||
       (row.known_sha && row.known_sha!==sha)) throw fail();
+    const firstVersion=obj.version;
+    if(oldDeleting && (prev.r2_version!==firstVersion || prev.sha256!==sha || prev.etag!==row.etag ||
+       prev.size!==row.size || prev.case_version!==row.case_version || prev.backup_version!==row.backup_version)) throw fail();
+    if(oldDeleting && (!live(env)||previewOnly))return {state:'delete_pending',deleted:0};
     stage='drive_verify';
     await read(env,row,sha);
     stage='recheck';
     obj=await env.PROOFS_BUCKET.head(row.object_key);
     if(!obj || obj.etag!==row.etag || obj.size!==row.size ||
        obj.httpMetadata?.contentType!==row.content_type ||
-       r2VerifiedSha256(obj)!==sha || !obj.version) throw fail();
+       r2VerifiedSha256(obj)!==sha || obj.version!==firstVersion) throw fail();
     const version=obj.version;
-    // Recheck after the other service: never use a stale manifest as deletion authority.
-    const again=await env.PROOFS_BUCKET.head(row.object_key);
-    if(!again || again.version!==version || again.etag!==obj.etag ||
-      again.size!==row.size || r2VerifiedSha256(again)!==sha) throw fail();
+    // This HEAD is already after Drive verification. The next R2 HEAD remains
+    // after the durable deleting claim, immediately before the actual DELETE.
     const doDelete=live(env)&&!previewOnly;
     stage='claim';
-    await authAtomic(db,guard(row,token,nowSeconds(),'verifying'),[
+    await authAtomic(db,guard(row,token,nowSeconds(),claim.state),[
       db.prepare("UPDATE cold_proofs SET state=?,sha256=?,r2_version=?,etag=?,size=?,case_version=?,backup_version=?,verified_at=?,updated_at=? WHERE file_id=? AND lease_token=?")
         .bind(doDelete?'deleting':'dry_run',sha,version,row.etag,row.size,row.case_version,row.backup_version,
           nowSeconds(),nowSeconds(),row.file_id,token),

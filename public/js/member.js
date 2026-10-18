@@ -19,6 +19,22 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   let view = "", epoch = 0, busy = false, controller = new AbortController();
   let registration = "email", challengeId = "", transactionId = "", deadline = 0, cooldown = 0;
   let loginTx = "", loginDeadline = 0, recoveryTx = "", recoveryDeadline = 0, recoveryCodes = [];
+  let recoveryMethod = "totp";
+  function setRecoveryMethod(method) {
+    recoveryMethod = method;
+    const totp = method === "totp";
+    $("recover-totp-field").hidden = !totp; $("recover-code-field").hidden = totp;
+    $("recover-totp").disabled = !totp; $("recover-totp").required = totp;
+    $("recover-code").disabled = totp; $("recover-code").required = !totp;
+    $("recover-totp").value = $("recover-code").value = "";
+    $("recover-switch-method").textContent = totp ? "改用未使用的復原碼" : "改用 Authenticator 驗證碼";
+    $("recover-other-methods").open = false;
+  }
+  $("recover-switch-method").addEventListener("click", () => {
+    if (busy) return;
+    setRecoveryMethod(recoveryMethod === "totp" ? "recovery_code" : "totp");
+    $(recoveryMethod === "totp" ? "recover-totp" : "recover-code").focus();
+  });
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
   let caseOpener=null;
   let ledgerCursors=[null],ledgerIndex=0,ledgerNext=null,ledgerSequence=0,ledgerLoaded=false;
@@ -155,6 +171,8 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     $("login-form").hidden = false; $("login-totp-form").hidden = true;
     $("login-methods").hidden = false; $("login-password-options").open = false;
     $("recover-proof-form").hidden = false; $("recover-password-form").hidden = $("recover-success").hidden = true;
+    setRecoveryMethod("totp");
+    $("recover-other-methods").querySelectorAll("details").forEach(d => { d.open = false; });
     $("logout-button").disabled = false; challenge.clear();
     googleTx = methodTx = setupTx = ""; googleDeadline = methodDeadline = setupDeadline = 0;
     clearEnrollment($("security-enroll-qr")); $("security-enroll-key").textContent = ""; $("security-devices").replaceChildren(); $("security-step-status").textContent = "";
@@ -448,12 +466,18 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     if (!busy) { resetAuth(); $("login-password-options").open = true; $("login-email").focus(); }
   });
   form("recover-proof-form", "recover", async current => {
-    const email = emailValue($("recover-email").value), code = codeValue($("recover-totp").value), recovery_code = $("recover-code").value.trim();
-    if (!/^[A-Za-z0-9_-]{43}$/.test(recovery_code)) throw new PublicError("RECOVERY_FORMAT");
+    const email = emailValue($("recover-email").value);
+    let proof;
+    if (recoveryMethod === "totp") proof = { code: codeValue($("recover-totp").value) };
+    else {
+      const recovery_code = $("recover-code").value.trim();
+      if (!/^[A-Za-z0-9_-]{43}$/.test(recovery_code)) throw new PublicError("RECOVERY_FORMAT");
+      proof = { recovery_code };
+    }
     $("recover-email").value = $("recover-totp").value = $("recover-code").value = "";
     // A generic transaction is NOT evidence the proofs are valid: finish is
     // authoritative. Do not announce existence/verification of this identity.
-    const data = await post("recovery/password/start", { email, code, recovery_code });
+    const data = await post("recovery/password/start", { email, ...proof });
     if (current()) {
       recoveryTx = data.transaction_id; recoveryDeadline = expires(data);
       $("recover-proof-form").hidden = true; $("recover-password-form").hidden = false; $("recover-password").focus(); syncCooldown();

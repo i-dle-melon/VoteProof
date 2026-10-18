@@ -17,25 +17,30 @@ const recoveryStart = kind => authHandler(async (env, _url, request) => {
   const record = await findIdentity(db, env, email), hash = await recoveryHash(record?.member_id ?? "missing", typeof body.recovery_code === "string" ? body.recovery_code : "invalid");
   const code = record && /^[A-Za-z0-9_-]{43}$/.test(body.recovery_code ?? "") ? await db.prepare("SELECT code_hash FROM recovery_codes WHERE member_id=? AND generation=? AND code_hash=? AND used_at IS NULL")
     .bind(record.member_id, record.recovery_generation, hash).first() : null;
-  let valid = !!code && record.status === "active" && Boolean(record.password_enabled), step;
+  // Password recovery accepts either proof. Older clients sending both must
+  // still prove both; a bad supplied proof never silently falls back.
+  const useTotp = kind === "password_recovery" && Object.hasOwn(body, "code");
+  const useRecovery = kind === "totp_recovery" || Object.hasOwn(body, "recovery_code");
+  let valid = Boolean(record && record.status === "active" && record.password_enabled && (useTotp || useRecovery) && (!useRecovery || code)), step;
   if (kind === "totp_recovery") {
     const verified = await verifyPassword(env, email, passwordInput(body.password));
     valid = valid && verified?.id === record.provider_subject;
-  } else if (valid) {
+  } else if (valid && useTotp) {
     try { step = await totpStep(record, record.member_id, body.code, env); }
     catch (e) { if (!(e instanceof AuthError)) throw e; valid = false; }
   }
-  const data = valid ? { version: record.version, code_hash: hash } : { invalid: true };
+  const data = valid ? { version: record.version, ...(useRecovery ? { code_hash: hash } : { recovery_method: "totp" }) } : { invalid: true };
   let setup;
   if (kind === "totp_recovery") {
     setup = newTotp(email);
     Object.assign(data, await encryptTotp(setup.secret, valid ? record.member_id : "M-" + crypto.randomUUID(), env));
   }
-  if (valid && kind === "password_recovery") {
-    // A fresh TOTP + unused recovery code may recover a pending password update.
+  if (valid && kind === "password_recovery" && useTotp) {
+    // Atomically reserve this TOTP step before issuing a browser-bound
+    // transaction, including recovery of a pending password update.
     // It never grants a session or trusts the provider's previous outcome.
     const proofGuard = { sql: "EXISTS(SELECT 1 FROM member_credentials c JOIN members m USING(member_id) WHERE c.member_id=? AND c.version=? AND c.last_used_time_step<? AND m.status='active')", args: [record.member_id, record.version, step] };
-    try { await authAtomic(db, [proofGuard, recoveryGuard(record.member_id, data)], [advanceTotp(db, record.member_id, step)]); }
+    try { await authAtomic(db, [proofGuard, ...(useRecovery ? [recoveryGuard(record.member_id, data)] : [])], [advanceTotp(db, record.member_id, step)]); }
     catch (e) { if (!(e instanceof AuthError)) throw e; valid = false; data.invalid = true; }
   }
   const tx = await createTransaction(db, kind, data, valid ? record.member_id : null);

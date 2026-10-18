@@ -22,9 +22,66 @@ async function beginLogin(page, state) {
 }
 async function recoveryStart(page, state) {
   await page.goto("/#recover"); await page.locator("#recover-email").fill("local@example.com");
-  await page.locator("#recover-totp").fill("001234"); await page.locator("#recover-code").fill(state.recoveryCodes[0]);
+  await page.locator("#recover-totp").fill("001234");
   await clickSubmit(page, "recover-proof-form"); await expect(page.locator("#recover-password-form")).toBeVisible();
 }
+test("password recovery defaults to Authenticator and sends only the selected proof", async ({ page }) => {
+  const state = await memberFixture(page); await page.goto("/#recover");
+  await expect(page.locator("#recover-totp")).toBeVisible(); await expect(page.locator("#recover-totp")).toHaveAttribute("required", "");
+  await expect(page.locator("#recover-code")).toBeHidden(); await expect(page.locator("#recover-code")).toBeDisabled();
+  await expect(page.locator("#recover-other-methods")).not.toHaveAttribute("open");
+  await recoveryStart(page, state);
+  expect(state.calls.find(c => c.path === "/api/auth/recovery/password/start").body).toEqual({ email: "local@example.com", code: "001234" });
+});
+test("recovery-code alternative clears other proof, restores focus and offers secondary support", async ({ page }) => {
+  const state = await memberFixture(page); await page.goto("/#recover"); await page.locator("#recover-totp").fill("001234");
+  await page.locator("#recover-other-methods > summary").click(); await page.locator("#recover-switch-method").click();
+  await expect(page.locator("#recover-totp")).toBeDisabled(); await expect(page.locator("#recover-totp")).toHaveValue("");
+  await expect(page.locator("#recover-code")).toBeVisible(); await expect(page.locator("#recover-code")).toHaveAttribute("required", ""); await expect(page.locator("#recover-code")).toBeFocused();
+  await page.locator("#recover-other-methods > summary").click(); await page.locator(".recovery-support > summary").click();
+  await expect(page.locator(".recovery-support")).toContainText("原登入會員的信箱");
+  await expect(page.locator(".recovery-support a")).toHaveAttribute("href", "mailto:idle.voteproof.verify@gmail.com");
+  await page.locator("#recover-email").fill("local@example.com"); await page.locator("#recover-code").fill(state.recoveryCodes[0]);
+  await clickSubmit(page, "recover-proof-form"); await expect(page.locator("#recover-password-form")).toBeVisible();
+  expect(state.calls.find(c => c.path === "/api/auth/recovery/password/start").body).toEqual({ email: "local@example.com", recovery_code: state.recoveryCodes[0] });
+  await page.goto("/#home"); await page.goto("/#recover"); await expect(page.locator("#recover-totp")).toBeVisible();
+  await expect(page.locator("#recover-code")).toHaveValue(""); await expect(page.locator(".recovery-support")).not.toHaveAttribute("open");
+});
+test("email enrollment Authenticator tutorial preserves setup and supports native dialog keyboard UX", async ({ page }) => {
+  const state = await memberFixture(page); await enrollment(page, state);
+  const opener = page.locator("#register-totp-form [data-authenticator-help]"); await opener.click();
+  const dialog = page.getByRole("dialog", { name: "Authenticator 教學", exact: true }); await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("時間型"); await expect(dialog).toContainText("6 位數");
+  await expect(dialog.getByRole("link", { name: "App Store 下載" })).toHaveAttribute("href", "https://apps.apple.com/tw/app/google-authenticator/id388497605");
+  await expect(dialog.getByRole("link", { name: "Google Play 下載" })).toHaveAttribute("href", "https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2");
+  await expect(dialog).not.toContainText(state.manual); await expect(dialog.locator("canvas,input")).toHaveCount(0);
+  await expect(page.locator("#authenticator-help-close")).toBeFocused(); await page.keyboard.press("Shift+Tab");
+  await expect(dialog.getByRole("link", { name: "Google Authenticator 官方說明" })).toBeFocused(); await page.keyboard.press("Tab");
+  await expect(page.locator("#authenticator-help-close")).toBeFocused(); await page.keyboard.press("Escape"); await expect(dialog).not.toBeVisible(); await expect(opener).toBeFocused();
+  await expect(page.locator("#enrollment-key")).toHaveText(state.manual); await page.locator("#register-totp").fill("001234");
+  await clickSubmit(page, "register-totp-form"); await expect(page.locator("#register-recovery")).toBeVisible();
+});
+test("Authenticator tutorial on email login, backdrop close, recovery RWD and themes", async ({ page }) => {
+  const state = await memberFixture(page); await beginLogin(page, state); await clickSubmit(page, "login-form");
+  await page.locator("#login-totp-form [data-authenticator-help]").click(); const dialog = page.locator("#authenticator-help-dialog"); await expect(dialog).toBeVisible();
+  await page.locator("#authenticator-help-close").click(); await expect(page.locator("#login-totp-form [data-authenticator-help]")).toBeFocused();
+  await page.goto("/#recover");
+  for (const width of [320,390,430,1024,1440]) for (const theme of ["dark","light"]) {
+    await page.setViewportSize({ width, height: 850 }); if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").click();
+    await page.locator("#view-recover [data-authenticator-help]").click(); await expect(dialog).toBeVisible();
+    const box = await dialog.boundingBox(); expect(box.x).toBeGreaterThanOrEqual(0); expect(box.width).toBeLessThanOrEqual(width); expect(box.height).toBeLessThanOrEqual(850);
+    expect(await dialog.evaluate(d => d.scrollWidth <= d.clientWidth)).toBe(true); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.mouse.click(2,2); await expect(dialog).not.toBeVisible();
+  }
+});
+test("Pages shares recovery alternatives and tutorial without auth transport", async ({ page }) => {
+  const writes=[];page.on("request",r=>{if(!["GET","HEAD"].includes(r.method()))writes.push(r.url());});
+  await page.goto("http://127.0.0.1:4174/VoteProof/?preview_identity=guest#recover"); await expect(page.locator("html")).toHaveAttribute("data-preview-ready","true");
+  await expect(page.locator("#recover-totp")).toBeVisible(); await expect(page.locator("#recover-code")).toBeHidden();
+  await page.locator("#view-recover [data-authenticator-help]").click(); await expect(page.locator("#authenticator-help-dialog")).toBeVisible(); await page.keyboard.press("Escape");
+  await page.locator("#recover-other-methods > summary").click(); await page.locator("#recover-switch-method").click(); await expect(page.locator("#recover-code")).toBeVisible();
+  expect(writes).toEqual([]);
+});
 async function submission(page, member = false) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
   await expect(page.locator("#submission-mode")).toBeHidden();

@@ -1,6 +1,26 @@
 // Shared presentation only. Native modal supplies inert background and Escape;
 // explicit Tab wrapping keeps focus within a single-control dialog on all engines.
 export function setupUI() {
+  const help = document.getElementById("authenticator-help-dialog"), helpClose = document.getElementById("authenticator-help-close");
+  let helpOpener = null;
+  for (const button of document.querySelectorAll("[data-authenticator-help]")) button.addEventListener("click", () => {
+    if (help.open || document.querySelector("dialog[open]")) return;
+    helpOpener = button; help.showModal(); helpClose.focus();
+  });
+  helpClose.addEventListener("click", () => help.close());
+  help.addEventListener("close", () => { if (helpOpener?.isConnected) helpOpener.focus(); });
+  help.addEventListener("keydown", event => {
+    if (event.key !== "Tab") return;
+    const controls = [...help.querySelectorAll("button,a[href]")], first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  help.addEventListener("click", event => {
+    const b = help.getBoundingClientRect();
+    if (event.target === help && (event.clientX < b.left || event.clientX > b.right || event.clientY < b.top || event.clientY > b.bottom)) help.close();
+  });
+  window.addEventListener("hashchange", () => { if (help.open) help.close(); });
+  window.addEventListener("pagehide", () => { if (help.open) help.close(); });
   const dialog = document.getElementById("workflow-dialog"),
     opener = document.getElementById("workflow-help");
   let returnFocus = null;

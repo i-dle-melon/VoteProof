@@ -794,6 +794,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   <p class="tiny">時間型驗證碼 · SHA-1 · 6 位 · 每 30 秒更新。請勿分享此金鑰。</p>
                 </div>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="register-totp">Authenticator 驗證碼</label
                   ><input
                     class="code-input"
@@ -940,6 +941,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </div>
               <form id="login-totp-form" hidden novalidate>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="login-totp">Authenticator 驗證碼</label
                   ><input
                     class="code-input"
@@ -981,7 +983,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             <div class="page-head">
               <span class="eyebrow">ACCOUNT RECOVERY</span>
               <h1 data-view-title id="recover-title" tabindex="-1">復原密碼</h1>
-              <p class="sub">需要信箱、Authenticator 驗證碼及一組未使用復原碼。</p>
+              <p class="sub">輸入會員信箱，使用 Authenticator 驗證碼或一組未使用的復原碼驗證。</p>
             </div>
             <div class="card form-card">
               <p class="error" id="recover-error" role="alert"></p>
@@ -997,7 +999,8 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                     required
                   />
                 </div>
-                <div class="field">
+                <div class="field" id="recover-totp-field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="recover-totp">Authenticator 驗證碼</label
                   ><input
                     class="code-input"
@@ -1009,7 +1012,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                     required
                   />
                 </div>
-                <div class="field">
+                <div class="field" id="recover-code-field" hidden>
                   <label for="recover-code">未使用的復原碼</label
                   ><input
                     id="recover-code"
@@ -1018,9 +1021,18 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                     spellcheck="false"
                     maxlength="43"
                     required
+                    disabled
                   />
                 </div>
-                <p class="tiny">此流程不會寄送密碼重設連結。若缺少上述資料，無法自動復原。</p>
+                <details id="recover-other-methods" class="recovery-alternatives tiny">
+                  <summary>其他方式驗證</summary>
+                  <button type="button" class="btn btn-soft" id="recover-switch-method">改用未使用的復原碼</button>
+                  <details class="recovery-support">
+                    <summary>兩種方式都無法使用？</summary>
+                    <p>請使用原登入會員的信箱，寄信至官方信箱 <a href="mailto:idle.voteproof.verify@gmail.com">idle.voteproof.verify@gmail.com</a> 聯絡管理團隊，協助確認身分。請勿寄送密碼、驗證碼或復原碼。</p>
+                  </details>
+                </details>
+                <p class="tiny">Authenticator 與復原碼擇一即可。此流程不會寄送密碼重設連結。</p>
                 <button class="btn btn-primary" type="submit">繼續復原</button>
               </form>
               <form id="recover-password-form" hidden novalidate>
@@ -1236,6 +1248,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <form id="google-step-form" hidden novalidate>
                 <p>Google 身份已重新驗證。請輸入 VoteProof Authenticator 驗證碼，完成安全驗證。</p>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="google-step-code">Authenticator 驗證碼</label
                   ><input
                     id="google-step-code"
@@ -1344,6 +1357,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   />
                 </div>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="security-code">Authenticator 驗證碼</label
                   ><input
                     id="security-code"
@@ -1380,6 +1394,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   />
                 </div>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="security-change-code">Authenticator 驗證碼</label
                   ><input
                     id="security-change-code"
@@ -1445,6 +1460,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   />
                 </div>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="security-step-code">Authenticator 驗證碼</label
                   ><input
                     id="security-step-code"
@@ -1469,6 +1485,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 ><code id="security-enroll-key" class="enrollment-key"></code>
                 <p class="tiny">請勿分享設定金鑰。離開此頁會清除金鑰。</p>
                 <div class="field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
                   <label for="security-enroll-code">Authenticator 驗證碼</label
                   ><input
                     id="security-enroll-code"
@@ -1785,6 +1802,26 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
       <span id="backup-error-INVALID_SOURCE">證明格式待確認</span>
       <span id="backup-error-INTERNAL">備份需重新確認</span>
     </template>
+    <dialog id="authenticator-help-dialog" class="case-dialog authenticator-guide" aria-labelledby="authenticator-help-title">
+      <div class="dialog-head">
+        <h2 id="authenticator-help-title">Authenticator 教學</h2>
+        <button id="authenticator-help-close" type="button" class="btn btn-white">關閉</button>
+      </div>
+      <p>Authenticator 是產生動態驗證碼的 App，與信箱收到的驗證信不同。可使用 Google Authenticator 或相容的時間型驗證器。</p>
+      <div class="form-actions">
+        <a class="btn btn-soft" href="https://apps.apple.com/tw/app/google-authenticator/id388497605" target="_blank" rel="noopener noreferrer">App Store 下載</a>
+        <a class="btn btn-soft" href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer">Google Play 下載</a>
+      </div>
+      <ol>
+        <li>安裝並開啟 App。首次設定 VoteProof 時，新增帳戶並掃描本頁顯示的 QR code。</li>
+        <li>若在同一支手機操作，可改用「輸入設定金鑰」，填入本頁的手動設定金鑰，選擇「時間型」。</li>
+        <li>回到 VoteProof，輸入 App 內 VoteProof 帳戶目前顯示的 6 位數驗證碼，完成驗證。驗證碼約每 30 秒更新。</li>
+        <li>完成註冊後，將復原碼保存於安全的位置；每組只能使用一次。</li>
+      </ol>
+      <p>已綁定的會員登入或復原密碼時，直接開啟原本的 Authenticator，使用 VoteProof 的驗證碼，不需要重新新增帳戶。重新安裝 App 不會自行恢復原本的綁定。</p>
+      <p class="tiny">驗證碼無效時，請確認帳戶為 VoteProof、驗證碼尚未過期，且手機日期與時間設為自動。請勿分享設定 QR、金鑰、驗證碼或復原碼。</p>
+      <a class="tiny" href="https://support.google.com/accounts/answer/1066447?hl=zh-Hant" target="_blank" rel="noopener noreferrer">Google Authenticator 官方說明</a>
+    </dialog>
     <dialog id="workflow-dialog" class="modal-sheet" aria-labelledby="workflow-dialog-title">
       <div class="dialog-head">
         <h2 id="workflow-dialog-title">投稿流程與隱私</h2>

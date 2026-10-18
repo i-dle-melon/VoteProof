@@ -140,8 +140,8 @@ test("missing Supabase/relay settings fail closed while Guest and public remain 
     for(const name of ["SUPABASE_URL","SUPABASE_PUBLISHABLE_KEY","SUPABASE_SECRET_KEY","MAIL_RELAY_URL","MAIL_RELAY_SECRET"]){await h.setAuthConfig({...original,[name]:undefined});assert.equal((await h.fetch("/api/auth/registration-status")).status,200);assert.equal((await h.fetch("/api/health")).status,200);await expectError(await h.fetch("/api/auth/register/start","POST",{email:email(),turnstile_token:secret()},loginHeaders()),503,"AUTH_NOT_CONFIGURED");}
   }finally{await h.runtime.dispose()}
 });
-test("password recovery requires TOTP plus unused recovery code and hides invalid proof at start",async()=>{
-  const m=await login(local);for(const body of [{email:m.email,recovery_code:m.recovery_codes[0]}, {email:email(),code:"000000",recovery_code:secret()}]){
+test("password recovery hides missing or invalid alternative proofs at start",async()=>{
+  const m=await login(local);for(const body of [{email:m.email}, {email:email(),code:"000000",recovery_code:secret()}]){
     const r=await local.fetch("/api/auth/recovery/password/start","POST",body,loginHeaders());assert.equal(r.status,202);const d=(await r.json()).data;
     await expectError(await local.fetch("/api/auth/recovery/password/finish","POST",{transaction_id:d.transaction_id,new_password:secret()},{...loginHeaders(),Cookie:responseCookie(r,LOGIN_COOKIE)}),400,"AUTH_VERIFICATION_FAILED");
   }

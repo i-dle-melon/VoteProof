@@ -18,7 +18,9 @@ export async function updatePassword(db, env, tx, password, kind) {
       : credentialGuard(tx.member_id, tx.data.version)];
     if (previous) statements.unshift(db.prepare("UPDATE auth_password_operations SET status='superseded',lease_owner=NULL WHERE id=?").bind(previous.id));
     if (kind === "change") guards.push({ sql: "EXISTS(SELECT 1 FROM auth_sessions WHERE token_hash=? AND member_id=? AND revoked_at IS NULL AND reauthenticated_until>CAST(strftime('%s','now') AS INTEGER))", args: [tx.data.session_hash, tx.member_id] });
-    if (kind === "recovery") {
+    // Legacy transactions also carry code_hash. Only the server-created,
+    // TOTP-verified transaction may omit consuming a recovery code.
+    if (kind === "recovery" && tx.data.recovery_method !== "totp") {
       guards.push({ sql: "EXISTS(SELECT 1 FROM recovery_codes r JOIN member_credentials c USING(member_id) WHERE r.member_id=? AND r.generation=c.recovery_generation AND r.code_hash=? AND r.used_at IS NULL)", args: [tx.member_id, tx.data.code_hash] });
       statements.push(db.prepare("UPDATE recovery_codes SET used_at=? WHERE member_id=? AND code_hash=? AND used_at IS NULL").bind(authNow(), tx.member_id, tx.data.code_hash));
     }

@@ -2636,6 +2636,15 @@ button.legacy-case-row:hover {
 }
 .case-dialog { color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:var(--radius);width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;padding:24px;box-sizing:border-box; }
 .case-dialog::backdrop { background:#0009; }
+.authenticator-help { justify-self:start;width:fit-content;border:0;padding:2px 0;background:transparent;color:var(--muted);font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:3px;cursor:pointer; }
+.authenticator-help:hover { color:var(--text); }
+.authenticator-guide { overflow-wrap:anywhere; }
+.authenticator-guide ol { padding-left:1.5em; }
+.authenticator-guide li { margin-block:12px; }
+.recovery-alternatives { color:var(--muted);margin-block:12px 20px; }
+.recovery-alternatives summary { cursor:pointer; }
+.recovery-alternatives .btn,.recovery-support { margin-top:12px; }
+.recovery-support p { overflow-wrap:anywhere; }
 .case-dialog .case-details { overflow-wrap:anywhere; }
 .case-dialog #owned-case-close { float:right; }
 .inline-review { grid-column:1/-1;min-width:0;width:100%;border-top:1px solid var(--line);padding-top:20px;overflow-wrap:anywhere; }

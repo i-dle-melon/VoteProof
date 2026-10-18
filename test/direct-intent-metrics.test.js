@@ -94,7 +94,7 @@ function observed(env) {
     },
   };
 }
-test("measured old/new member/guest D1/R2/crypto counts include foreground backup enqueue", async () => {
+test("measured old/new member/guest D1/R2/crypto counts include foreground backup enqueue and durable storage reservation", async () => {
   const h = await localAdminRuntime({ directIntent: true }),
     l = h.local,
     results = [];
@@ -213,7 +213,7 @@ test("measured old/new member/guest D1/R2/crypto counts include foreground backu
         );
         assert.deepEqual(
           [total.statements, total.trips],
-          direct ? (member ? [16, 14] : [13, 11]) : member ? [27, 19] : [23, 15],
+          direct ? (member ? [19, 17] : [16, 14]) : member ? [30, 22] : [26, 18],
         );
         results.push({
           flow: direct ? "direct" : "legacy-v2",

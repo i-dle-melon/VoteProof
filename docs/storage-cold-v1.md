@@ -36,7 +36,7 @@
 - Google OAuth token 只在 Apps Script 呼叫 Drive 時使用，不回傳 Worker／瀏覽器／D1。前端只取得私有圖片 bytes；無 public R2 URL、永久 blob URL或 Google token。
 - 驗證已持久登記的 Drive file/folder/root、兩層 folder-key SHA、私有 owner-only 權限、metadata source/storage_source/case/proof IDs、大小、MIME、名稱，再對重新下載的 bytes 做 SHA-256。資料不符或 Drive 失效回 503，不能偽造圖或刪 R2。
 - 舊案沒有可信 SHA 時，不以 Drive 自報 checksum 放行。dry-run 可重新讀取 R2 bytes 計算，與 Drive 比對後保存 manifest；已有可信 R2 checksum 則必須一致。
-- dry-run 預設每 tick 一張，最多五張；只選 completed/rejected/revoked、已 reviewed、達提案保留天數且 confirmed 的歷史圖片。approved 尚未完成的案、pending、staging、孤兒與 Admin asset 均不清理。
+- dry-run 預設每 tick 一張，最多五張；只選 completed/rejected/revoked、已 reviewed、從結案時間（status_updated_at，舊資料保守採 updated_at）達提案保留天數且 confirmed 的歷史圖片。approved 尚未完成的案、pending、staging、孤兒與 Admin asset 均不清理。
 - D1 verifying → dry_run / blocked；lease 過期可重新驗證，終態不重複執行。完成前再 HEAD 比較 R2 version/ETag/size，並在交易中重查 case/backup versions、預留 writer、進行中的 export、job lease，immutable audit 記錄結果。此版不發出任何歷史圖片 DELETE，Drive 永不刪備份。
 - **未來 live deletion 仍是另一個驗收閘門**：R2 binding delete 沒有 conditional version 參數；必須先有覆蓋所有 read/write/review/export/backup 的持久物件占用協定，與排他 writer 環境，再重新驗證後刪除並做 lost-ACK 恢復。不可把本版 dry-run manifest 當成永久有效刪除許可。沒有 retention 批准前不能加入實際刪圖路徑。
 
@@ -46,7 +46,7 @@
 
 專用 `STORAGE_ALERT_RELAY_URL` / `STORAGE_ALERT_RELAY_SECRET` / `STORAGE_ALERT_ENABLED`（預設未設定＝停用），不得共用驗證／客服通道的 secret 或 URL。From 固定 idle.voteproof.verify@gmail.com，Apps Script 必須由該帳號執行。每位收件人獨立投遞，不揭露整份 To 名單。
 
-D1 先持久 reservation 才寄，每小時最多 5、每日最多 20 位收件人；超額保留 pending，下次續寄且跳過已送項目。Relay 也檢查專用配額及 MailApp 可用額度。寄送中斷／不明保留 ambiguous，不自動重送；D1 與 Apps Script 各自 durable dedup。Crash 後 alert claim 可續跑，reserved delivery 不會重寄。既有 verify_email 與 admin_member_message protocol 完全未改。
+D1 先持久 reservation 才寄，每小時最多 5、每日最多 20 位收件人；超額保留 pending，下次續寄且跳過已送項目。Relay 也檢查專用配額及 MailApp 可用額度。寄送中斷／不明保留 ambiguous，不自動重送；D1 與 Apps Script 各自 durable dedup。Apps Script 保留七天收據（超過兩分鐘簽章 replay window），D1 永久去重；只清理專用 Script Properties 舊收據／quota counter，不觸碰 Drive 圖片。Crash 後 alert claim 可續跑，reserved delivery 不會重寄。既有 verify_email 與 admin_member_message protocol 完全未改。
 
 ## 操作量、成本與 CPU 評估
 
@@ -93,3 +93,5 @@ Pages 使用 Production `admin.js` + `admin-storage.js`，只替換 fixture adap
 歷史 migration fixture 改用明確的舊資料 writer 來種資料；目前 schema 的 fixture 才初始化 test-only capacity。沒有在正式程式加入「表不存在就略過容量檢查」的 fallback。新增 populated 0024→0025 驗證原資料／物件／投稿 OFF 保留，且新容量 unknown 時真實 PUT 必須拒絕；實際 Wrangler `--local` migration chain 延伸至 0025。
 
 補充升級相容性驗證：57 項相關 migration/storage 測試 PASS（包含重測的 storage integration，不與前述數字重複加總）；實際 Wrangler --local registry 至 0025，投稿 OFF、既有資料／物件、FK 與 quick_check 均保留。線上 Pages 15 項 smoke PASS，沒有正式 API／mutation request。
+
+結構量測補充：相同 immutable V2 舊 flow / Direct flow 都新增容量預留的 3 statements / 3 trips，Case 本身不增加額外 R2 工作。含 foreground backup 的 Direct member 為 19/17、guest 為 16/14；舊 immutable+Complete member 為 30/22、guest 為 26/18。R2 仍各 PUT 1，Direct HEAD 1、舊 flow HEAD 2。這是結構計數，不能拿來宣稱 CPU 10 ms PASS。

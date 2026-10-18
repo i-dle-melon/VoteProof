@@ -58,7 +58,7 @@ CREATE TABLE storage_alert_deliveries (
 CREATE INDEX storage_delivery_quota ON storage_alert_deliveries(created_at);
 CREATE INDEX storage_history_time ON storage_history(created_at DESC);
 CREATE INDEX storage_quota_time ON drive_quota_snapshots(received_at DESC);
-CREATE INDEX storage_closed_cases ON cases(status,reviewed_at,id);
+CREATE INDEX storage_closed_cases ON cases(status,coalesce(status_updated_at,updated_at),id);
 CREATE INDEX storage_cleanup_queue ON cold_proofs(state,lease_until);
 
 CREATE TRIGGER storage_cancel_count AFTER UPDATE OF state ON storage_reservations WHEN OLD.state='reserved' AND NEW.state='cancelled' BEGIN

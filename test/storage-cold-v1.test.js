@@ -278,7 +278,7 @@ test("Admin storage GET/POST preserve role, MFA, Origin and CSRF; no guest/revie
 });
 async function coldFixture() {
   await db
-    .prepare("UPDATE cases SET reviewed_at=? WHERE status='completed'")
+    .prepare("UPDATE cases SET status_updated_at=? WHERE status='completed'")
     .bind(new Date().toISOString())
     .run();
   await normal();
@@ -292,7 +292,7 @@ async function coldFixture() {
   const f = await db.prepare("SELECT * FROM case_files WHERE case_id=?").bind(c.id).first();
   await db
     .prepare(
-      "UPDATE cases SET status='completed',reviewed_at='2020-01-01T00:00:00.000Z' WHERE id=?",
+      "UPDATE cases SET status='completed',reviewed_at='2020-01-01T00:00:00.000Z',status_updated_at='2020-01-01T00:00:00.000Z' WHERE id=?",
     )
     .bind(c.id)
     .run();
@@ -696,3 +696,5 @@ test("two scanners racing the same final cursor commit one page/history only", a
   assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
   assert.equal((await capacityRow(db)).used_bytes, 3);
 });
+
+test('retention is measured from closure, not an old approval timestamp',async()=>{const row=await coldFixture();await db.prepare('UPDATE cases SET status_updated_at=? WHERE id=?').bind(new Date().toISOString(),row.case_internal_id).run();await normal(STORAGE.cleanupStart);const result=await cleanupDryRun(env(),{read:async()=>assert.fail('Freshly closed case is not eligible')});assert.equal(result.items.some(i=>i.file_id===row.file_id),false);});

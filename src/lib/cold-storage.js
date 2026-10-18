@@ -108,7 +108,7 @@ export const shaBytes = async (bytes) =>
 export async function coldContext(db, key) {
   return db
     .prepare(
-      `SELECT f.id file_id,f.object_key,f.size,f.content_type,f.etag,c.id case_internal_id,c.case_id,c.status,c.reviewed_at,c.version case_version,
+      `SELECT f.id file_id,f.object_key,f.size,f.content_type,f.etag,c.id case_internal_id,c.case_id,c.status,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,c.version case_version,
  b.id backup_id,b.status backup_status,b.version backup_version,b.drive_file_id,b.drive_folder_id,b.root_folder_id,b.source_object_key,b.source_size,b.source_mime,b.source_etag,
  (SELECT sha256 FROM proof_exact_hashes h WHERE h.file_id=f.id AND h.source_etag=f.etag AND h.source_size=f.size) known_sha,
  (SELECT sha256 FROM cold_proofs p WHERE p.file_id=f.id AND p.etag=f.etag AND p.size=f.size AND p.state IN('dry_run','cold')) manifest_sha,
@@ -243,8 +243,8 @@ export async function cleanupDryRun(
     await db
       .prepare(
         `SELECT f.object_key FROM case_files f JOIN cases c ON c.id=f.case_id JOIN proof_backups b ON b.file_id=f.id
- LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE c.status IN('completed','rejected','revoked') AND c.reviewed_at IS NOT NULL AND julianday(c.reviewed_at)<=julianday('now',?)
- AND b.status='confirmed' AND (p.file_id IS NULL OR p.state='blocked' OR (p.state='verifying' AND p.lease_until<=?)) ORDER BY c.reviewed_at,f.id LIMIT ?`,
+ LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE c.status IN('completed','rejected','revoked') AND c.reviewed_at IS NOT NULL AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday('now',?)
+ AND b.status='confirmed' AND (p.file_id IS NULL OR p.state='blocked' OR (p.state='verifying' AND p.lease_until<=?)) ORDER BY coalesce(c.status_updated_at,c.updated_at),f.id LIMIT ?`,
       )
       .bind("-" + retentionDays + " days", at, limit)
       .all()
@@ -298,8 +298,8 @@ export async function cleanupDryRun(
         db,
         [
           {
-            sql: `EXISTS(SELECT 1 FROM cases WHERE id=? AND version=? AND status IN('completed','rejected','revoked') AND reviewed_at=?)`,
-            args: [row.case_internal_id, row.case_version, row.reviewed_at],
+            sql: `EXISTS(SELECT 1 FROM cases WHERE id=? AND version=? AND status IN('completed','rejected','revoked') AND coalesce(status_updated_at,updated_at)=?)`,
+            args: [row.case_internal_id, row.case_version, row.closed_at],
           },
           {
             sql: "EXISTS(SELECT 1 FROM proof_backups WHERE id=? AND version=? AND status='confirmed' AND lease_until IS NULL)",

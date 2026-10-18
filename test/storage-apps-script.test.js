@@ -28,6 +28,7 @@ function fixture(source, { email = "idle.voteproof.verify@gmail.com" } = {}) {
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (k) => properties.get(k),
+          getProperties:()=>Object.fromEntries(properties),deleteProperty:k=>properties.delete(k),
         setProperty: (k, v) => properties.set(k, v),
       }),
     },

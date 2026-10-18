@@ -37,7 +37,7 @@ export function renderStorage(container, data, { node, button, mutate, reload })
   section.append(
     node("p", "90% 啟動清理檢查 · 95% 停止新圖片 · 低於 90% 且重新盤點後解除容量封鎖。", "tiny"),
   );
-  section.append(node("p", "清理僅 dry-run；30 天為待批准提案，不會實際刪圖。", "notice warn"));
+  section.append(node("p",data.cleanup_mode==="live"?"結案滿 7 天且 Drive 驗證成功的舊圖片，達 90% 自動清理至 85%。":"結案保留 7 天已確認；目前僅 dry-run，沒有正式刪除圖片。",data.cleanup_mode==="live"?"notice":"notice warn"));
   section.append(
     button("更新 R2 盤點（每次最多 200 個物件）", async () => {
       const r = await mutate("storage/inventory", {});
@@ -52,9 +52,9 @@ export function renderStorage(container, data, { node, button, mutate, reload })
         node(
           "p",
           "本次檢查 " +
-            r.items.length +
+            (r.state==="dry_run"?1:0) +
             " 張 · 可清理 " +
-            r.items.filter((i) => i.would_delete).length +
+            (r.state==="dry_run"?1:0) +
             " 張 · 實際刪除 0 張",
         ),
       );

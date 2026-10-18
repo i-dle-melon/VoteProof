@@ -84,7 +84,7 @@ async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive} 
   const cap=await capacityRow(db);
   if (!cap || cap.anomaly || cap.inventory_id || cap.reserved_bytes ||
       cap.trusted_until <= at) throw fail();
-  if (cap.used_bytes < STORAGE.target && !cap.cleanup_requested) return {state:'idle',deleted:0};
+  if (cap.used_bytes < STORAGE.cleanupStart && !cap.cleanup_requested) return {state:'idle',deleted:0};
   if (cap.used_bytes < STORAGE.target) return {state:'target_reached',deleted:0};
   const rowKey=await db.prepare(
     "SELECT f.object_key FROM case_files f JOIN cases c ON c.id=f.case_id JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive' AND b.status='confirmed' LEFT JOIN cold_proofs p ON p.file_id=f.id "+

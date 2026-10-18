@@ -247,6 +247,7 @@ export function adminUI(session) {
         if (!backups.backups.length) backupBox.append(node('p', copy('backup-missing')));
         for (const item of backups.backups) {
           backupBox.append(node('p', backupLabels[item.status] ?? copy('backup-unknown')));
+           if(item.archive_state==='cold')backupBox.append(node('p','R2 圖片已清理，原檔保存在 Google Drive；請由下方連結手動查看。','notice'));
           if (item.status === 'confirmed') {
             backupBox.append(node('p', stamp(item.completed_at * 1000)));
             const href = backupLink(item.drive_file_id);

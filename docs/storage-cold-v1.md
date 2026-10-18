@@ -1,3 +1,19 @@
+# 方案 A：R2 容量管理及 7 天封存（實作候選）
+
+狀態：開發分支 `codex/storage-archive-7d`；**Production NO-GO**。已確認保留期限從 30 天改為 **結案後 7 天**。舊的 Google Drive → Worker → Browser 大圖片即時冷讀已取消；R2 清理後只提供管理員手動開啟受限 Drive 備份。
+
+- 十進位容量預算 10,000,000,000 bytes；90%（9 GB）啟動清理，直到 85%（8.5 GB），95%（9.5 GB）阻擋新 R2 PUT。恢復需可信盤點且低於 90%，不自動開投稿。
+- 只清理已審核結案（completed/rejected/revoked）、結案滿 7 天、Drive confirmed 且可再次驗證原始 bytes SHA-256 的案例圖片。其他圖片、投稿素材、D1 案件及 Google Drive 備份不得刪除。
+- Apps Script `archive_verify` 使用原私有 Drive API 權限，重新驗證檔案、四層私有階層、SHA-256，僅回傳小型 HMAC 收據；Workers 不再解碼 5 MiB Base64 / 大型 JSON。沒有可信原生 R2 SHA-256 或 Drive 不一致時不刪。
+- 清理使用 D1 lease、來源 ETag/version/大小/原生 SHA、案件與備份版本、匯出佔用、唯一 writer attestation、immutable audit。R2.delete 無 conditional version，因此不允許未確認外部 writer 或 multipart；刪除 ACK 不明時保留 deleting，重新核對後再恢復。已清理圖片的 Admin GET 回 410 `PROOF_ARCHIVED_IN_DRIVE`；匯出含已封存圖片明確拒絕。
+- `STORAGE_CLEANUP_LIVE_ENABLED` **預設 OFF**；只有正式另行設定精確 `true` 才允許每次 maintenance tick 最多刪 1 張。Admin 手動預覽永遠不刪。實際釋放容量由 R2 全量 inventory 重新確認，不憑 DELETE 直接減少計數。
+- 如需查看已清理圖片，管理員在「Google Drive 備份」個案區使用受限 Drive 連結手動查看。暫不新增自動 Drive 取回或繞過 95% 限制的 R2 還原入口。
+- 仍待驗證：完整 GitHub CI、隔離環境真實 Apps Script 5 MiB 原圖回讀、Workers Free archive 驗證/清理 CPU、R2 刪除 lost-ACK、並發匯出、Production pre-0025 backup、migration、安全切換及受控 pilot。前次 **390 ms 冷讀 CPU FAIL** 不再是本方案的執行路徑，但不能因此宣稱新的清理路徑 CPU PASS。
+
+以下保留 4328870 原報告作為歷史參考；其中「30 天候選」、「即時冷讀」、「無 live 刪除程式」屬舊版狀態，以本段為準。
+
+---
+
 # R2 容量保護與 Drive 冷儲存 V1（本機／Pages 候選）
 
 狀態：本機功能與 fixture Preview；Production NO-GO。未部署 Worker、未套 remote migration、未改 secrets、未裝 Apps Script trigger、未寄正式告警、未清理正式圖片、未更改 submission_settings。30 天僅 dry-run 提案，尚未批准。此版沒有實際刪除歷史圖片的 endpoint、排程或可切成 live 的開關。

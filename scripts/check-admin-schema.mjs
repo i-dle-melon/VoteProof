@@ -159,3 +159,5 @@ for(const index of ['idx_site_announcements_public','idx_admin_content_audit_cur
 for(const name of ['storage_capacity','storage_reservations','storage_history','storage_audit','cold_proofs','drive_quota_snapshots','storage_alerts','storage_alert_deliveries'])assert.ok(tables.includes(name));
 assert.deepEqual(query('SELECT blocked,trusted_until,observed_at,used_bytes,reserved_bytes FROM storage_capacity WHERE id=1'),[{blocked:1,trusted_until:0,observed_at:null,used_bytes:0,reserved_bytes:0}]);
 assert.deepEqual(query('SELECT submissions_enabled FROM submission_settings WHERE id=1'),[{submissions_enabled:0}]);
+
+assert.ok(indexes.includes('idx_cases_storage_closed'));

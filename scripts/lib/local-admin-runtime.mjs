@@ -1,6 +1,8 @@
 // Fixture identities/sessions are inserted only into disposable local D1.
 // B5 fixtures model sessions with a recent, server-verified MFA elevation.
 import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
+import {ensureCaseBackups} from '../../src/lib/proof-backup-store.js';
+import {localPrehashCase} from './local-prehash-case-fixture.mjs';
 import { localCaseRuntime, guestBody } from "./local-case-runtime.mjs";
 
 export async function localAdminRuntime(options) {
@@ -27,6 +29,9 @@ export async function localAdminRuntime(options) {
   }
   async function makeCase({ member, metadata = {}, idempotencyKey = randomUUID() } = {}) {
     if (metadata.campaign_id) await local.campaign({ campaign_id: metadata.campaign_id,category:metadata.vote_type??"Solo" });
+    // Historical migration fixtures must seed the old writer contract directly.
+    // Never weaken current Production capacity checks to populate an old schema.
+    if(local.migrationThrough && local.migrationThrough<'0025_storage_cold_v1.sql'){const historical=await localPrehashCase(local,{member,metadata,verified:local.migrationThrough>='0012_proof_exact_hashes.sql'});await ensureCaseBackups({...local.authConfig,DB:local.db,PROOFS_BUCKET:local.bucket},historical.id);return historical;}
     const reference = await local.upload();
     const body = { ...guestBody(reference), ...metadata };
     const headers = { ...(member?.headers ?? {}), "Idempotency-Key": idempotencyKey };

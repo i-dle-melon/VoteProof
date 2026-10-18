@@ -64,6 +64,9 @@ export async function embeddedCaseRuntime({ migrationHook, migrationThrough } = 
     );
     await migrationHook?.(db, name);
   }
+  // Disposable current-schema fixture only. Missing migration still fails closed in real handlers.
+  const historical=migrationThrough && migrationThrough<'0025_storage_cold_v1.sql';
+  if(!historical)await db.prepare("UPDATE storage_capacity SET blocked=0,observed_at=0,trusted_until=CAST(strftime('%s','now') AS INTEGER)+86400 WHERE id=1").run();
   const objects = new Map();
   const bucket = {
     async put(key, body, options = {}) {
@@ -189,6 +192,11 @@ export async function embeddedCaseRuntime({ migrationHook, migrationThrough } = 
     if (response.status !== 200) throw Error(JSON.stringify(json));
     const p = json.data,
       u = p.uploads[0];
+    if(historical) {
+      // Model the pre-0025 writer solely to populate historical migration data.
+      // Current API requests remain fail-closed without storage tables.
+      await bucket.put(u.key,image,{sha256:createHash('sha256').update(image).digest('hex'),httpMetadata:{contentType:'image/png'}});
+    } else {
     const put = await worker.fetch(
       new Request(u.upload_url, {
         method: "PUT",
@@ -198,6 +206,7 @@ export async function embeddedCaseRuntime({ migrationHook, migrationThrough } = 
       env,
     );
     if (put.status !== 200) throw Error(await put.text());
+    }
     const ref = {
       session_id: p.session_id,
       keys: [u.key],

@@ -119,7 +119,7 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
       if(response.status!==200)throw Error('Local verified PUT failed: '+(await response.json()).error.code);
       return response;
     }
-    return { runtime, provider, put, emailHash: email => emailHash(options.bindings, email.trim().toLowerCase()), get db() { return db; }, get bucket() { return bucket; },
+    return { runtime, provider, put, migrationThrough, emailHash: email => emailHash(options.bindings, email.trim().toLowerCase()), get db() { return db; }, get bucket() { return bucket; },
       fetch, upload, campaign, setQuerySecret, setAuthConfig, unexpectedUpstreams, get authSecret() { return options.bindings.AUTH_SECRET; }, get authConfig() { return { ...options.bindings }; }, querySecret: options.bindings.CASE_QUERY_KEY_SECRET };
   } catch (error) { await runtime.dispose(); throw error; }
 }

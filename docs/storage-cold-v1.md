@@ -89,3 +89,7 @@ D1 先持久 reservation 才寄，每小時最多 5、每日最多 20 位收件�
 Pages 使用 Production `admin.js` + `admin-storage.js`，只替換 fixture adapter；Admin → Google Drive 備份可見容量。預覽控制列的「儲存情境」提供正常／90%／95%／恢復／未知／Drive error／清理失敗。所有「盤點／dry-run」按鈕只在 fixture memory 模擬，不連 Worker、Drive 或正式告警。
 
 本輪本機結果：相關 backend/domain/frontend unit/policy 466 PASS；其中新 storage/GAS 測試 26 PASS（已包含於相關集合，不重複加總）。相關瀏覽器 87 PASS（三個 project；含各寬度與 Dark/Light）。Worker dry-run build、Pages isolation/build、public asset／sensitive 掃描、frontend hooks 與 diff check PASS。最大檔案 cold transport 為本機測試，不是 Cloudflare CPU trace。正式公開 submission status 唯讀確認為 OFF。
+
+歷史 migration fixture 改用明確的舊資料 writer 來種資料；目前 schema 的 fixture 才初始化 test-only capacity。沒有在正式程式加入「表不存在就略過容量檢查」的 fallback。新增 populated 0024→0025 驗證原資料／物件／投稿 OFF 保留，且新容量 unknown 時真實 PUT 必須拒絕；實際 Wrangler `--local` migration chain 延伸至 0025。
+
+補充升級相容性驗證：57 項相關 migration/storage 測試 PASS（包含重測的 storage integration，不與前述數字重複加總）；實際 Wrangler --local registry 至 0025，投稿 OFF、既有資料／物件、FK 與 quick_check 均保留。線上 Pages 15 項 smoke PASS，沒有正式 API／mutation request。

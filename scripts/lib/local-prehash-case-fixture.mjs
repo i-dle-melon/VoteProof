@@ -5,13 +5,13 @@ import {manifestHash} from '../../src/lib/completed-uploads.js';
 import {cleanPrivateCopies} from '../../src/lib/case-files.js';
 import {createHash} from 'node:crypto';
 import {newCaseId,sha256} from '../../src/lib/case-keys.js';
-export async function localPrehashCase(local,{member,verified=false}={}){
+export async function localPrehashCase(local,{member,verified=false,metadata={}}={}){
  const session=crypto.randomUUID(),objectKey=`proofs/staging/2026/10/13/${session}/${crypto.randomUUID()}.png`,bytes=new Uint8Array([1,2,3]);
  const stage=await local.bucket.put(objectKey,bytes,{httpMetadata:{contentType:'image/png'}}),files=[{key:objectKey,type:'image/png',size:3,etag:stage.etag}];
  const manifest=await manifestHash(files),now=new Date().toISOString();
  await local.db.batch([local.db.prepare('INSERT INTO completed_uploads(session_id,manifest_hash,completed_at,expires_at) VALUES(?,?,?,?)').bind(session,manifest,now,new Date(Date.now()+86400000).toISOString()),
    local.db.prepare('INSERT INTO completed_upload_files(session_id,object_key,content_type,size,etag) VALUES(?,?,?,?,?)').bind(session,objectKey,'image/png',3,stage.etag)]);
- const reference={session_id:session,keys:[objectKey]},input=validateCase(guestBody(reference)),id=crypto.randomUUID();
+ const reference={session_id:session,keys:[objectKey]},input=validateCase({...guestBody(reference),...metadata}),id=crypto.randomUUID();
  const archiveId=crypto.randomUUID(),archiveKey=`proofs/cases/${id}/${archiveId}.png`,copy=await local.bucket.put(archiveKey,bytes,{httpMetadata:{contentType:'image/png'}});
  const case_id=newCaseId(),record={id,caseId:case_id,now,queryHash:await sha256(crypto.randomUUID())};
  // Seed the historical contract directly, rather than running current writers

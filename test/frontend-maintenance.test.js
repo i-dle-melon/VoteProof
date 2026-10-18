@@ -33,7 +33,9 @@ test("workflows isolate automatic Pages from exact-commit manual Production depl
   assert.doesNotMatch(pages, /CLOUDFLARE|wrangler deploy/);
   assert.match(production, /workflow_dispatch:/); assert.doesNotMatch(production, /^\s*(push|pull_request|schedule):/m);
   assert.match(production, /needs: validate/); assert.match(production, /approved_sha/);
-  for (const gate of ["npm test", "test:frontend-unit", "test:frontend", "check-frontend-sensitive", "npm run check"]) assert.ok(production.includes(gate));
+  assert.match(production, /node scripts\/ci\/validation\.mjs/);
+  assert.doesNotMatch(production, /run: npm test|run: npm run test:frontend/);
+  assert.match(production, /Verify health and unchanged gate/);
   assert.equal((production.match(/npx wrangler deploy/g) ?? []).length, 1);
   assert.match(production, /config\.workers_dev = true/);
   assert.match(production, /config\.preview_urls = false/);

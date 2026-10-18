@@ -15,6 +15,10 @@ jobs:
   validate:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,17 +32,12 @@ jobs:
           printf 'Validated release commit: %s\n' "$APPROVED_SHA"
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chrome webkit
-      - run: npm run check:frontend-hooks
-      - run: npm test
-      - run: npm run test:frontend-unit
-      - run: npm run test:frontend
-      - run: npm run check:public-assets
-      - run: node scripts/check-frontend-sensitive.mjs --tracked
-      - run: npm run check
+          node-version: "24"
+      - name: Reuse exact-SHA CI; await an existing run or request validation once
+        run: node scripts/ci/validation.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
   deploy:
     needs: validate
     runs-on: ubuntu-latest
@@ -49,9 +48,14 @@ jobs:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
       - run: npm ci
+      - name: Record public submission gate before deployment (read only)
+        run: |
+          mkdir -p .wrangler
+          curl --fail --silent --show-error https://voteproof.i-dle-melon.workers.dev/api/submissions/status > .wrangler/gate-before.json
+          node --input-type=module -e "import fs from 'node:fs';const r=JSON.parse(fs.readFileSync('.wrangler/gate-before.json'));if(r.ok!==true||typeof r.data?.submissions_enabled!=='boolean')throw Error('Gate preflight failed');"
       - name: Deploy exact validated Worker once (no migrations or data changes)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -79,3 +83,14 @@ jobs:
           npx wrangler deploy --name voteproof --config .wrangler/approved-deploy.json --keep-vars --message "Git commit $RELEASE_SHA"
           printf 'Deployed commit: %s\n' "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
           printf 'No migrations, data writes, or submission toggle performed.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify health and unchanged gate (read only)
+        run: |
+          curl --fail --silent --show-error https://voteproof.i-dle-melon.workers.dev/api/health > .wrangler/health-after.json
+          curl --fail --silent --show-error https://voteproof.i-dle-melon.workers.dev/api/submissions/status > .wrangler/gate-after.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const read=name=>JSON.parse(fs.readFileSync('.wrangler/'+name+'.json'));
+          if(read('health-after').ok!==true)throw Error('Health check failed');
+          const before=read('gate-before'),after=read('gate-after');
+          if(after.ok!==true||JSON.stringify(before.data)!==JSON.stringify(after.data))throw Error('Submission gate changed; inspect without automatically retrying deployment');
+          NODE

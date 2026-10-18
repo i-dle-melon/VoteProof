@@ -1,0 +1,11 @@
+import { readFile } from 'node:fs/promises';
+import { spawnSync, execFileSync } from 'node:child_process';
+const plan=JSON.parse(await readFile('.wrangler/ci-plan.json','utf8')),kind=process.argv[2];
+if(plan.head!==execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8',windowsHide:true}).trim())throw Error('CI plan SHA does not match checkout');
+let args;
+if(kind==='node')args=['--test','--test-concurrency=2',...plan.node];
+else if(kind==='browser'&&['desktop-chrome','android-chrome','iphone-webkit'].includes(process.argv[3]))args=['node_modules/@playwright/test/cli.js','test',...plan.browser,'--project='+process.argv[3]];
+else throw Error('Invalid CI suite');
+if(!(kind==='node'?plan.node:plan.browser).length)throw Error('Empty test plan');
+const result=spawnSync(process.execPath,args,{stdio:'inherit',windowsHide:true});
+if(result.error)throw result.error;process.exitCode=result.status??1;

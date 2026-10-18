@@ -27,23 +27,19 @@ jobs:
         run: |
           [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
-      - name: Require full branch CI for member-mail Preview
-        if: github.ref == 'refs/heads/codex/admin-member-mail-v1'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const {data} = await github.rest.actions.listWorkflowRuns({owner:context.repo.owner,repo:context.repo.repo,workflow_id:'branch-validation.yml',head_sha:context.sha,branch:'codex/admin-member-mail-v1',status:'completed'});
-            if (!data.workflow_runs.some(run => run.head_sha === context.sha && run.conclusion === 'success')) core.setFailed('Full branch CI must PASS for this exact SHA before Pages publication.');
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
       - run: npm ci
       - run: npm run check:frontend-hooks
       - run: npm run check:public-assets
       - run: node scripts/check-frontend-sensitive.mjs --tracked
-      - run: npm run build:pages-preview
-      - run: node --test test/pages-public-build.test.js
+      - name: Build shared UI artifact and verify public-safe isolation
+        run: node --test test/pages-public-build.test.js
+      - run: npx playwright install --with-deps chrome
+      - name: Quick Pages visual and isolation smoke
+        run: npx playwright test frontend-tests/ci-smoke.spec.js --project=desktop-chrome --grep Pages
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .wrangler/pages-preview

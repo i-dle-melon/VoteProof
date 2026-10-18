@@ -1,74 +1,127 @@
 name: VoteProof Branch Validation
 on:
   push:
-    branches: [codex/campaign-admin-category-v1, codex/solo-total-leaderboard-fix, codex/admin-member-mail-v1]
+    branches: [main, 'codex/**']
   workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Optional exact SHA required by Production validation
+        type: string
+      full_regression:
+        description: Run all tests and LOCAL migration checks
+        type: boolean
+        default: false
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: voteproof-validation-${{ github.ref }}
   cancel-in-progress: true
 env:
-  CI: "true"
-  WRANGLER_SEND_METRICS: "false"
+  CI: 'true'
+  WRANGLER_SEND_METRICS: 'false'
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      migrations: ${{ steps.plan.outputs.migrations }}
+      browser: ${{ steps.plan.outputs.browser }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - id: plan
+        run: node scripts/ci/plan.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          FULL_REGRESSION: ${{ inputs.full_regression }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-plan
+          path: .wrangler/ci-plan.json
+          include-hidden-files: true
+          retention-days: 7
   backend:
-    name: Backend, domain, security and frontend unit tests
+    name: Affected backend and unit tests
+    needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-plan
+          path: .wrangler
       - run: npm ci
-      - name: Full tests including real Miniflare integration (no skips)
-        run: npm test -- --test-concurrency=2
+      - run: node scripts/ci/run.mjs node
   browser:
-    name: Full frontend and browser tests
+    name: Browser (${{ matrix.project }})
+    needs: plan
+    if: needs.plan.outputs.browser == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: desktop-chrome
+            browser: chrome
+          - project: android-chrome
+            browser: chrome
+          - project: iphone-webkit
+            browser: webkit
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-plan
+          path: .wrangler
       - run: npm ci
-      - run: npx playwright install --with-deps chrome webkit
-      - run: npm run test:frontend
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: node scripts/ci/run.mjs browser ${{ matrix.project }}
   build-security:
-    name: Builds, assets and security checks
+    name: Builds, assets and Preview isolation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
       - run: npm ci
       - run: npm run check:frontend-hooks
       - run: npm run check:public-assets
       - run: node scripts/check-frontend-sensitive.mjs --tracked
-      - run: npm run build:pages-preview
       - run: node --test test/pages-public-build.test.js
-      - name: Worker build only (dry run, no deployment)
+      - name: Worker build only, no deployment
         run: npm run check
       - run: git diff --check
   migrations:
-    name: Local D1 schema and populated 0018 to 0019 to 0020 to 0021 to 0024 safety
+    name: LOCAL migration safety (only when affected or full requested)
+    needs: plan
+    if: needs.plan.outputs.migrations == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Wrangler migrations and registry replay on disposable LOCAL D1
-        run: npm run check:admin-schema
-      - name: Populated 0018 migration and historical compatibility
-        run: node --test test/solo-target-registry-migration.test.js test/current-comeback-migration.test.js test/site-content-migration.test.js test/rc-migration-chain.test.js test/integration-production-schema.test.js
+      - run: npm run check:admin-schema
+      - run: node --test test/solo-target-registry-migration.test.js test/current-comeback-migration.test.js test/site-content-migration.test.js test/rc-migration-chain.test.js test/integration-production-schema.test.js

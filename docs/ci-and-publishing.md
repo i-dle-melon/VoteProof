@@ -6,6 +6,7 @@
 
 - Pages Preview 自行執行 frontend hooks、資產／敏感資料掃描、共用 UI build、fixture 隔離測試與快速瀏覽器 smoke。它不等待完整 backend CI，也不具備 Cloudflare 憑證或 Worker 部署命令。
 - 分支 CI 依 `scripts/ci/plan.mjs` 選測試；基準是同 repo、可信分支、push／手動觸發、已成功且在目前 HEAD 歷史上的 CI commit。找不到基準則完整驗證，不能直接取前一個失敗 push。
+- 只有 `codex/**` push 自動觸發功能 CI。已驗證的同一 SHA 晉版到 main 只自動更新 Pages，不再開第二輪功能 CI；若 main 的 SHA 尚未驗證，Production gate 會手動觸發必要的驗證。
 - CSS／文案／HTML：frontend unit、相關頁面與手機／深淺色 smoke；不跑 backend 或額外 schema job。會員／Admin 等 JS 有各自相關測試集合。Auth endpoint／密碼操作修改保留 auth、RBAC、ownership 與會員流程；共用 auth 核心與未知路徑退回全套。
 - 單一 spec／unit 修正只執行對應 suite；若之前的產品變更尚未成功，會一起納入變更範圍。測試 fixture／helper 或 CI policy 修改保守跑全套。
 - migration／schema／依賴／Wrangler 設定變更，或手動 `full_regression=true`，才增加獨立 LOCAL schema safety job。沒有任何自動 remote migration。

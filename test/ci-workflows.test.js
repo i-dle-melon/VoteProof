@@ -66,6 +66,7 @@ test('workflow wiring preserves isolation, manual deploy, exact gate and paralle
   assert.match(prod,/workflow_dispatch:/);assert.doesNotMatch(prod,/^\s*(push|schedule|pull_request):/m);assert.match(prod,/needs: validate/);assert.match(prod,/--keep-vars/);
   assert.equal((prod.match(/npx wrangler deploy/g)??[]).length,1);
   assert.match(ci,/fail-fast: false/);for(const name of ['desktop-chrome','android-chrome','iphone-webkit'])assert.ok(ci.includes(name));
+  assert.match(ci,/branches: \['codex\/\*\*'\]/); // Promoting an already validated SHA to main must not launch duplicate CI.
   assert.match(ci,/if: needs.plan.outputs.migrations == 'true'/);
   for(const w of [ci,pages,prod])assert.doesNotMatch(w,/node-version: ["']22["']/);
 });

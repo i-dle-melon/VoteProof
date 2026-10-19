@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 const source = readFileSync(new URL('../apps-script/drive-backup/Code.gs', import.meta.url), 'utf8');
+const inventorySource = readFileSync(new URL('../apps-script/drive-backup/StorageInventory.gs', import.meta.url), 'utf8');
 const FOLDER = 'application/vnd.google-apps.folder';
 function fixture() {
   const secret=randomBytes(32).toString('hex'), root='isolated_root', files=new Map([[root,{id:root,name:'Private root',mimeType:FOLDER,trashed:false}]]);
@@ -42,7 +43,7 @@ function fixture() {
         create:(meta,blob)=>{if(files.has(meta.id))throw Error('409');files.set(meta.id,{...meta,trashed:false,...(blob?{size:'3'}:{})});if(blob)state.uploads++;else state.folders++;
           if(blob&&state.fail==='upload_ack'){state.fail=null;throw Error('lost Drive ACK');}return {id:meta.id};}},Permissions:{list:()=>({permissions:[{type:'user',role:'owner'}]})}},
       ScriptApp:{getProjectTriggers:()=>state.triggers,deleteTrigger:t=>{state.triggers=state.triggers.filter(x=>x!==t);},newTrigger:handler=>({timeBased(){return this;},everyMinutes(n){assert.equal(n,5);return this;},create(){state.triggers.push({getHandlerFunction:()=>handler});}})}
-    });vm.runInContext(source,context);return context;
+    });vm.runInContext(source,context);vm.runInContext(inventorySource,context);return context;
   }
   return {state,job,files,properties,restart,context:restart()};
 }

@@ -1,4 +1,313 @@
-# 方案 A：兩階段清理修正（本輪）
+# 第三階段：A 單頁原子 CAS 優化（2026-10-20，本輪）
+
+**本機／安全 90 PASS；單輪隔離 Workers Free CPU PASS；Production 未修改。**
+完整證據：[A page-CAS 原始量測](evidence/storage-inventory-page-cas/results.json)。
+基準 codex/storage-archive-7d / 698400282a386412aa5c9093497f220893d5f430；
+保留所有前輪工作與失敗證據。本輪達標，依 Operator 授權 Commit／Push 開發分支，
+不合併 main、不發布正式環境、不等待 GitHub CI。
+
+## 13 ms 分析與最小改動
+
+唯一 13 ms 是前輪 201 物件 scan18/page2，固定 50 個 metadata、累計到第150筆。
+其他19次相同頁 CPU 4–7 ms；沒有 claim／finalize、額外 JSON 解析或 SQL 分支。
+wall 約1215 ms（native event wall 958 ms）不能當 CPU 根因。現有 trace 不足以
+將超限歸因於某函式、GC、JIT、D1 或 host；不以猜測作結論。
+
+可避免的成本是 A 單列更新使用 authAtomic 通用交易：guard INSERT、UPDATE、
+guard DELETE，含一次 guard UUID 與多條 SQL 的 preparation／batch 編碼。
+改成一條 SQLite 原子 UPDATE … RETURNING，WHERE 保留 id=1、inventory_id、
+version、phase=scan、reserved_bytes=0；沒有匹配列即409，SQL失敗也不當成功。
+同一 statement 只更新 cursor／累計／phase／version，仍不發布 used_bytes、audit
+或可信期限。B 的完整交易及函式內容完全不變，hash 記於證據。
+
+A 首頁由5降為3 statements，後續頁4降為2；往返仍3／2。
+整輪 P 頁加 B 為2P+7 statements／2P+3 trips／P+1 HTTP；quota另加1／1／1。
+34物件每5分鐘，含quota為每日2880 statements／1728 trips／864 HTTP，
+LIST與About各288次；不是D1計費rows或整個帳號額度保證。
+95%預檢、90/85門檻、600秒期限、完整cursor、pin、audit、outbox去重均保留。
+
+**A1/A2評估：本輪不採用。** 持久保存待提交頁至少增加一次write/read、
+每頁多一個HTTP與驗證／JSON處理，並引入pending receipt重放協定；A1仍要承擔
+native LIST。未見足夠收益，先採移除兩條冗餘SQL、保留單列原子CAS的較小改法。
+沒有新增第三段、pending table或本輪migration；0027仍是前輪本機／隔離候選，
+正式D1未套用。
+
+## 必要驗證
+
+90項相關測試PASS：tick21、Apps inventory33、backup9、storage安全22、
+trace4、populated migration1。新增：LIST期間ID／version／phase／reservation
+任一變更不能累計；更新失敗原cursor／總額保留；更新成功但ACK遺失，依持久
+cursor續跑不重複加總。既有併發、95%、failed finalize、quota、runBackup回歸PASS。
+首次沙箱內loopback與local R2存取受限；同一組相關測試經授權在沙箱外通過，
+未修改產品繞過環境限制。syntax／diff／新增檔案whitespace檢查PASS。
+
+只做一輪相同合成workload：34與201物件各20輪，A最多LIST50，B另HTTP。
+兩路獨立Cloudflare native cpuTime均完整，160個不同CF-Ray；CPU含原有isolated
+防濫用budget SQL／trip及log，不扣除，也不合併A+B當單次CPU。
+
+| 階段 | Requests | 有效 / 缺失 | P50 / P95 / Max ms | >10 ms |
+|---|---:|---:|---|---:|
+| A scan | 120 | 120 / 0 | 5 / 7 / 8 | 0 |
+| B finalize（未修改） | 40 | 40 / 0 | 3 / 5 / 5 | 0 |
+
+HTTP全200，0 HTTP1102、0 exceededCpu、0 collector parse errors／CPU mismatch。
+raw收到162事件、CLI161事件（含各自連線barrier）；benchmark各160筆完整。
+本輪無收集中斷錯誤訊號，正常停止收集不當故障。head sampling=1。
+首次觀測保留，但不能宣稱所有first皆為cold isolate。僅是一輪有界PASS，
+不能保證未來零偶發超限，也不是interleaved A/B的精確改善百分比。
+A wall P50/P95/Max約317/451/952 ms；B206/261/404 ms，不替代CPU。
+
+40輪容量與同bucket原handler全相同：34物件2312bytes、201物件13668bytes。
+最終reserved=0、anomaly=NULL、pin/phase=NULL、blocked=0、trust delta=600秒，
+quick_check=ok、FK無違規、submissions=0、deliveries=0、cold_proofs=0、quota known=1。
+沒有archive或真實Google呼叫。新Apps Script編排仍是本機測試覆蓋，並未再部署
+Google測試Script；前輪About／quota真實驗收證據保留。
+
+臨時Free Worker／D1／R2 voteproof-inventory-test-23dad6c5dc均已清理，逐項GET404；
+本機一次性測試憑證已丟棄。沒有正式Worker／D1／R2／Script／Trigger變更，
+沒有開投稿、清理、告警，也沒有寄信或刪正式圖片。
+
+## 後續啟用界線
+
+本輪CPU已達標，不繼續拆分、不追加雲端量測。正式0027／Worker／Script與Trigger
+仍須另行授權並遵守exact-SHA既有發布保護。
+若Operator日後選擇有限Production試運行，建議先只人工啟動最多5輪完整盤點、
+30分鐘內結束，不建立Trigger；保留投稿／清理／告警OFF與既有容量門檻，
+每輪監看原生CPU及D1 pin/version/freshness、history/audit、quota。
+若出現>10 ms、1102／5xx、未解釋trace缺失或容量不符，即停止新增輪次；
+先讀持久狀態，已提交頁不能重算，未完成保持有效封鎖，不能強清pin／anomaly。
+回復優先停止維護呼叫與相容Worker版本；先由新版安全完成active scan/finalize
+才考慮回退舊Worker，保留0027與期間新資料，不自動down migration／整庫還原。
+這只是後續風險／回復方案，未執行、也不視為已獲正式試運行授權。
+
+---
+
+# 第三階段：分段 HTTP 盤點（2026-10-20，前輪歷史）
+
+**功能／安全驗證 PASS；Workers Free CPU FAIL；未 Commit／Push，Production 未操作。**
+依授權只做一輪有界隔離量測，完成後停止調校。完整原始事件、HTTP、容量對照、
+收集器診斷與修正後統計：[分段證據](evidence/storage-inventory-segmented/results.json)。
+基準仍為 codex/storage-archive-7d / 698400282a386412aa5c9093497f220893d5f430，
+所有本機既有變更保留。
+
+## 實作與安全
+
+- A：每次獨立 HTTP 驗證後，讀取最多 50 個 R2 metadata，D1 CAS 保存
+  inventory_id／cursor／version／分頁累計。最後一頁只標 ready；不更新
+  used_bytes／observed_at／可信期限／history／完成 audit。claim 將 trusted_until
+  歸零，既有 pin／freshness 保護在整輪完成前持續封鎖 PUT。
+- B：另一個獨立驗證的 finalize HTTP，只接受 server-issued id + version，
+  不做 R2 LIST。以 guarded atomic D1 batch 寫 history、immutable audit、容量、
+  600 秒可信期限、90／95／85 門檻與 deduplicated alert outbox。無 mail delivery、
+  無 archive。回應遺失後以持久 receipt 重播，不延長原期限、不干擾下一輪。
+- nullable inventory_phase 新增於 migration 0027；NULL 保留既有 0026 legacy
+  scan 語意，CHECK 避免舊程式清掉 phased pin。只套本機與隔離 D1，未套正式。
+- Apps Script 保留 quota About.get、LockService、runBackup、60 秒軟預算、
+  50 頁上限；ready 後另發 finalize HTTP，時間不足則下輪續跑。未完整不刷新信任，
+  失敗不強行清 pin／anomaly。沒有正式 Script／Trigger 變更。
+- 相關 **87 PASS**：tick 18、Apps inventory 33、backup 9、storage safety 22、
+  trace 4、populated migration 1。涵蓋重複頁／完成重播、併發 CAS、
+  transaction rollback／重試、錯誤版本、auth／Origin、95%／恢復與告警去重、
+  0026 帶資料／既有 cursor 升級。新 Script orchestration 本輪只做本機 VM 驗證，
+  前輪真實 Google About／quota 成功不能等同新版本已發布驗收。
+
+## 唯一一輪 Cloudflare 原生 CPU 實測
+
+Free Worker／D1／R2 均為 voteproof-inventory-test-e1ae156efa；
+無正式 binding。34 與 201 個合成 PNG，各 20 輪完整掃描，合計 120 次 A、
+40 次 B。R2 只讀 metadata；使用真實 storageRoute／relay auth／D1／R2 路徑。
+每次 measured start 至少間隔 1.5 秒，並作輪間唯讀核對；不代表 burst 壓力保證。
+CPU 包含隔離防濫用 budget UPDATE／trip 與小型 log，未扣除此負擔。
+CPU 來自 Cloudflare trace cpuTime，沒有以 Node CPU／wall time 取代，
+也沒有將 A+B 相加視為單次 invocation。
+
+| 階段 | HTTP requests | 有效 / 缺失 UNKNOWN | P50 / P95 / Max ms | >10 ms |
+|---|---:|---:|---|---:|
+| A：scan | 120 | 119 / 1 | 5 / 7 / 13 | 1 |
+| B：finalize | 40 | 39 / 1 | 3 / 5 / 6 | 0 |
+
+160 次 HTTP 全為 200，CF-Ray 各自不同，HTTP1102=0，已取得 exceededCpu=0。
+首筆 34 物件 scan=7 ms／finalize=3 ms；201 物件首輪 scan=6/5/6/5/4、
+finalize=4 ms。保留首次觀測，但無法證明它們全是 cold isolate。
+Wall time P50/P95/Max：A 約 834/1046/4421 ms，B 約 570/611/618 ms；
+這些值不是 CPU，也未取得可靠 heap／memory-limit metrics。
+
+**統計修正及 trace 缺失**：原始 WS 收到 150/160，Wrangler CLI 收到 158/160。
+原先自動 summary 只用 WS，顯示 A Max=8、B Max=6、readiness UNKNOWN，
+漏看 CLI 獨有的 13 ms。本次保留原 summary，新增雙端 exact sample ID 合併
+統計，並修正 harness 及新增回歸測試，避免再次漏掉單端超限。
+150 筆重疊 CPU 完全一致，CLI 補回 8 筆，真正缺失 2 筆，均不填 0：
+inv-split-201-scan-18-4、inv-split-201-finalize-18-0。
+raw WS close=1006；CLI 有 1 次 error／disconnect／reconnect 文字訊號，
+停止收集時 SIGTERM 另列。兩端 parse_errors／unmatched／missing_cpu=0，
+head sampling=1 且無 sampling warning。可確認 stream 中斷與交付缺失，
+不能斷言精確平台內部根因或保證持久 logs 可補齊。
+已知 13 ms 足以判本輪 **FAIL**；其餘兩筆仍 UNKNOWN，B 不單獨宣稱完整 PASS。
+沒有為補齊樣本再發 benchmark。
+
+## 結果一致性、成本與收尾
+
+40 輪全部與同一隔離 bucket 上 legacy handler 的 used/count/staging/other/
+blocked/anomaly/cleanup 相同。34 物件=2,312 bytes；201 物件=13,668 bytes。
+最終 staging=4,556、other=4,556、reserved=0、anomaly=NULL、pin/phase=NULL、
+blocked=0，trust delta=600 秒。quick_check=ok、FK 無違規，
+submissions=0、deliveries=0、cold_proofs=0、quota known=1。
+重複 ready 不多 LIST，重複 finalize 不更新 trusted_until；未完成前沒有新 audit/
+history／可信發布。隔離 D1 結果僅證明本次測試，並非讀取正式資料。
+
+正常低容量 P 頁：A 首頁 5 statements／3 trips，其後 4／2；B 6／2、0 LIST。
+整輪 4P+7 statements、2P+3 trips、P+1 HTTP、P LIST；
+quota 另 1 statement／trip／HTTP。34 物件每 5 分鐘（288 次／日）：
+864 Worker／UrlFetch、288 R2 LIST、288 About、3,456 D1 statements、
+1,728 trips；D1 計費 rows 與帳號其他工作仍須另計。不是啟用正式排程的授權。
+
+臨時 Worker、合成 R2 物件／bucket、D1 已全部清理，每項 GET 404 核對；
+本機一次性測試憑證已丟棄。未操作正式 Worker／D1／R2／Google／Trigger，
+未開投稿、刪圖或寄信。
+
+## 發布與回復界線、下一步（只建議，未實作）
+
+0027 必須先經獨立正式發布授權，nullable additive migration 保留舊資料；
+新版 Worker 再到新版 Script，最後另授權 Trigger。目前 CPU FAIL，停止發布。
+如未來回退 Script／Worker，先讓新版完成 active scan/finalize；不要用舊程式
+強行清 phased pin。保留新增 nullable 欄位與資料，不自動 down migration／整庫還原。
+
+唯一超限 inv-split-201-scan-18-2 是**中間頁**，沒有 claim，也沒有 finalize。
+所以「只把 claim 拆開」不能解決這筆已觀測尾端；不再自行細拆／微調。
+最小下一驗證方案需另決定：讓同程式的正式 handler 取得可持久查詢的 native
+CPU 樣本，確認含防濫用 wrapper 的 13 ms 是否亦出現在代表性正式執行路徑；
+不得移除產品 auth／CAS／完整盤點安全。若仍須拆分 LIST 與保存，必須先設計
+可信 metadata 交接／重放機制，不能接受任意 client 回傳容量，也不能先保證 <10 ms。
+本輪未實作第三段、未追加量測、未 Commit／Push。
+
+---
+
+# 第三階段：盤點 CPU 最小優化（2026-10-19，前輪歷史）
+
+**結果：功能 PASS；Workers Free CPU FAIL；不 Commit／Push，不發布 Production。**
+僅做一輪針對性雲端驗證，沒有修改正式 Worker／D1／R2／Apps Script／Trigger，
+沒有開投稿、清理或告警。以下較早的測試報告保留作歷史證據。
+
+本輪變更只有：`inventory_only` 每頁 R2 LIST 上限 200→50（Admin／舊模式仍 200），
+以及 pre-scan 容量檢查共用同一次 server-read row，省去每頁一個 SELECT／trip。
+沒有省略 auth、JSON 限制、95% 預檢、CAS、pin、完整 cursor、600 秒期限或 audit。
+相關本機 **75 PASS**，syntax／diff check PASS；Google 配額與 runBackup 沿用既有
+真實驗收並跑相關本機回歸，未重做 Google 測試或全 CI。
+
+證據：[本輪 CPU／雙收集端／資源清理](evidence/storage-inventory-cpu-optimization/results.json)。
+新建獨立 Free Worker `voteproof-inventory-test-18f3535379`、D1、同名 R2，只有
+201 個合成 PNG；key 長度接近正式 proof path，涵蓋 staging／final／其他物件。
+每組 30 次完整掃描；保留首次觀測與後續請求。CPU 仍包含隔離 harness 的
+budget UPDATE／trip、控制檢查及小型 log，沒有扣除或以 wall time 取代。
+
+| 完整正式 handler | Requests | 有效／缺失 UNKNOWN | P50 / P95 / Max ms | >10 ms |
+|---|---:|---:|---|---:|
+| 34 物件，1 頁 | 30 | 20 / 10 | 9 / 13 / 14 | 3 |
+| 201 物件，5 頁 | 150 | 63 / 87 | 6 / 9 / 16 | 1 |
+| 合併 invocation 分布 | 180 | 83 / 97 | 7 / 10 / 16 | 4 |
+
+所有 HTTP 200，0 HTTP1102，已收到的 exceededCpu=0。缺失不當作成功。
+新超限為 34 物件 scan0/7/27（12/13/14 ms）及 201 物件 scan18/page0
+（16 ms）；不只是首次冷路徑，也不是只有 200 物件 LIST 才可能超限。
+不能把這一輪與不同 workload／觀測條件的舊數據直接當精確 A/B 改善百分比。
+
+**瓶頸證據與限制**：舊 5 筆超限都在 200 物件頁；本輪單頁完整流程仍較重，
+包括 claim、CAS、完成 history、post-scan 容量讀取及 audit。另作獨立診斷
+invocation：control 1 筆有效=1 ms；auth+bounded JSON 3 筆=1 ms；native LIST50
+2 筆=2–4 ms；LIST200 4 筆=5–7 ms；正式 handler+真實 D1、以預計算 metadata
+替代 R2 的 5 筆=4–9 ms。這些樣本少、仍有 wrapper／不同 SQL 階段，不能
+相減／相加當作精確函式 CPU；支持 R2 metadata 與完整 D1 工作均有成本，
+不能可靠宣稱某一函式或 GC 是唯一根因。
+
+**trace 缺失定位**：原始 `trace-v1` WebSocket 與獨立 Wrangler CLI 同時收集，
+benchmark 收到的 sample 集合、CPU 值一致；原始 stream 多收到一個 CLI
+連線前的 barrier。兩端 0 parse errors、0 unmatched／missing_cpu／header-log
+mismatch、0 非預期 disconnect，未收到 sampling warning。framing 的任意切塊／
+跳脫／巢狀資料測試通過。Worker 設定已回讀確認 head sampling=1、persisted
+invocation logs enabled。因此本輪缺失在兩個 collector 之前的 Cloudflare 即時
+交付邊界，不是本機 JSON parser 或 ID 配對遺漏；**平台內部抽樣／丟棄策略仍
+UNKNOWN**，也不能事後還原舊 55 筆缺失的特定原因。
+一次 `dry:true`、只篩選本次測試 Worker 的持久 Logs API 查詢回 HTTP403／10000；
+沒有擴權或重試。不能因 head sampling=1 就保證 real-time tail 完整。
+
+隔離資料 quick_check=ok、FK=0、used=13,668 bytes／201 物件、reserved=0、
+anomaly=NULL、pin=NULL、blocked=0、freshness=600 秒，投稿=0，deliveries=0，
+cold_proofs=0。測試沒有 archive endpoint。所有新建 Worker／D1／R2 已清理，
+逐一 GET 404 確認，暫時本機憑證已丟棄。
+
+**停止與最小下一方案（尚未實作）**：將完成頁的 immutable audit 與必要容量
+threshold outbox 寫入併入原有 guarded D1 batch，減少完成後的 SELECT／獨立 trip，
+而不是刪除檢查或改寫容量真相。須保留 CAS／95%／outbox dedup／lost-ACK 安全，
+另做有界驗證，不能先保證會低於 10 ms。觀測則需可讀取隔離 Worker 持久日誌的
+授權管道（Dashboard 或必要 Observability 權限），以 sample／request ID 對齊 CPU；
+目前不自動擴權或追加測試。
+
+目前正常低容量 P 頁：inventory-only `4P+5` statements／`2P+3` trips；另加
+quota 1 INSERT／1 trip。R2 LIST／Worker request 隨頁數增加；目前 34 物件仍一頁。
+50 頁軟上限最多 2,500 物件／輪，另受 60 秒軟預算限制；未完整不刷新信任期限，
+依既有 D1 cursor 續跑，絕不強制放行。
+
+參考：[Cloudflare real-time logs 與 sampling 限制](https://developers.cloudflare.com/workers/observability/logs/real-time-logs/)、
+[持久 query API 與權限](https://developers.cloudflare.com/api/resources/workers/subresources/observability/subresources/telemetry/methods/query/)。
+
+---
+
+# 第三階段：tick-only 正式發布前驗證（2026-10-19，前輪）
+
+**結論：功能 PASS；Workers Free 10 ms CPU FAIL；本階段 Production NO-GO。**
+未達「必要驗證 PASS 後 Commit / Push」條件，保留本機工作，未 Commit / Push。
+以下歷史清理報告不代表本次盤點路徑已通過 CPU。
+
+證據：[完整隔離量測](evidence/storage-inventory-only/results.json)。使用新建
+`voteproof-inventory-test-722afbfe30` Worker／R2 及獨立 D1；帳號 Free 設定已確認，
+沒有綁定正式資料。只有合成 PNG、暫時 relay/control credentials、4 小時到期與
+D1 3,000 次請求上限。測試後 Worker、R2、D1 均已刪除並逐項 GET 404 確認。
+
+| CPU 量測 | Requests | 有效／缺失 trace | P50 / P95 / P99 / Max ms | >10 ms |
+|---|---:|---:|---|---:|
+| 原包裝，0 物件 | 40 | 23 / 17 | 7 / 11 / 14 / 14 | 2 |
+| 原包裝，34 物件 | 40 | 26 / 14 | 8 / 10 / 13 / 13 | 1 |
+| 原包裝，201 物件 | 80 | 43 / 37 | 7 / 10 / 13 / 13 | 1 |
+| 原包裝，401 物件 | 120 | 64 / 56 | 8 / 11 / 12 / 12 | 7 |
+| 移除測試額外 JSON 解析，401 物件 | 120 | 65 / 55 | 7 / 11 / 16 / 16 | 5 |
+
+- 直接呼叫正式 storageRoute、relay auth、JSON validation、D1 CAS／batch 與
+  原生 R2 LIST；每頁最多 200，0／34／201／401 分別 1／1／2／3 頁，每組
+  40 次完整盤點。原包裝重複解析 request／response JSON，因此保留原始證據，
+  只修正測試包裝後補測一次；**沒有修改產品效能程式**。
+- 修正後首輪三個 invocation 為 16／12／9 ms；後續仍有 >10 ms，不能只挑
+  warm 結果。全部 400 個量測請求 HTTP 200、0 HTTP 1102、已收到 trace 的
+  exceededCpu=0；這不代表符合 10 ms。Missing 一律 UNKNOWN，沒有補 0。
+  修正後 client wall P50/P95 約 472/756 ms，並非 CPU。
+- 每 request 的測試用 budget UPDATE／trip 與小型包裝／log 負擔均包含在 CPU，
+  未扣除；因此不能精確歸因產品函式本身，但目前實測**無法證明 Free 合格**。
+  Collector 每輪 1 次啟動、0 parse/error/disconnect 訊號；缺失仍按 sample ID 計。
+  沒有取得 heap peak，不宣稱記憶體量測完成。
+- 受影響本機測試 48 PASS；沒有重跑全 CI。isolated D1 quick_check=ok、FK=0、
+  submissions=0、alert deliveries=0、cold_proofs=0；scan 完成、pin=NULL、
+  anomaly=NULL、reserved=0、blocked=0。測試 endpoint 不提供 archive。
+
+**真實 Apps Script / Google 配額 PASS**：既有獨立
+`VoteProof Isolated Backup Test` 加入同一份 StorageInventory.gs，操作員安全設定
+測試專用 properties，沒有新增 OAuth scope。實際 Drive.About.get(storageQuota)
+得到 known，隔離 D1 收到 3 筆快照。一次完整 3 頁、刻意在第 1 頁達預算、
+下一次從 D1 cursor 續跑剩餘 2 頁，全組約 11.766 秒；runBackup 回 idle，沒有
+Drive 圖片讀寫。這不宣稱重新驗收了備份圖片 roundtrip。
+
+實際一次性時間驅動 Trigger 19:52:47 執行，0.817 秒回 overlap_skipped / pages=0；
+持 UserLock 期間 runBackup 仍可執行。測試 helper 最後直接刪除已執行的一次性
+trigger object 時出錯，鎖已於 finally 釋放；UI 顯示殘留為已停用，已手動移除，
+確認 0 triggers。只修正本機測試 helper 改查現存 ID；未重跑此清理分支。
+沒有安裝正式或長期測試 trigger。
+
+**真正剩餘阻擋**：有 CPU 超限樣本且 traces 不完整；本輪不再迭代。
+下一輪僅針對 tick 的必要工作分配及可代表正式路徑的量測做受限修正／驗證，
+保留 auth、D1 CAS、完整 LIST 與 fail-closed，不為了過關刪安全檢查。
+正式 Worker／Pages／D1／R2／Google Script／投稿／清理／告警均未操作。
+
+---
+
+# 方案 A：兩階段清理修正（歷史）
 
 基線：`codex/storage-archive-7d` / `6b70f294`（先唯讀確認並 fast-forward，開始時工作樹乾淨）。本輪只調整封存清理，沒有修改 UI、投稿流程、舊冷讀或正式環境。
 
@@ -152,6 +461,17 @@ Apps Script `archive_verify` source / 本機測試確認：先 HMAC，nonce / ti
 ---
 
 # R2 容量保護與 Drive 冷儲存 V1（本機／Pages 候選）
+
+> 2026-10-19 第三階段本機增量：獨立 tick-only 盤點已加入
+> `apps-script/drive-backup/StorageInventory.gs`，Worker `/storage/tick` 增加
+> 嚴格的 `inventory_only:true` 模式以跳過寄信；容量／清理規則與既有備份不變。
+> 後續本機補強：每輪先以 Drive v3 `About.get(storageQuota)` 讀一次帳號配額，
+> 透過既有 `/storage/quota` 更新快照，再盤點 R2；不讀寫 Drive 圖片。
+> 配額失敗仍嘗試 R2，回傳明確 partial／error 狀態，不偽造數字或放行。
+> 沒有正式部署或建立 Trigger。操作量實測及啟用順序見
+> [Apps Script 盤點說明](../apps-script/drive-backup/README.md#獨立-r2-tick-only-盤點2026-10-19本機候選尚未啟用)。
+> 新路徑 Workers Free 真實 CPU 尚無量測，readiness = UNKNOWN；不得拿本機
+> 測試成功宣稱正式啟用 PASS。以下內容含前階段歷史設計與驗收紀錄。
 
 狀態：本機功能與 fixture Preview；Production NO-GO。未部署 Worker、未套 remote migration、未改 secrets、未裝 Apps Script trigger、未寄正式告警、未清理正式圖片、未更改 submission_settings。30 天僅 dry-run 提案，尚未批准。此版沒有實際刪除歷史圖片的 endpoint、排程或可切成 live 的開關。
 

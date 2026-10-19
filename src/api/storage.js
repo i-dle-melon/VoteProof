@@ -11,6 +11,7 @@ import {
 } from "../lib/storage-capacity.js";
 import { cleanupArchive } from "../lib/storage-archive.js";
 import { processStorageAlerts } from "../lib/storage-alerts.js";
+import { scanInventoryPage,finalizeInventory } from "../lib/storage-inventory.js";
 const validObject = (v) => v && typeof v === "object" && !Array.isArray(v);
 export async function quotaSnapshot(env, v) {
   if (
@@ -58,14 +59,27 @@ const internal = async (env, url, request) => {
     if (url.search) throw Error();
     const v = await readReviewJson(request);
     if (url.pathname.endsWith("/quota")) return jsonSuccess(await quotaSnapshot(env, v));
-    if (!validObject(v) || Object.keys(v).length) throw Error();
+    if(url.pathname.endsWith('/inventory/finalize')){
+      if(!validObject(v)||Object.keys(v).length!==2||!Object.hasOwn(v,'inventory_id')||!Object.hasOwn(v,'inventory_version')||
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(v.inventory_id??'')||
+        !Number.isSafeInteger(v.inventory_version)||v.inventory_version<1)throw Error();
+      return jsonSuccess({inventory:await finalizeInventory(env,v.inventory_id,v.inventory_version),
+        cleanup:null,alerts:{state:'skipped_inventory_only',sent:0},inventory_only:true});
+    }
+    const inventoryOnly = url.pathname.endsWith("/tick") && validObject(v) &&
+      Object.keys(v).length === 1 && v.inventory_only === true;
+    if (!validObject(v) || (Object.keys(v).length && !inventoryOnly)) throw Error();
     if (url.pathname.endsWith("/archive")) return jsonSuccess({cleanup:await cleanupArchive(env)});
-    await evaluateCapacity(env.DB);
-    const inventory = await inventoryPage(env);
+    if (!inventoryOnly) await evaluateCapacity(env.DB);
+    const inventory = inventoryOnly?await scanInventoryPage(env):await inventoryPage(env);
     let cleanup = null;
     // Archival A and B run in separate authenticated requests after inventory.
-    const alerts = await processStorageAlerts(env);
-    return jsonSuccess({ inventory, cleanup, alerts });
+    // Scheduled inventory must never enter mail delivery, regardless of its flag.
+    const alerts = inventoryOnly
+      ? { state: "skipped_inventory_only", sent: 0 }
+      : await processStorageAlerts(env);
+    return jsonSuccess({ inventory, cleanup, alerts,
+      ...(inventoryOnly ? { inventory_only: true } : {}) });
   } catch (e) {
     return jsonError(
       e.status ?? 503,
@@ -82,6 +96,7 @@ export function storageRoute(path) {
     [
       "/api/internal/drive-backup/storage/quota",
       "/api/internal/drive-backup/storage/tick",
+      "/api/internal/drive-backup/storage/inventory/finalize",
       "/api/internal/drive-backup/storage/archive",
     ].includes(path)
   )

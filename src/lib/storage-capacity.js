@@ -66,8 +66,8 @@ export async function capacityPut(env, key, body, options, size) {
   try{await evaluateCapacity(env.DB);}catch{throw new StorageCapacityError();}
   return object;
 }
-export async function evaluateCapacity(db) {
-  const row = await capacityRow(db),
+export async function evaluateCapacity(db, current = null) {
+  const row = current ?? await capacityRow(db),
     used = row.used_bytes + row.reserved_bytes,
     now = nowSeconds();
   const kinds = [];
@@ -88,6 +88,7 @@ export async function evaluateCapacity(db) {
 export async function inventoryPage(env) {
   const db = env.DB;
   let row = await capacityRow(db);
+  if (row.inventory_phase) throw new AdminError(409,"STORAGE_FINALIZATION_REQUIRED","分段盤點須使用原有流程完成。");
   if (env.R2_EXCLUSIVE_WRITER_CONFIRMED !== "true")
     throw new AdminError(
       409,

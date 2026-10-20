@@ -59,7 +59,7 @@ export async function buildPagesPreview(output) {
     "js/member.js",
     "js/admin.js", "js/admin-proof-thumbnails.js", "js/admin-member-contact.js",
     "js/admin-api.js",
-    "js/admin-backup.js", "js/admin-storage.js",
+    "js/admin-backup.js", "js/admin-storage.js", "js/paginated-dialog.js",
     "js/admin-duplicate.js",
     "js/admin-export.js", "js/export-format.js", "js/zip-store.js", "js/export-worker.js",
     "js/member-tier-progress.js",

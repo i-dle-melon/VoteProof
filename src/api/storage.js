@@ -45,7 +45,7 @@ const historyList = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env, ELEVATED_ROLES);
   const raw=url.searchParams.get('page') ?? '1',page=Number(raw);
   if([...url.searchParams.keys()].some(k=>k!=='page') || url.searchParams.getAll('page').length>1 ||
-     !/^[1-9]\\d*$/.test(raw) || !Number.isSafeInteger(page) || !Number.isSafeInteger(page*10))
+     !/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(page) || !Number.isSafeInteger(page*10))
     throw new AdminError(400,'INVALID_PAGINATION','容量歷史分頁無效。');
   // Read-only metadata listing. No R2, Drive, cleanup, or inventory actions.
   const [count,rows]=await env.DB.batch([

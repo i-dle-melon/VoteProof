@@ -14,7 +14,7 @@ export const memberTransactions=adminHandler(async(env,url,request)=>{
  if([...url.searchParams.keys()].some(k=>!['limit','cursor','page'].includes(k))||[...url.searchParams.keys()].some(k=>url.searchParams.getAll(k).length!==1)||url.searchParams.has('limit')&&url.searchParams.get('limit')!=='10')throw invalid();
   if(url.searchParams.has('page')){
     const raw=url.searchParams.get('page'),page=Number(raw);
-    if(url.searchParams.has('cursor')||!/^[1-9]\\d*$/.test(raw)||!Number.isSafeInteger(page)||!Number.isSafeInteger(page*10))throw invalid();
+    if(url.searchParams.has('cursor')||!/^[1-9]\d*$/.test(raw)||!Number.isSafeInteger(page)||!Number.isSafeInteger(page*10))throw invalid();
     const db=authDatabase(env);
     const [count,rows]=await db.batch([
       db.prepare('SELECT COUNT(*) AS total FROM point_transactions WHERE member_id=?').bind(member.member_id),

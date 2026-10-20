@@ -21,7 +21,7 @@ const expected = ["_headers", "_redirects", "css/app.css", "index.html", "js/api
 expected.push('js/admin-export.js','js/export-format.js','js/zip-store.js','js/export-worker.js');
 expected.push('js/leaderboard-ui.js','js/vote-date.js');
 expected.push('js/campaign-guidance.js','js/announcements.js','js/admin-proof-thumbnails.js');
-expected.push('js/admin-member-contact.js','js/admin-storage.js');
+expected.push('js/admin-member-contact.js','js/admin-storage.js','js/paginated-dialog.js');
 assert.deepEqual(paths.map((p) => relative(root, p).replaceAll("\\", "/")).sort(), expected.sort(), "Unexpected deployable static assets");
 const forbidden = /AUTH_SECRET|AUTH_PASSWORD_PEPPER|AUTH_TOTP_ENCRYPTION_KEY|CASE_QUERY_KEY_SECRET|TURNSTILE_SECRET_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY|MAIL_RELAY_(?:URL|SECRET)|STORAGE_ALERT_RELAY_(?:URL|SECRET)|DRIVE_COLD_RELAY_URL|SUPABASE_(?:URL|PUBLISHABLE_KEY|SECRET_KEY)|GMAIL_(?:CLIENT_ID|CLIENT_SECRET|REFRESH_TOKEN|SENDER_EMAIL|SENDER_NAME)|X-Amz-(?:Signature|Credential)=|https:\/\/script\.google\.com\/macros\/s\/|-----BEGIN .*PRIVATE KEY-----|(?:C:\\Users\\|C:\/Users\/)/i;
 let totalBytes = 0, gzipBytes = 0;

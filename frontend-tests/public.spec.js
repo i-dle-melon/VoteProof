@@ -221,8 +221,16 @@ test("homepage CTA, public navigation, keyboard focus and responsive layout", as
   expect(await page.locator("body").innerText()).not.toMatch(/會員登入|建立會員|管理員登入|模擬|Coming Soon/);
   expect(state.calls.filter((c) => c.path.includes("/auth/")).map(c => c.path)).toEqual(["/api/auth/me"]);
   expect(state.calls.some((c) => c.path.includes("/me/") || c.path.includes("/admin/"))).toBe(false);
-  await page.locator("#lookup-id").focus();
-  expect(await page.locator("#lookup-id").evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+  const lookup = page.locator("#lookup-id");
+  await lookup.focus();
+  // Navigation focus can settle asynchronously: assert actual focus and its styling
+  // together so the assertion never samples an unfocused element.
+  await expect.poll(() =>
+    lookup.evaluate(el => ({
+      focused: document.activeElement === el,
+      outline: getComputedStyle(el).outlineStyle,
+    }))
+  ).toEqual({ focused: true, outline: "solid" });
 });
 test("theme preference is the only local storage value", async ({ page }) => {
   await fixture(page); await page.goto("/"); await page.locator("#theme-toggle").click();

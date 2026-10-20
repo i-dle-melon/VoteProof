@@ -96,14 +96,15 @@ test("Preview cancel aborts package, leaves retry and query can create new snaps
     .getByRole("button", { name: "下載", exact: true })
     .click();
   await page.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(page.locator('[data-package="1"] [data-export-state]')).toHaveAttribute(
-    "data-export-state",
-    "failed",
-  );
+  // Cancel may precede the start acknowledgement: planned is safe to retry, too.
+  // Wait for the download attempt to settle; do not assert an unconfirmed server state.
+  await expect(page.locator("#export-progress")).toHaveCount(0);
+  const packageRow = page.locator('[data-package="1"]');
+  const state = await packageRow.locator("[data-export-state]").getAttribute("data-export-state");
+  expect(["planned", "failed"]).toContain(state);
   await expect(page.locator(".image-export")).toContainText("本包未完成");
-  await page
-    .locator('[data-package="1"]')
-    .getByRole("button", { name: "重新下載", exact: true })
+  await packageRow
+    .getByRole("button", { name: state === "failed" ? "重新下載" : "下載", exact: true })
     .click();
   await expect(page.locator('[data-package="1"] [data-export-state]')).toHaveAttribute(
     "data-export-state",

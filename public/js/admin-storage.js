@@ -9,6 +9,8 @@ export function renderStorage(container, data, { node, button, mutate, reload })
     return;
   }
   const gb = (n) => (Number.isFinite(n) ? (n / 1000000000).toFixed(2) + " GB" : "未知");
+  // Google labels binary quota units as GB; R2's management budget remains decimal.
+  const driveGb = (n) => (Number.isFinite(n) ? (n / 1024 ** 3).toFixed(2) + " GB" : "未知");
   const time = (n) => (n ? new Date(n * 1000).toLocaleString("zh-TW") : "尚無資料");
   section.append(
     node("p", "R2 管理預算 " + gb(data.budget?.budget) + "（十進位，非 R2 硬容量上限）"),
@@ -66,9 +68,9 @@ export function renderStorage(container, data, { node, button, mutate, reload })
     node(
       "p",
       "總額 " +
-        gb(q.total_bytes) +
+        driveGb(q.total_bytes) +
         " · 已用 " +
-        gb(q.used_bytes) +
+        driveGb(q.used_bytes) +
         " · 剩餘 " +
         (Number.isFinite(q.remaining_percent) ? q.remaining_percent.toFixed(1) + "%" : "未知"),
     ),

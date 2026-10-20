@@ -21,6 +21,7 @@ test("storage shared Admin renderer has decimal budget, Drive quota, dry-run and
   await backup(page);
   const panel = page.getByRole("region", { name: "儲存容量保護" });
   await expect(panel).toContainText("10.00 GB");
+  await expect(panel).toContainText("總額 15.00 GB · 已用 10.00 GB · 剩餘 33.3%");
   await expect(panel).toContainText("33.3%");
   await panel.getByRole("button", { name: "檢查歷史圖片（dry-run）" }).click();
   await expect(panel).toContainText("實際刪除 0 張");
@@ -55,6 +56,27 @@ test("storage high/stop/recovery/unknown/Drive error/failed cleanup scenarios ar
     if (scenario === "drive_error") await expect(p).toContainText("讀取失敗");
     if (scenario === "cleanup_failed") await expect(p).toContainText("CLEANUP_VERIFICATION_FAILED");
   }
+});
+
+test("Drive units follow quota bytes for different plans and preserve unknown values", async ({ page }) => {
+  await backup(page);
+  const texts = await page.evaluate(async () => {
+    const { renderStorage } = await import('/VoteProof/js/admin-storage.js');
+    const node = (tag, text = '') => { const el = document.createElement(tag); el.textContent = text; return el; };
+    return [
+      { total_bytes: 15 * 1024 ** 3, used_bytes: 0, remaining_percent: 100 },
+      { total_bytes: 100 * 1024 ** 3, used_bytes: 25 * 1024 ** 3, remaining_percent: 75 },
+      { total_bytes: null, used_bytes: null, remaining_percent: null },
+    ].map(drive_quota => {
+      const container = node('div');
+      renderStorage(container, { budget: { budget: 10000000000 }, drive_quota }, { node, button: label => node('button', label) });
+      return container.textContent;
+    });
+  });
+  expect(texts[0]).toContain('總額 15.00 GB · 已用 0.00 GB · 剩餘 100.0%');
+  expect(texts[1]).toContain('總額 100.00 GB · 已用 25.00 GB · 剩餘 75.0%');
+  expect(texts[2]).toContain('總額 未知 · 已用 未知 · 剩餘 未知');
+  for (const text of texts) expect(text).toContain('R2 管理預算 10.00 GB（十進位，非 R2 硬容量上限）');
 });
 test("storage card and dialogs fit 320/390/430/1024/1440 in dark and light", async ({ page }) => {
   await backup(page);

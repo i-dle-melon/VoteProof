@@ -135,6 +135,68 @@ test("leaderboard definition update uses explicit scoped filters", async ({ page
   await page.locator("#admin-field-start_date").fill("2026-10-01"); await page.locator("#admin-field-end_date").fill("2026-10-20"); await page.locator("#admin-field-vote_type").selectOption("Solo"); await save(page, "保存排行榜");
   await expect(panel(page)).toContainText("本機公開成績"); const write = state.calls.find(c => c.path.endsWith("BOARD/update")); expect(write.body.start_date).toBe("2026-10-01"); expect(write.body.campaign_id).toBeNull(); expect(write.body.vote_type).toBe("Solo");
 });
+
+test("archived leaderboards have a separate toggle beside create and retain read-only settings and results", async ({ page }) => {
+  const state = await adminFixture(page);
+  state.boards.push({ ...state.boards[0], leaderboard_id: 'ARCHIVED', name: '封存測試榜', status: 'archived' });
+  await open(page, '排行榜管理');
+  const archived = () => panel(page).getByRole('button', { name: '已封存', exact: true });
+  await expect(panel(page).getByRole('heading', { name: '封存測試榜' })).toHaveCount(0);
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toBeVisible();
+  const createBox = await panel(page).getByRole('button', { name: '建立排行榜', exact: true }).boundingBox();
+  const archiveBox = await archived().boundingBox();
+  expect(archiveBox.x).toBeGreaterThanOrEqual(createBox.x + createBox.width);
+  await archived().click();
+  await expect(archived()).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel(page).getByRole('heading', { name: '封存測試榜' })).toBeVisible();
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toHaveCount(0);
+  await expect(panel(page).getByRole('button', { name: '重建成績', exact: true })).toHaveCount(0);
+  await save(page, '查看設定');
+  await expect(page.locator('#admin-field-leaderboard_id')).toHaveValue('ARCHIVED');
+  await expect(page.locator('#admin-field-status')).toHaveValue('archived');
+  await expect(page.locator('#admin-field-name')).toBeDisabled();
+  await panel(page).getByRole('button', { name: /返回/ }).click();
+  await expect(archived()).toHaveAttribute('aria-pressed', 'true');
+  await save(page, '查看目前成績');
+  await expect(panel(page).locator('tbody tr td').first()).toHaveText('4');
+  await panel(page).getByRole('button', { name: /返回/ }).click();
+  await archived().click();
+  await expect(archived()).toHaveAttribute('aria-pressed', 'false');
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toBeVisible();
+  expect(state.calls.some(c => c.path.startsWith('/api/admin/leaderboards') && c.method === 'POST')).toBe(false);
+});
+
+test("archiving moves an item out of the ordinary list without removing its settings", async ({ page }) => {
+  const state = await adminFixture(page);
+  Object.assign(state.boards[0], { type: 'custom', start_date: '2026-10-01', end_date: '2026-10-20' });
+  await open(page, '排行榜管理');
+  await save(page, '查看設定');
+  await page.locator('#admin-field-status').selectOption('archived');
+  await save(page, '保存排行榜');
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toHaveCount(0);
+  await panel(page).getByRole('button', { name: '已封存', exact: true }).click();
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toBeVisible();
+  await save(page, '查看設定');
+  await expect(page.locator('#admin-field-status')).toBeDisabled();
+  expect(state.boards[0].status).toBe('archived');
+});
+
+test("leaderboard filtering continues past an archived-only page and shows an honest empty archive", async ({ page }) => {
+  const state = await adminFixture(page), cursors = [];
+  await page.route('**/api/admin/leaderboards?*', async route => {
+    const params = new URL(route.request().url()).searchParams;
+    cursors.push(params.get('cursor'));
+    const rows = params.get('status') === 'archived' ? [] : params.has('cursor') ? state.boards : [{ ...state.boards[0], name: '僅封存頁面', status: 'archived' }];
+    await route.fulfill({ json: { ok: true, data: { leaderboards: rows, system_boards: [], next_cursor: params.get('status') !== 'archived' && !params.has('cursor') ? 'next-page' : null } } });
+  });
+  await open(page, '排行榜管理');
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toBeVisible();
+  expect(cursors).toContain('next-page');
+  await expect(panel(page)).not.toContainText('僅封存頁面');
+  await panel(page).getByRole('button', { name: '已封存', exact: true }).click();
+  await expect(panel(page)).toContainText('尚無已封存的排行榜。');
+  await expect(panel(page).getByRole('heading', { name: '本機公開成績' })).toHaveCount(0);
+});
 test("tier configuration has no invented thresholds and edits with reason/version", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "會員等級"); await expect(panel(page)).toContainText("門檻尚未設定"); await expect(panel(page).getByText("未啟用", { exact: true })).toHaveCount(7);
   await panel(page).getByRole("button", { name: "編輯等級" }).first().click(); await expect(page.locator("#admin-field-min_points")).toHaveValue("");

@@ -44,6 +44,7 @@ const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases',
 
 export function adminUI(session) {
   let reviewMode="album",selectedReviews=new Map(),thumbnails=null;
+  let boardsArchived = false;
   const clearAlbumImages=()=>{thumbnails?.clear();thumbnails=null;};
   let expanded=null;
   let blockDialog=null;
@@ -108,18 +109,25 @@ export function adminUI(session) {
     for (const [label, val] of fields) dl.append(node("dt", label), node("dd", text(val)));
     return dl;
   }
-  async function paged(path, key, render, filters = new URLSearchParams()) {
+  async function paged(path, key, render, filters = new URLSearchParams(), { accept = () => true, emptyMessage } = {}) {
     const list = node("div", "", path === "cases" ? "admin-case-list"+(reviewMode==="album"?" review-album":"") : "grid grid-2"), more = button(copy("admin-copy-028"), () => void run(async current => { await page(cursor, current); }));
     let cursor = null; const born = sequence;
     const page = async (after, current = () => sequence === born && visible) => {
-      const params = new URLSearchParams(filters); params.set("limit", "20"); if (after) params.set("cursor", after);
-      const data = await request(path + "?" + params);
-      if (!current()) return;
-      if (!Array.isArray(data[key])) throw new PublicError("SERVICE_UNAVAILABLE");
-      if(key==="leaderboards" && !after)for(const row of data.system_boards??[])list.append(render(row));
-      for (const row of data[key]) list.append(render(row));
-      cursor = data.next_cursor; more.hidden = !cursor;
-      if (!list.children.length) list.append(node("p", path === "cases" ? copy("admin-copy-029") : path === "audit-logs" ? copy("admin-copy-030") : copy("admin-copy-031")));
+      const previousCount = list.children.length, seen = new Set(after ? [after] : []);
+      do {
+        const params = new URLSearchParams(filters); params.set("limit", "20"); if (after) params.set("cursor", after);
+        const data = await request(path + "?" + params);
+        if (!current()) return;
+        if (!Array.isArray(data[key])) throw new PublicError("SERVICE_UNAVAILABLE");
+        if(key==="leaderboards" && !after)for(const row of data.system_boards??[])if(accept(row))list.append(render(row));
+        for (const row of data[key]) if(accept(row))list.append(render(row));
+        cursor = data.next_cursor;
+        if (cursor && seen.has(cursor)) throw new PublicError("SERVICE_UNAVAILABLE");
+        if (cursor) seen.add(cursor);
+        after = cursor;
+      } while (cursor && list.children.length === previousCount);
+      more.hidden = !cursor;
+      if (!list.children.length) list.append(node("p", emptyMessage ?? (path === "cases" ? copy("admin-copy-029") : path === "audit-logs" ? copy("admin-copy-030") : copy("admin-copy-031"))));
     };
     $("admin-panel").append(list, more); await page(null);
   }
@@ -370,13 +378,20 @@ export function adminUI(session) {
   }
   async function boards() {
     heading(copy("admin-copy-019"), copy("admin-copy-084"));
-    $("admin-panel").append(button(copy("admin-copy-085"), () => boardEditor(null), "btn btn-primary"));
+    const actions = node("div", "", "tabs review-modes");
+    const archived = button("已封存", () => { if(busy)return; boardsArchived = !boardsArchived; void load(); }, "tab");
+    archived.setAttribute("aria-pressed", String(boardsArchived));
+    actions.append(button(copy("admin-copy-085"), () => { boardsArchived = false; void boardEditor(null); }, "btn btn-primary"), archived);
+    $("admin-panel").append(actions);
     await paged("leaderboards", "leaderboards", row => {
       const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", row.is_public ? copy("admin-copy-086") : copy("admin-copy-087")));
       if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
       if(row.is_current_comeback)c.append(node("span","本次回歸","status neutral"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
       if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); },'btn status rejected')); return c;
+    }, boardsArchived ? new URLSearchParams({status:"archived"}) : new URLSearchParams(), {
+      accept: row => (row.status === "archived") === boardsArchived,
+      emptyMessage: boardsArchived ? "尚無已封存的排行榜。" : undefined,
     });
   }
   async function boardResults(row) {

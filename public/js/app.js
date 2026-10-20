@@ -127,11 +127,10 @@ function syncForm() {
   $("submission-verification").hidden = !ready;
   $("proof-dropzone").setAttribute("aria-disabled", String(!selectionReady() || submission.pending || submissionStarting));
   if (!ready && !gateChecking) { challenge.clear(); $("challenge-status").textContent = "投稿開放後即可完成人機驗證。"; }
-  $("submission-gate-message").hidden = submissionsEnabled && !submissionsMessage;
-  $("submission-gate-message").textContent = submissionsMessage;
+  $("submission-gate-message").hidden = submissionsEnabled;
+  $("submission-gate-message").textContent = submissionsEnabled ? "" : submissionsMessage;
   for (const id of ["submission-gate-message", "submit-availability"]) $(id).classList.toggle("submission-paused", !submissionsEnabled);
-  $("submit-availability").textContent = !submissionsEnabled ? submissionsMessage :
-    [submissionsMessage, campaignAvailability].filter(Boolean).join(" ");
+  $("submit-availability").textContent = submissionsEnabled ? campaignAvailability : submissionsMessage;
 }
 function loadSubmissionStatus() {
   if (gateRequest) return gateRequest;

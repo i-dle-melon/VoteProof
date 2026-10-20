@@ -153,6 +153,28 @@ test("submission OFF to ON requires explicit confirmation and never toggles auto
   page.once("dialog", d => { expect(d.message()).toContain("確定開放"); void d.accept(); }); await save(page, "保存投稿設定"); await expect(page.locator("#admin-field-submissions_enabled")).toHaveValue("true");
   await expect.poll(() => state.calls.find(c => c.path.endsWith("submissions/update"))?.body.expected_version).toBe(0);
 });
+
+test("submission public message is editable only while OFF and retained while ON", async ({ page }) => {
+  const state = await adminFixture(page);
+  state.submissions.submissions_message = '維護通知';
+  await open(page, '投稿設定');
+  const enabled = page.locator('#admin-field-submissions_enabled');
+  const message = page.locator('#admin-field-submissions_message');
+  await expect(message).toBeVisible();
+  await message.fill('暫停時通知');
+  await enabled.selectOption('true');
+  await expect(message).toBeHidden();
+  await save(page, '保存投稿設定');
+  await expect.poll(() => state.submissions.submissions_enabled).toBe(true);
+  await expect(message).toBeHidden();
+  expect(state.submissions.submissions_message).toBe('暫停時通知');
+  await enabled.selectOption('false');
+  await expect(message).toBeVisible();
+  await expect(message).toHaveValue('暫停時通知');
+  await save(page, '保存投稿設定');
+  await expect.poll(() => state.submissions.submissions_enabled).toBe(false);
+  await expect(message).toBeVisible();
+});
 test("audit renders real safe fields as text, no internal result JSON", async ({ page }) => {
   const state = await adminFixture(page); state.audit.push({ action: "campaign_create", target_id: '<img src=x onerror="unsafe()">', admin_member_id: state.member.member_id, created_at: new Date().toISOString(), before: { private: "not-for-display" } });
   await open(page, "操作紀錄"); await expect(panel(page)).toContainText("建立活動"); await expect(panel(page)).toContainText("<img"); await expect(panel(page).locator(".inline-review img")).toHaveCount(0); await expect(panel(page)).not.toContainText("not-for-display");

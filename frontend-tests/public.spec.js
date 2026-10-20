@@ -201,11 +201,14 @@ test("global status outage fails closed even with active campaigns", async ({ pa
   await expect(page.locator('#submit-button')).toBeDisabled();await expect(page.locator('#nickname')).toBeDisabled();
 });
 test("refreshing availability reflects admin OFF then ON without resetting form", async ({ page }) => {
-  const options={};await fixture(page,options);await page.goto('/#submit');
+  const options={submissionsMessage:'只在暫停時顯示'};await fixture(page,options);await page.goto('/#submit');
+  await expect(page.locator('#submission-gate-message')).toBeHidden();
+  await expect(page.locator('#submit-availability')).toHaveText('目前有 1 個開放中的活動。');
   await expect(page.locator('#note')).toBeEnabled();await page.locator('#note').fill('保留資料');
   options.submissionsOff=true;options.submissionsMessage='維護中';await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await page.evaluate(()=>{location.hash='submit';});
   await expect(page.locator('#submit-button')).toBeDisabled();await expect(page.locator('#submit-availability')).toHaveText('維護中');
-  options.submissionsOff=false;options.submissionsMessage=null;await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await page.evaluate(()=>{location.hash='submit';});
+  options.submissionsOff=false;await page.locator('a[data-view="home"]:visible').first().click();await page.locator('#campaign-refresh').click();await expect(page.locator('#submission-gate-message')).toBeHidden();await page.evaluate(()=>{location.hash='submit';});
+  await expect(page.locator('#submit-availability')).toHaveText('目前有 1 個開放中的活動。');
   await expect(page.locator('#note')).toBeEnabled();await expect(page.locator('#note')).toHaveValue('保留資料');
 });
 

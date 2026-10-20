@@ -442,7 +442,10 @@ export function adminUI(session) {
     heading(copy("admin-copy-021"), copy("admin-copy-122"));
     const data = await request("submissions"), f = formCard(copy("admin-copy-123"));
     const enabled = field(f, "submissions_enabled", copy("admin-copy-123"), "select", String(data.submissions_enabled), { choices: [["false", copy("admin-copy-124")], ["true", copy("admin-copy-125")]] });
-    field(f, "submissions_message", copy("admin-copy-126"), "textarea", data.submissions_message ?? "", { maxLength: 500 }); submitButton(f, copy("admin-copy-127"));
+    const message = field(f, "submissions_message", copy("admin-copy-126"), "textarea", data.submissions_message ?? "", { maxLength: 500 });
+    const syncMessage = () => { message.closest(".field").hidden = enabled.value === "true"; };
+    enabled.addEventListener("change", syncMessage); syncMessage();
+    submitButton(f, copy("admin-copy-127"));
     const born = sequence;
     f.addEventListener("submit", event => { event.preventDefault(); if (!f.reportValidity()) return;
       if (!window.confirm(enabled.value === "true" && !data.submissions_enabled ? copy("admin-copy-128") : copy("admin-copy-129"))) return;

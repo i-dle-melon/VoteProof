@@ -40,6 +40,10 @@ export async function adminFixture(page, options = {}) {
       state.audit.push({ id: randomUUID(), action: path.includes("campaigns") ? "campaign_update" : "approve", target_id: "LOCAL", admin_member_id: state.member.member_id, created_at: new Date().toISOString() });
     }
     if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
+    if (path === '/api/admin/backups/missing') {
+      const current = Number(url.searchParams.get('page') ?? 1), total = state.backupMissing;
+      return reply({ files: Array.from({length:Math.max(0,Math.min(10,total-(current-1)*10))}, (_,i) => ({ file_id:'local-proof-'+((current-1)*10+i+1), case_id:state.caseId, created_at:'2026-10-21T02:00:00.000Z', size:1024, content_type:'image/png' })), page:current, page_size:10, total, total_pages:Math.max(1,Math.ceil(total/10)) });
+    }
     if (path.endsWith('/backups')) return reply({ ...state.backupReadiness, backups: state.backups });
     if (/\/backups\/[^/]+\/process$/.test(path)) { if(state.backupReadiness.transport!=='deprecated_worker_oauth')return error('DIRECT_BACKUP_PROCESSING_RETIRED',410);const b=state.backups.find(b=>path.includes(b.id)); b.status='confirmed';return reply({state:'complete',confirmed:1}); }
     if (/\/backups\/[^/]+\/retry$/.test(path)) { const b = state.backups.find(b=>path.includes(b.id)); b.status='pending'; return reply({ status:'pending' }); }

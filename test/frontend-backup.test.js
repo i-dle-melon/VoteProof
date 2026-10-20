@@ -24,3 +24,8 @@ test('manual backup path is explicit and readiness errors are safe user copy',()
   assert.equal(adminMessage({code:'DRIVE_BACKUP_NOT_CONFIGURED'}),'Google Drive 備份尚未設定完成。');
   assert.doesNotMatch(adminMessage({code:'upstream private text'}),/upstream/);
 });
+
+test('missing backup list transport accepts only bounded page numbers on the read-only list route',()=>{
+  for(const path of ['/api/admin/backups/missing','/api/admin/backups/missing?page=1','/api/admin/backups/missing?page=35'])assert.equal(adminPath(path),true);
+  for(const query of ['page=0','page=-1','page=01','page=1.5','page=9007199254740991','page=1&page=2','page=1&token=forged','limit=100','page='])assert.equal(adminPath('/api/admin/backups/missing?'+query),false);
+});

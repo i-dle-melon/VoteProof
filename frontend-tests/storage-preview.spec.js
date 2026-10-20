@@ -97,3 +97,20 @@ test("reviewer cannot access storage management tab", async ({ page }) => {
     page.locator("#admin-tabs").getByRole("button", { name: "Google Drive 備份", exact: true }),
   ).toHaveCount(0);
 });
+
+test('Pages missing backup dialog uses the shared renderer and fixture pages without network mutations',async({page})=>{
+  const requests=[];page.on('request',r=>requests.push({url:r.url(),method:r.method()}));
+  await backup(page);
+  const summary=()=>page.locator('#admin-panel summary').filter({hasText:'尚未排入備份'});
+  await expect(summary()).toHaveText('尚未排入備份：23');await summary().click();
+  await page.getByRole('button',{name:'查看未排入備份清單'}).click();
+  const dialog=page.getByRole('dialog',{name:'尚未排入備份',exact:true});
+  await expect(dialog.locator('article')).toHaveCount(10);
+  await dialog.getByLabel('頁碼',{exact:true}).fill('3');await dialog.getByRole('button',{name:'前往',exact:true}).click();
+  await expect(dialog.locator('article')).toHaveCount(3);await expect(dialog).toContainText('第 3／3 頁');await page.keyboard.press('Escape');
+  await page.goto(origin+'/VoteProof/?preview_identity=admin&preview_data=empty#admin');
+  await page.locator('#admin-tabs').getByRole('button',{name:'Google Drive 備份',exact:true}).click();
+  await expect(summary()).toHaveText('尚未排入備份：0');await summary().click();await page.getByRole('button',{name:'查看未排入備份清單'}).click();
+  await expect(page.getByRole('dialog',{name:'尚未排入備份',exact:true})).toContainText('目前沒有尚未排入備份的圖片。');
+  expect(requests.filter(r=>new URL(r.url).origin!==origin||new URL(r.url).pathname.includes('/api/')||r.method!=='GET')).toEqual([]);
+});

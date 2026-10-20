@@ -3,7 +3,7 @@ import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adm
 import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
-import { backupText, backupLink } from "./admin-backup.js";
+import { backupText, backupLink, missingBackupDialog } from "./admin-backup.js";
 import { renderDuplicateEvidence } from './admin-duplicate.js';
 import { renderImageExports } from './admin-export.js';
 import { memberContactUI } from './admin-member-contact.js';
@@ -48,11 +48,12 @@ export function adminUI(session) {
   const clearAlbumImages=()=>{thumbnails?.clear();thumbnails=null;};
   let expanded=null;
   let blockDialog=null;
+  let backupDialog=null;
   let memberContact=null;
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
   function clearImages() { for (const url of urls) URL.revokeObjectURL(url); urls = []; }
-  function clearPanel() { memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
+  function clearPanel() { backupDialog?.close();backupDialog?.remove();backupDialog=null;memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
   const access = new AdminAccess(session, actor => {
     $("admin-nav-group").hidden = $("member-admin-entry").hidden = !actor;
     $("admin-content").hidden = !actor; $("admin-gate").hidden = Boolean(actor);
@@ -221,12 +222,19 @@ export function adminUI(session) {
       if (data.transport === 'apps_script_pull') box.append(node('p', copy('backup-relay'), 'tiny'));
       if (data.transport === 'apps_script_pull' && data.ready) box.append(node('p', copy('backup-ready'), 'tiny'));
       if (data.blocked_error_code) box.append(node('p', backupErrors[data.blocked_error_code] ?? backupErrors.INTERNAL, 'notice warn'));
-      box.append(node('p', copy('backup-missing') + '：' + data.missing));
+      const missing = node('details');
+      missing.append(node('summary', copy('backup-missing') + '：' + data.missing));
+      const showMissing = button('查看未排入備份清單', () => {
+        if (busy || backupDialog?.open) return;
+        const dialog = missingBackupDialog({request, node, button, opener:showMissing, message:adminMessage, onClose:() => { if(backupDialog===dialog)backupDialog=null; }});
+        backupDialog=dialog;
+      });
+      missing.append(showMissing);box.append(missing);
       // A bounded dry run first; enqueue requires a separate explicit confirmation.
-      if (data.missing) box.append(button(copy('backup-check'), () => void run(async () => {
+      if (data.missing) missing.append(button(copy('backup-check'), () => void run(async () => {
         const preview = await mutate('backups/backfill', { dry_run: true, limit: 25 });
-        box.append(node('p', copy('backup-check-summary').replaceAll('{scanned}',preview.scanned).replaceAll('{ready}',preview.ready.length).replaceAll('{missing}',preview.missing.length).replaceAll('{changed}',preview.changed.length)));
-        if (data.ready === true && preview.ready.length) box.append(button(copy('backup-enqueue'), () => void run(async () => {
+        missing.append(node('p', copy('backup-check-summary').replaceAll('{scanned}',preview.scanned).replaceAll('{ready}',preview.ready.length).replaceAll('{missing}',preview.missing.length).replaceAll('{changed}',preview.changed.length)));
+        if (data.ready === true && preview.ready.length) missing.append(button(copy('backup-enqueue'), () => void run(async () => {
           if (!window.confirm(copy('backup-enqueue-confirm'))) return;
           await mutate('backups/backfill', { dry_run: false, file_ids: preview.ready }); await load();
         })));

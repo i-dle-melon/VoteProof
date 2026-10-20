@@ -337,6 +337,10 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
         adminCases.filter(c=>(!url.searchParams.get("status") || c.status===url.searchParams.get("status")) && (!url.searchParams.get("review_stage") || c.review_stage===url.searchParams.get("review_stage"))).map(c=>({...c,primary_file_id:c.files[0].file_id})),
       ),
     );
+  if (p === '/api/admin/backups/missing') {
+    const page = Number(url.searchParams.get('page') ?? 1), total = state.data === 'empty' ? 0 : 23;
+    return reply({files:Array.from({length:Math.max(0,Math.min(10,total-(page-1)*10))},(_,i)=>({file_id:'PREVIEW-UNSCHEDULED-'+((page-1)*10+i+1),case_id:'VP-PREVIEW-001',created_at:'2026-10-21T02:00:00.000Z',content_type:'image/png',size:1024})),page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+  }
   if (p === "/api/admin/backups" || /^\/api\/admin\/cases\/VP-PREVIEW-\d+\/backups$/.test(p))
     return reply({
       enabled: false,
@@ -345,7 +349,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       transport: "apps_script_pull",
       storage:storageFixture,
       counts: { pending: 0, processing: 0, confirmed: 0, failed: 0 },
-      missing: 0,
+      missing: state.data === 'empty' ? 0 : 23,
       audit: [],
       backups: [],
     });

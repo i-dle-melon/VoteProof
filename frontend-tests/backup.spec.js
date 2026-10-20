@@ -32,7 +32,7 @@ test('reviewer can read per-proof backup but cannot see enqueue/retry controls',
   expect(state.calls.some(c=>c.path==='/api/admin/backups')).toBe(false);
 });
 test('backfill first performs dry run, then separate confirmed enqueue; missing schema preserves review UI',async({page})=>{
-  const state=await adminFixture(page);state.backupMissing=1;await ready(page);
+  const state=await adminFixture(page);state.backupMissing=1;await ready(page);await page.locator('summary').filter({hasText:'尚未排入備份'}).click();
   await page.getByRole('button',{name:'檢查未備份證明'}).click();await expect(page.locator('#admin-panel')).toContainText('可排入 1 張');
   expect(state.calls.filter(c=>c.path.endsWith('/backfill')).map(c=>c.body.dry_run)).toEqual([true]);
   await page.getByRole('button',{name:'排入本次備份'}).click();await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/backfill')).length).toBe(2);
@@ -58,6 +58,7 @@ for(const enabled of [false,true])test(`backup ${enabled?'unconfigured':'disable
   const state=await adminFixture(page);state.backupReadiness={enabled,configured:false,ready:false};state.backupMissing=1;
   state.backups=[{id:randomUUID(),status:'failed',last_error_code:'NETWORK',version:1,next_attempt_at:1},{id:randomUUID(),status:'pending',version:0}];
   await ready(page);await expect(page.locator('#admin-panel')).toContainText(enabled?'尚未設定完成':'尚未啟用');
+  await page.locator('summary').filter({hasText:'尚未排入備份'}).click();
   await page.getByRole('button',{name:'檢查未備份證明'}).click();await expect(page.locator('#admin-panel')).toContainText('可排入 1 張');
   await expect(page.getByRole('button',{name:'排入本次備份',exact:true})).toHaveCount(0);
   await openReview(page);
@@ -84,4 +85,58 @@ test('Apps Script ready state allows retry/enqueue but hides Worker manual execu
   await page.getByRole('button',{name:'重試備份',exact:true}).click();
   await expect.poll(()=>state.calls.some(c=>c.path.endsWith('/retry'))).toBe(true);
   expect(state.calls.some(c=>c.path.endsWith('/process'))).toBe(false);
+});
+
+const missingSummary = page => page.locator('#admin-panel summary').filter({hasText:'尚未排入備份'});
+const openMissing = async page => {await missingSummary(page).click();await page.getByRole('button',{name:'查看未排入備份清單'}).click();return page.getByRole('dialog',{name:'尚未排入備份',exact:true});};
+
+test('missing backups are initially collapsed, including zero; dialog is empty and Escape restores focus',async({page})=>{
+  const state=await adminFixture(page);await ready(page);
+  await expect(missingSummary(page)).toHaveText('尚未排入備份：0');
+  await expect(page.getByRole('button',{name:'查看未排入備份清單'})).toBeHidden();
+  expect(state.calls.some(c=>c.path.endsWith('/missing'))).toBe(false);
+  const dialog=await openMissing(page);await expect(dialog).toContainText('目前沒有尚未排入備份的圖片。');
+  await expect(dialog.getByRole('button',{name:'上一頁'})).toBeDisabled();await expect(dialog.getByRole('button',{name:'下一頁'})).toBeDisabled();
+  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(page.getByRole('button',{name:'查看未排入備份清單'})).toBeFocused();
+  expect(state.calls.filter(c=>c.method==='POST')).toEqual([]);
+});
+
+test('missing backups paginate by ten with previous/next, direct page entry and bounds validation',async({page})=>{
+  const state=await adminFixture(page);state.backupMissing=23;await ready(page);const dialog=await openMissing(page);
+  await expect(dialog.locator('article')).toHaveCount(10);await expect(dialog).toContainText('第 1／3 頁');
+  await dialog.getByRole('button',{name:'下一頁'}).click();await expect(dialog).toContainText('第 2／3 頁');await expect(dialog.locator('article').first()).toContainText('local-proof-11');
+  await dialog.getByLabel('頁碼',{exact:true}).fill('3');await dialog.getByRole('button',{name:'前往',exact:true}).click();
+  await expect(dialog.locator('article')).toHaveCount(3);await expect(dialog).toContainText('第 3／3 頁');await expect(dialog.getByRole('button',{name:'下一頁'})).toBeDisabled();
+  const requests=state.calls.filter(c=>c.path.endsWith('/missing')).length;
+  await dialog.getByLabel('頁碼',{exact:true}).fill('4');await dialog.getByRole('button',{name:'前往',exact:true}).click();
+  expect(state.calls.filter(c=>c.path.endsWith('/missing')).length).toBe(requests);
+  await dialog.getByLabel('頁碼',{exact:true}).fill('1');await dialog.getByLabel('頁碼',{exact:true}).press('Enter');
+  await expect(dialog).toContainText('第 1／3 頁');await dialog.getByRole('button',{name:'下一頁'}).click();await expect(dialog).toContainText('第 2／3 頁');
+  await dialog.getByRole('button',{name:'上一頁'}).click();await expect(dialog).toContainText('第 1／3 頁');
+  await dialog.getByRole('button',{name:'關閉',exact:true}).click();await expect(dialog).toHaveCount(0);
+  expect(state.calls.filter(c=>c.method==='POST')).toEqual([]);
+});
+
+test('missing backup dialog handles load failure, explicit retry and a shrinking final page',async({page})=>{
+  const state=await adminFixture(page);state.backupMissing=23;let fail=true;
+  await page.route('**/api/admin/backups/missing?*',async route=>{if(fail)return route.fulfill({status:503,json:{ok:false,error:{code:'ADMIN_SERVICE_UNAVAILABLE',message:'private upstream detail'}}});return route.fallback();});
+  await ready(page);const dialog=await openMissing(page);await expect(dialog.getByRole('alert')).toContainText('暫時無法載入');
+  await expect(dialog).not.toContainText('private upstream detail');fail=false;await dialog.getByRole('button',{name:'重試載入清單'}).click();await expect(dialog).toContainText('第 1／3 頁');
+  state.backupMissing=5;await dialog.getByLabel('頁碼',{exact:true}).fill('3');await dialog.getByRole('button',{name:'前往',exact:true}).click();
+  await expect(dialog).toContainText('第 1／1 頁');await expect(dialog.locator('article')).toHaveCount(5);
+  await page.evaluate(()=>{location.hash='home';});await expect(dialog).toHaveCount(0);
+});
+
+test('missing backup dialog fits mobile themes, traps focus and closes on its backdrop',async({page})=>{
+  const state=await adminFixture(page);state.backupMissing=23;await ready(page);
+  for(const width of [320,390,430])for(const theme of ['dark','light']){
+    await page.setViewportSize({width,height:844});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+    if(await page.getByRole('button',{name:'查看未排入備份清單'}).isHidden())await missingSummary(page).click();
+    await page.getByRole('button',{name:'查看未排入備份清單'}).click();const dialog=page.getByRole('dialog',{name:'尚未排入備份',exact:true});
+    await expect(dialog.locator('article')).toHaveCount(10);
+    expect(await dialog.evaluate(d=>{const r=d.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&d.scrollWidth<=d.clientWidth;})).toBe(true);
+    await dialog.getByRole('button',{name:'關閉',exact:true}).focus();await page.keyboard.press('Shift+Tab');
+    expect(await dialog.evaluate(d=>d.contains(document.activeElement))).toBe(true);
+    await page.mouse.click(1,1);await expect(dialog).toHaveCount(0);
+  }
 });

@@ -2756,3 +2756,9 @@ button.legacy-case-row:hover {
 .member-mail-compose textarea { min-height:200px;resize:vertical; }
 .contact-footer { display:flex;gap:12px;flex-wrap:wrap;justify-content:space-between;border-top:1px solid var(--line);padding-top:16px; }
 .member-contact-dialog .notice:empty { display:none; }
+.backup-missing-dialog { overflow-wrap:anywhere; }
+.backup-missing-list { display:grid;gap:12px; }
+.backup-missing-list h3 { margin-top:0; }
+.backup-pagination { display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px; }
+.backup-pagination label { display:flex;align-items:center;gap:8px; }
+.backup-pagination input { width:5em;min-width:0;max-width:100%;box-sizing:border-box; }

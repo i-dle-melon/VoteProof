@@ -19,6 +19,22 @@ const summary = adminHandler(async (env, _url, request) => {
   const audit = (await env.DB.prepare('SELECT created_at,action,target_id,affected_count FROM backup_admin_audit ORDER BY created_at DESC,id DESC LIMIT 10').all()).results;
   return jsonSuccess({ ...backupReadiness(env), ...await backupSummary(env.DB), storage:await storageSummary(env.DB), audit });
 });
+const missingList = adminHandler(async (env, url, request) => {
+  await adminIdentity(request, env, ELEVATED_ROLES);
+  const raw = url.searchParams.get('page') ?? '1', page = Number(raw);
+  if ([...url.searchParams.keys()].some(key => key !== 'page') || url.searchParams.getAll('page').length > 1 ||
+      !/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(page) || !Number.isSafeInteger(page * 10)) invalid();
+  // Metadata only. Listing must not HEAD/download R2 objects or enqueue backups.
+  const missing = "NOT EXISTS(SELECT 1 FROM proof_backups b WHERE b.file_id=f.id AND b.provider='google_drive')";
+  const [count, rows] = await env.DB.batch([
+    env.DB.prepare(`SELECT count(*) AS total FROM case_files f WHERE ${missing}`),
+    env.DB.prepare(`SELECT f.id AS file_id,c.case_id,c.created_at,f.size,f.content_type
+      FROM case_files f JOIN cases c ON c.id=f.case_id WHERE ${missing} ORDER BY f.id LIMIT 10 OFFSET ?`)
+      .bind((page - 1) * 10),
+  ]);
+  const total = count.results[0].total;
+  return jsonSuccess({ files: rows.results, page, page_size: 10, total, total_pages: Math.max(1, Math.ceil(total / 10)) });
+});
 const caseBackups = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const id = url.pathname.split('/')[4]; if (!CASE_ID_PATTERN.test(id)) invalid();
@@ -76,6 +92,7 @@ const processOne = adminHandler(async (env, url, request) => {
 });
 const routes = new Map([
   ['/api/admin/backups', { method: 'GET', handler: summary }],
+  ['/api/admin/backups/missing', { method: 'GET', handler: missingList }],
   ['/api/admin/backups/backfill', { method: 'POST', handler: backfill }],
 ]);
 export function backupAdminRoute(path) {

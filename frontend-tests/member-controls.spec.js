@@ -2,10 +2,41 @@ import {test,expect} from './isolated-ui-fixture.mjs';
 const preview='http://127.0.0.1:4174/VoteProof/';
 const ready=p=>expect(p.locator('html')).toHaveAttribute('data-preview-ready','true');
 const tab=async(p,name)=>{await p.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(p.locator('#admin-panel')).toHaveAttribute('aria-busy','false');};
-test('point ledger starts collapsed, pages ten rows forward and backward, fits both themes',async({page})=>{
- await page.goto(preview+'?preview_identity=member#member');await ready(page);const details=page.locator('#point-record-details');await expect(details).not.toHaveAttribute('open');await details.locator('summary').click();await expect(page.locator('.point-record-row')).toHaveCount(10);const first=await page.locator('.point-record-row').first().textContent();
- await page.locator('#point-record-next').click();await expect(page.locator('#point-record-page')).toHaveText('第 2 頁 · 每頁 10 筆');await expect(page.locator('.point-record-row')).toHaveCount(10);await page.locator('#point-record-next').click();await expect(page.locator('.point-record-row')).toHaveCount(3);await expect(page.locator('#point-record-next')).toBeDisabled();await page.locator('#point-record-previous').click();await page.locator('#point-record-previous').click();await expect(page.locator('.point-record-row').first()).toHaveText(first);
- for(const width of [320,390,430,1024,1440])for(const theme of ['dark','light']){await page.setViewportSize({width,height:900});await page.goto(preview+'?preview_identity=member&preview_theme='+theme+'#member');await ready(page);await page.locator('#point-record-details summary').click();await expect(page.locator('.point-record-row')).toHaveCount(10);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
+test('point ledger starts collapsed and modal pages ten rows forward and backward, fits both themes',async({page})=>{
+ await page.goto(preview+'?preview_identity=member#member');
+ await ready(page);
+ const details=page.locator('#point-record-details');
+ const opener=page.getByRole('button',{name:'查看點數異動清單'});
+ await expect(details).not.toHaveAttribute('open');
+ await expect(opener).toBeHidden();
+ await details.locator('summary').click();
+ await opener.click();
+ const dialog=page.getByRole('dialog',{name:'點數異動明細'});
+ await expect(dialog.locator('.point-record-row')).toHaveCount(10);
+ const first=await dialog.locator('.point-record-row').first().textContent();
+ await dialog.getByRole('button',{name:'下一頁'}).click();
+ await expect(dialog).toContainText('第 2／3 頁');
+ await expect(dialog.locator('.point-record-row')).toHaveCount(10);
+ await dialog.getByRole('button',{name:'下一頁'}).click();
+ await expect(dialog.locator('.point-record-row')).toHaveCount(3);
+ await expect(dialog.getByRole('button',{name:'下一頁'})).toBeDisabled();
+ await dialog.getByRole('button',{name:'上一頁'}).click();
+ await dialog.getByRole('button',{name:'上一頁'}).click();
+ await expect(dialog.locator('.point-record-row').first()).toHaveText(first);
+ await dialog.getByRole('button',{name:'關閉'}).click();
+ await expect(opener).toBeFocused();
+ for(const width of [320,390,430,1024,1440])for(const theme of ['dark','light']){
+   await page.setViewportSize({width,height:900});
+   await page.goto(preview+'?preview_identity=member&preview_theme='+theme+'#member');
+   await ready(page);
+   await page.locator('#point-record-details summary').click();
+   await page.getByRole('button',{name:'查看點數異動清單'}).click();
+   const modal=page.getByRole('dialog',{name:'點數異動明細'});
+   await expect(modal.locator('.point-record-row')).toHaveCount(10);
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   expect(await modal.evaluate(d=>{const r=d.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;})).toBe(true);
+   await modal.getByRole('button',{name:'關閉'}).click();
+ }
 });
 test('manager blocks only after red confirmation, list restores member; reviewer has no entry',async({page})=>{
  await page.goto(preview+'?preview_identity=admin#admin');await ready(page);await tab(page,'會員封鎖');const labels=await page.locator('#admin-tabs button').allTextContents();expect(labels.indexOf('會員封鎖')).toBe(labels.indexOf('會員等級')+1);

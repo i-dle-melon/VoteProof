@@ -127,6 +127,12 @@ h3 {
   outline: 3px solid var(--primary);
   outline-offset: 4px;
 }
+/* Android Chrome may not match :focus-visible for scripted focus after pointer navigation.
+   The lookup text field must keep a visible outline whenever focused. */
+#lookup-id:focus {
+  outline: 3px solid var(--primary);
+  outline-offset: 4px;
+}
 .skip-link {
   position: fixed;
   top: 8px;

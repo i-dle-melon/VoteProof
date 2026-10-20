@@ -137,7 +137,7 @@ export function adminPath(path) {
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
   if (pathname.includes("/files/") && query !== undefined) return false;
-  if (pathname === '/api/admin/backups/missing') {
+  if (pathname === '/api/admin/backups/missing' || pathname === '/api/admin/storage/history') {
     const params = new URLSearchParams(query ?? '');
     return [...params.keys()].every(key => key === 'page') && params.getAll('page').length <= 1 &&
       (!params.has('page') || /^[1-9]\d*$/.test(params.get('page')) && Number.isSafeInteger(Number(params.get('page')) * 10));

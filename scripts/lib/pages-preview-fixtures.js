@@ -178,6 +178,16 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   const storageFixture={budget:{budget:10000000000},used_bytes:{normal:7200000000,high:9100000000,stopped:9600000000,recovered:8400000000}[state.storage]??0,reserved_bytes:20000000,blocked:['stopped','unknown'].includes(state.storage),observed_at:1791979200,trusted_until:1791979800,cleanup_mode:'dry-run',retention_approved:false,anomaly:state.storage==='cleanup_failed'?'CLEANUP_VERIFICATION_FAILED':state.storage==='unknown'?'USAGE_UNKNOWN':null,history:[{created_at:1791975600,bytes:7000000000,object_count:1400,staging_bytes:10000000,other_bytes:20000000}],drive_quota:{state:state.storage==='drive_error'?'error':state.storage==='unknown'?'unknown':'known',total_bytes:state.storage==='unknown'?null:15*1024**3,used_bytes:10*1024**3,remaining_percent:['unknown','drive_error'].includes(state.storage)?null:33.3,observed_at:1791979200,stale:false}};
   if(state.storage==='unknown'){storageFixture.used_bytes=null;storageFixture.observed_at=null;}
   if(p.startsWith('/api/admin/storage')&&(!isManager||previewLoggedOut))return reply('ADMIN_FORBIDDEN',403);
+  if(p==='/api/admin/storage/history'){
+    if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
+    const page=Number(url.searchParams.get('page')??1),total=state.data==='empty'?0:23;
+    const history=Array.from({length:Math.max(0,Math.min(10,total-(page-1)*10))},(_,i)=>{
+      const number=(page-1)*10+i+1;
+      return {created_at:1791979200-number*3600,bytes:7000000000-number*10000000,
+        object_count:1400-number,staging_bytes:10000000,other_bytes:20000000};
+    });
+    return reply({history,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+  }
   if(p==='/api/admin/storage')return reply(storageFixture);
   if(p==='/api/admin/storage/inventory')return reply({complete:true,bytes:storageFixture.used_bytes});
   if(p==='/api/admin/storage/dry-run')return reply({dry_run:true,retention_approved:false,items:state.storage==='cleanup_failed'?[{state:'blocked',would_delete:false}]:[{state:'dry_run',would_delete:true}]});
@@ -299,7 +309,10 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   }
   if(p==='/api/me/point-transactions'){
     if(state.identity==='guest'||previewLoggedOut)return reply('AUTH_REQUIRED',401);
-    const offset=Number(url.searchParams.get('cursor')??0),all=Array.from({length:23},(_,i)=>({transaction_id:'PREVIEW-POINT-'+i,created_at:new Date(Date.UTC(2026,9,17-i)).toISOString(),category:i===3?'proof_revoked':'proof_approved',points:i===3?-10:10,reason:i===3?'展示撤銷積分・假資料':'展示投稿核准・假資料',campaign_name:campaign.name})),rows=state.data==='empty'?[]:all;
+    if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
+    const offset=Number(url.searchParams.get('page')??0)>0?(Number(url.searchParams.get('page'))-1)*10:Number(url.searchParams.get('cursor')??0),
+      all=Array.from({length:23},(_,i)=>({transaction_id:'PREVIEW-POINT-'+i,created_at:new Date(Date.UTC(2026,9,17-i)).toISOString(),category:i===3?'proof_revoked':'proof_approved',points:i===3?-10:10,reason:i===3?'展示撤銷積分・假資料':'展示投稿核准・假資料',campaign_name:campaign.name})),rows=state.data==='empty'?[]:all;
+    if(url.searchParams.has('page'))return reply({transactions:rows.slice(offset,offset+10),page:Number(url.searchParams.get('page')),page_size:10,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/10))});
     return reply({transactions:rows.slice(offset,offset+10),next_cursor:rows.length>offset+10?String(offset+10):null});
   }
   if (p === "/api/me/points")

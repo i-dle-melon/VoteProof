@@ -4,6 +4,7 @@ import { Challenge } from "./turnstile.js";
 import { drawEnrollment, clearEnrollment, enrollmentKey } from "./qr.js";
 import { tierArtwork, renderTierArtwork } from "./tier-artwork.js";
 import { memberTierProgress } from "./member-tier-progress.js";
+import { pagedListDialog } from "./paginated-dialog.js";
 
 const $ = id => document.getElementById(id);
 const element = (tag, text, className) => {
@@ -37,21 +38,25 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   });
   let memberEpoch = 0, casesCursor = null, casesBusy = null, wasLoggedIn = false;
   let caseOpener=null;
-  let ledgerCursors=[null],ledgerIndex=0,ledgerNext=null,ledgerSequence=0,ledgerLoaded=false;
-  function resetLedger(){ledgerSequence++;ledgerCursors=[null];ledgerIndex=0;ledgerNext=null;ledgerLoaded=false;$('point-record-details').open=false;$('point-record-list').replaceChildren();$('point-record-status').textContent='';$('point-record-previous').disabled=$('point-record-next').disabled=true;$('point-record-page').textContent='第 1 頁 · 每頁 10 筆';}
-  async function loadLedger(index=0){
-    const owner=session.member?.member_id,requestId=++ledgerSequence;if(!owner)return;$('point-record-previous').disabled=$('point-record-next').disabled=true;$('point-record-status').textContent='正在載入點數紀錄…';
-    try{const data=await session.request('/api/me/point-transactions?limit=10'+(ledgerCursors[index]?'&cursor='+encodeURIComponent(ledgerCursors[index]):''));if(owner!==session.member?.member_id||requestId!==ledgerSequence)return;
-      ledgerIndex=index;ledgerNext=data.next_cursor;ledgerLoaded=true;const list=$('point-record-list');list.replaceChildren();
-      const categories={proof_approved:'投稿通過',proof_reapproved:'投稿重新通過',proof_revoked:'投稿撤銷',manual_adjustment:'點數調整'};
-      for(const row of data.transactions){const item=element('article','','point-record-row'),amount=element('strong',(row.points>0?'+':'')+row.points+' 點');item.append(element('p',memberDate(row.created_at),'tiny'),element('p',categories[row.category]??'點數異動'),amount);if(row.campaign_name)item.append(element('p',row.campaign_name));if(row.reason)item.append(element('p',row.reason,'content-lines'));list.append(item);}
-      $('point-record-status').textContent=data.transactions.length?'':'目前沒有點數異動紀錄。';$('point-record-page').textContent=`第 ${index+1} 頁 · 每頁 10 筆`;
-    }catch(e){if(requestId===ledgerSequence)$('point-record-status').textContent=authMessage(e);}
-    finally{if(requestId===ledgerSequence){$('point-record-previous').disabled=!ledgerLoaded||ledgerIndex===0;$('point-record-next').disabled=!ledgerLoaded||!ledgerNext;}}
-  }
-  $('point-record-details').addEventListener('toggle',()=>{if($('point-record-details').open&&!ledgerLoaded)void loadLedger();});
-  $('point-record-next').addEventListener('click',()=>{if(!ledgerNext||$('point-record-next').disabled)return;ledgerCursors[ledgerIndex+1]=ledgerNext;void loadLedger(ledgerIndex+1);});
-  $('point-record-previous').addEventListener('click',()=>{if(ledgerIndex>0&&!$('point-record-previous').disabled)void loadLedger(ledgerIndex-1);});
+  let ledgerDialog=null;
+  function resetLedger(){ledgerDialog?.close();ledgerDialog?.remove();ledgerDialog=null;$('point-record-details').open=false;}
+  $('point-record-open').addEventListener('click',()=>{
+    const owner=session.member?.member_id;if(!owner||ledgerDialog?.open)return;
+    const opener=$('point-record-open');let dialog;
+    dialog=pagedListDialog({
+      title:'點數異動明細',opener,itemsKey:'transactions',
+      fetchPage:async page=>{const data=await session.request('/api/me/point-transactions?limit=10&page='+page);if(session.member?.member_id!==owner)throw {code:'AUTH_REQUIRED'};return data;},
+      emptyText:'目前沒有點數異動紀錄。',message:authMessage,
+      renderRow:row=>{
+        const categories={proof_approved:'投稿通過',proof_reapproved:'投稿重新通過',proof_revoked:'投稿撤銷',manual_adjustment:'點數調整'};
+        const item=element('article','','point-record-row'),amount=element('strong',(row.points>0?'+':'')+row.points+' 點');
+        item.append(element('p',memberDate(row.created_at),'tiny'),element('p',categories[row.category]??'點數異動'),amount);
+        if(row.campaign_name)item.append(element('p',row.campaign_name));if(row.reason)item.append(element('p',row.reason,'content-lines'));
+        return item;
+      },
+      onClose:()=>{if(ledgerDialog===dialog)ledgerDialog=null;}
+    });ledgerDialog=dialog;
+  });
   function closeCase(){if($("owned-case-detail").open)$("owned-case-detail").close();}
   $("owned-case-close").addEventListener("click",closeCase);
   $("owned-case-detail").addEventListener("close",()=>{if(caseOpener?.isConnected)caseOpener.focus();});

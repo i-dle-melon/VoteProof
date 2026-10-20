@@ -1,5 +1,6 @@
 // Shared Production/Pages renderer. Snapshots only; Google credentials never enter the browser.
-export function renderStorage(container, data, { node, button, mutate, reload }) {
+import { pagedListDialog } from './paginated-dialog.js';
+export function renderStorage(container, data, { node, button, mutate, reload, request, message, dialogActive, onDialog, onDialogClosed }) {
   const section = node("section", "", "storage-panel");
   section.setAttribute("aria-label", "儲存容量保護");
   container.append(section);
@@ -91,22 +92,23 @@ export function renderStorage(container, data, { node, button, mutate, reload })
       q.state !== "known" || q.stale ? "notice warn" : "tiny",
     ),
   );
-  const details = node("details");
-  details.append(node("summary", "容量歷史統計"));
-  for (const h of data.history ?? [])
-    details.append(
-      node(
-        "p",
-        time(h.created_at) +
-          " · " +
-          gb(h.bytes) +
-          " · " +
-          h.object_count +
-          " 個物件 · staging " +
-          gb(h.staging_bytes) +
-          " · 其他 " +
-          gb(h.other_bytes),
-      ),
-    );
+  const details = node('details');
+  details.append(node('summary','容量歷史統計'));
+  const showHistory=node('button','查看容量歷史清單','btn btn-white');showHistory.type='button';
+  showHistory.addEventListener('click',()=>{
+    if(!request||dialogActive?.())return;
+    let dialog;
+    dialog=pagedListDialog({
+      title:'容量歷史統計',opener:showHistory,itemsKey:'history',
+      fetchPage:page=>request('storage/history?page='+page),
+      emptyText:'目前沒有容量歷史紀錄。',message,
+      renderRow:h=>{const card=node('article','','member-case');card.append(
+        node('p','資料時間：'+time(h.created_at)),
+        node('p','容量：'+gb(h.bytes)+' · 物件：'+h.object_count),
+        node('p','staging：'+gb(h.staging_bytes)+' · 其他：'+gb(h.other_bytes)));return card;},
+      onClose:()=>onDialogClosed?.(dialog)
+    });onDialog?.(dialog);
+  });
+  details.append(showHistory);
   section.append(details);
 }

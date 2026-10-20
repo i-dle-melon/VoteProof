@@ -216,7 +216,7 @@ export function adminUI(session) {
     box.append(node('h3', copy('backup-title')));
     try {
       const data = await request('backups');
-      renderStorage(box,data.storage,{node,button:(label,action)=>button(label,()=>void run(action)),mutate,reload:load});
+      renderStorage(box,data.storage,{node,button:(label,action)=>button(label,()=>void run(action)),mutate,reload:load,request,message:adminMessage,dialogActive:()=>busy||backupDialog?.open,onDialog:d=>{backupDialog=d;},onDialogClosed:d=>{if(backupDialog===d)backupDialog=null;}});
       box.append(node('p', Object.entries(backupLabels).map(([key, label]) => label + '：' + data.counts[key]).join(' · ')));
       if (!data.ready) box.append(node('p', copy(data.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
       if (data.transport === 'apps_script_pull') box.append(node('p', copy('backup-relay'), 'tiny'));

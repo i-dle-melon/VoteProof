@@ -11,7 +11,20 @@ export const memberPoints = adminHandler(async (env, _url, request) => {
 });
 export const memberTransactions=adminHandler(async(env,url,request)=>{
  const member=await memberSession(request,env),invalid=()=>new AdminError(400,'INVALID_PAGINATION','點數紀錄分頁無效。');
- if([...url.searchParams.keys()].some(k=>!['limit','cursor'].includes(k))||[...url.searchParams.keys()].some(k=>url.searchParams.getAll(k).length!==1)||url.searchParams.has('limit')&&url.searchParams.get('limit')!=='10')throw invalid();
+ if([...url.searchParams.keys()].some(k=>!['limit','cursor','page'].includes(k))||[...url.searchParams.keys()].some(k=>url.searchParams.getAll(k).length!==1)||url.searchParams.has('limit')&&url.searchParams.get('limit')!=='10')throw invalid();
+  if(url.searchParams.has('page')){
+    const raw=url.searchParams.get('page'),page=Number(raw);
+    if(url.searchParams.has('cursor')||!/^[1-9]\\d*$/.test(raw)||!Number.isSafeInteger(page)||!Number.isSafeInteger(page*10))throw invalid();
+    const db=authDatabase(env);
+    const [count,rows]=await db.batch([
+      db.prepare('SELECT COUNT(*) AS total FROM point_transactions WHERE member_id=?').bind(member.member_id),
+      db.prepare(`SELECT t.created_at,t.category,t.points,t.reason,p.name AS campaign_name FROM point_transactions t
+        LEFT JOIN campaigns p ON p.campaign_id=t.campaign_id WHERE t.member_id=?
+        ORDER BY t.created_at DESC,t.transaction_id DESC LIMIT 10 OFFSET ?`).bind(member.member_id,(page-1)*10),
+    ]);
+    const total=count.results[0].total;
+    return jsonSuccess({transactions:rows.results,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+  }
  let cursor=null;const raw=url.searchParams.get('cursor');if(raw!==null){try{if(raw.length>220||!/^[A-Za-z0-9_-]+$/.test(raw))throw invalid();cursor=JSON.parse(atob(raw.replaceAll('-','+').replaceAll('_','/')));if(!Array.isArray(cursor)||cursor.length!==2||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(cursor[0])||!Number.isFinite(Date.parse(cursor[0]))||!UUID_PATTERN.test(cursor[1]))throw invalid();}catch{throw invalid();}}
  const rows=(await authDatabase(env).prepare(`SELECT t.transaction_id,t.created_at,t.category,t.points,t.reason,p.name AS campaign_name,c.case_id FROM point_transactions t
    LEFT JOIN campaigns p ON p.campaign_id=t.campaign_id LEFT JOIN cases c ON c.id=t.case_id WHERE t.member_id=?

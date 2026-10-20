@@ -41,6 +41,20 @@ export async function quotaSnapshot(env, v) {
     .run();
   return { accepted: true };
 }
+const historyList = adminHandler(async (env, url, request) => {
+  await adminIdentity(request, env, ELEVATED_ROLES);
+  const raw=url.searchParams.get('page') ?? '1',page=Number(raw);
+  if([...url.searchParams.keys()].some(k=>k!=='page') || url.searchParams.getAll('page').length>1 ||
+     !/^[1-9]\\d*$/.test(raw) || !Number.isSafeInteger(page) || !Number.isSafeInteger(page*10))
+    throw new AdminError(400,'INVALID_PAGINATION','容量歷史分頁無效。');
+  // Read-only metadata listing. No R2, Drive, cleanup, or inventory actions.
+  const [count,rows]=await env.DB.batch([
+    env.DB.prepare('SELECT COUNT(*) AS total FROM storage_history'),
+    env.DB.prepare('SELECT created_at,bytes,object_count,staging_bytes,other_bytes FROM storage_history ORDER BY created_at DESC,id DESC LIMIT 10 OFFSET ?').bind((page-1)*10),
+  ]);
+  const total=count.results[0].total;
+  return jsonSuccess({history:rows.results,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+});
 const admin = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES);
   if (url.search) throw new AdminError(400, "INVALID_STORAGE_REQUEST", "不支援查詢參數。");
@@ -90,6 +104,7 @@ const internal = async (env, url, request) => {
 };
 export function storageRoute(path) {
   if (path === "/api/admin/storage") return { method: "GET", handler: admin };
+  if (path === "/api/admin/storage/history") return { method: "GET", handler: historyList };
   if (["/api/admin/storage/inventory", "/api/admin/storage/dry-run"].includes(path))
     return { method: "POST", handler: admin };
   if (

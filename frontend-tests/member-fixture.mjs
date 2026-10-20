@@ -98,6 +98,13 @@ export async function memberFixture(page, options = {}) {
     if (path.startsWith("/api/me/")) {
       if (state.revoked) return error("AUTH_REQUIRED", 401);
       if (path === "/api/me/profile") { Object.assign(member, body); return reply({ member }); }
+      if (path === "/api/me/point-transactions") {
+        if (!state.authenticated) return error("AUTH_REQUIRED", 401);
+        if ((state.pointFailures ?? 0) > 0) { state.pointFailures--; return error("SERVICE_UNAVAILABLE", 503); }
+        const records=state.pointRecords??Array.from({length:23},(_,i)=>({transaction_id:'LOCAL-'+i,created_at:'2026-10-01T00:00:00.000Z',category:'proof_approved',points:10,reason:'本機測試交易 '+(i+1),campaign_name:'本機測試活動'}));
+        const page=Number(url.searchParams.get('page')??1),offset=(page-1)*10;
+        return reply({transactions:records.slice(offset,offset+10),page,page_size:10,total:records.length,total_pages:Math.max(1,Math.ceil(records.length/10))});
+      }
       if (path === "/api/me/points") return reply({ total_points: 123, tier: options.unconfigured ? { tier_id: "normal", name: "普通", min_points: 0, rank_order: 1 } : { tier_id: "bronze", name: "青銅", min_points: 100, rank_order: 2 },
         next_tier: options.unconfigured ? null : { tier_id: "silver", name: "白銀", min_points: 200, rank_order: 3 }, points_to_next_tier: 77,
         tier_progress: 23, tier_configuration_ready: !options.unconfigured });

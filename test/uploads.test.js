@@ -326,4 +326,13 @@ test("prepare produces private 300 second PUT URLs, fresh UUIDs and no PII or se
   assert.equal(text.includes("Authorization"), false);
 });
 
-test('opaque upload grant binds path and cannot be tampered with',async t=>{const env=configuredEnv();t.mock.method(globalThis,'fetch',()=>Response.json({success:true}));const r=await worker.fetch(prepareRequest(prepareBody()),env),u=(await r.json()).data.uploads[0],path=new URL(u.upload_url).pathname;await assert.rejects(readUploadGrant(env,new Request(u.upload_url,{headers:u.headers}),path+'-changed'),e=>e.code==='UPLOAD_GRANT_INVALID');const bad={...u.headers,'X-Upload-Grant':u.headers['X-Upload-Grant'].slice(0,20)+'X'+u.headers['X-Upload-Grant'].slice(21)};await assert.rejects(readUploadGrant(env,new Request(u.upload_url,{headers:bad}),path),e=>e.code==='UPLOAD_GRANT_INVALID');});
+test('opaque upload grant binds path and cannot be tampered with',async t=>{
+  const env=configuredEnv();t.mock.method(globalThis,'fetch',()=>Response.json({success:true}));
+  const r=await worker.fetch(prepareRequest(prepareBody()),env),u=(await r.json()).data.uploads[0],path=new URL(u.upload_url).pathname;
+  await assert.rejects(readUploadGrant(env,new Request(u.upload_url,{headers:u.headers}),path+'-changed'),e=>e.code==='UPLOAD_GRANT_INVALID');
+  const original=u.headers['X-Upload-Grant'];
+  const tampered=original.slice(0,20)+(original[20]==='X'?'Y':'X')+original.slice(21);
+  assert.notEqual(tampered,original); // Always alter data, even when the random original character is X.
+  const bad={...u.headers,'X-Upload-Grant':tampered};
+  await assert.rejects(readUploadGrant(env,new Request(u.upload_url,{headers:bad}),path),e=>e.code==='UPLOAD_GRANT_INVALID');
+});

@@ -45,13 +45,15 @@ export async function renderImageExports({ container, request, session, signal }
     form.append(wrap);
     return input;
   };
-  const today = taipeiInput(new Date()).slice(0, 10);
-  const from = field("from", "開始（Asia/Taipei）", "datetime-local", today + "T00:00"),
+  const now = Date.now();
+  const today = taipeiInput(new Date(now)).slice(0, 10);
+  const yesterday = taipeiInput(new Date(now - 86400000)).slice(0, 10);
+  const from = field("from", "開始（Asia/Taipei）", "datetime-local", yesterday + "T23:00"),
     to = field(
       "to",
       "結束（不包含，Asia/Taipei）",
       "datetime-local",
-      taipeiInput(new Date(Date.now() + 86400000)).slice(0, 10) + "T00:00",
+      today + "T23:00",
     );
   from.required = to.required = true;
   const campaign = field("campaign", "活動", "select");

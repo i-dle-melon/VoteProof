@@ -13,6 +13,28 @@ async function enter(page, scene = "normal", theme = "dark") {
   await expect(page.locator(".image-export")).toBeVisible();
   await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
 }
+test("export date defaults use Taipei yesterday 23:00 to today 23:00 across midnight; manual values persist",async({page})=>{
+  for(const [clock,start,end] of [
+    ["2026-10-20T15:59:59.000Z","2026-10-19T23:00","2026-10-20T23:00"],
+    ["2026-10-20T16:00:00.000Z","2026-10-20T23:00","2026-10-21T23:00"],
+    ["2026-10-21T10:15:00.000Z","2026-10-20T23:00","2026-10-21T23:00"],
+  ]){
+    await page.clock.setFixedTime(new Date(clock));
+    await enter(page);
+    const from=page.locator("#export-from"),to=page.locator("#export-to");
+    await expect(from).toHaveValue(start);
+    await expect(to).toHaveValue(end);
+    await from.fill("2026-10-12T06:30");
+    await to.fill("2026-10-13T09:45");
+    await page.locator("#export-campaign").selectOption("PREVIEW-CAMPAIGN");
+    await page.locator('input[name="entire"]').check();
+    await expect(from).toBeDisabled();await expect(to).toBeDisabled();
+    await page.locator('input[name="entire"]').uncheck();
+    await expect(from).toBeEnabled();await expect(to).toBeEnabled();
+    await expect(from).toHaveValue("2026-10-12T06:30");
+    await expect(to).toHaveValue("2026-10-13T09:45");
+  }
+});
 test("Preview Normal/Small/Empty/Error and both themes at 320/390/430/1024/1440", async ({
   page,
 }) => {

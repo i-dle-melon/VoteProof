@@ -87,6 +87,53 @@ test('Apps Script ready state allows retry/enqueue but hides Worker manual execu
   expect(state.calls.some(c=>c.path.endsWith('/process'))).toBe(false);
 });
 
+test('backup operations render only as a paginated on-demand dialog with no write side effects',async({page})=>{
+  const state=await adminFixture(page);
+  state.backupAudit=Array.from({length:23},(_,i)=>({action:i%4?'backfill':'retry',affected_count:i+1,created_at:1792000000-i, target_id:'private-internal-'+i}));
+  await ready(page);
+  const summary=page.locator('#admin-panel summary').filter({hasText:'備份操作紀錄'});
+  await expect(summary).toHaveText('備份操作紀錄：23');
+  await expect(page.locator('#admin-panel')).not.toContainText('影響張數：');
+  expect(state.calls.some(c=>c.path==='/api/admin/backups/audit')).toBe(false);
+  await summary.click();const opener=page.getByRole('button',{name:'查看備份操作紀錄'});
+  await opener.click();const dialog=page.getByRole('dialog',{name:'備份操作紀錄'});
+  await expect(dialog.locator('article')).toHaveCount(10);
+  await expect(dialog).toContainText('第 1／3 頁');
+  await expect(dialog).not.toContainText('private-internal-');
+  await dialog.getByRole('button',{name:'下一頁'}).click();
+  await expect(dialog).toContainText('第 2／3 頁');
+  await dialog.getByLabel('頁碼',{exact:true}).fill('3');await dialog.getByLabel('頁碼',{exact:true}).press('Enter');
+  await expect(dialog.locator('article')).toHaveCount(3);
+  await expect(dialog.getByRole('button',{name:'下一頁'})).toBeDisabled();
+  const reads=state.calls.filter(c=>c.path==='/api/admin/backups/audit').length;
+  await dialog.getByLabel('頁碼',{exact:true}).fill('4');await dialog.getByRole('button',{name:'前往'}).click();
+  expect(state.calls.filter(c=>c.path==='/api/admin/backups/audit').length).toBe(reads);
+  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(opener).toBeFocused();
+  expect(state.calls.filter(c=>c.method==='POST')).toEqual([]);
+});
+
+test('backup operation dialog supports empty/error/retry and mobile viewport',async({page})=>{
+  const state=await adminFixture(page);await ready(page);
+  const summary=page.locator('#admin-panel summary').filter({hasText:'備份操作紀錄'});
+  await expect(summary).toHaveText('備份操作紀錄：0');await summary.click();
+  const opener=page.getByRole('button',{name:'查看備份操作紀錄'});await opener.click();
+  const dlg=page.getByRole('dialog',{name:'備份操作紀錄'});
+  await expect(dlg).toContainText('目前沒有備份操作紀錄。');await dlg.getByRole('button',{name:'關閉'}).click();
+  state.backupAudit=Array.from({length:13},(_,i)=>({action:'backfill',affected_count:1,created_at:1792000000-i}));
+  let fail=true;await page.route('**/api/admin/backups/audit?*',async route=>fail
+    ?route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'ADMIN_SERVICE_UNAVAILABLE',message:'private backend secret'}})})
+    :route.fallback());
+  await opener.click();const retryDlg=page.getByRole('dialog',{name:'備份操作紀錄'});
+  await expect(retryDlg.getByRole('alert')).toContainText('暫時無法載入');
+  await expect(retryDlg).not.toContainText('private backend secret');
+  fail=false;await retryDlg.getByRole('button',{name:'重試載入清單'}).click();
+  await expect(retryDlg.locator('article')).toHaveCount(10);
+  await page.setViewportSize({width:320,height:740});
+  expect(await retryDlg.evaluate(d=>{const r=d.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&d.scrollWidth<=d.clientWidth;})).toBe(true);
+  await page.mouse.click(1,1);await expect(retryDlg).toHaveCount(0);
+  expect(state.calls.filter(c=>c.method==='POST')).toEqual([]);
+});
+
 const missingSummary = page => page.locator('#admin-panel summary').filter({hasText:'尚未排入備份'});
 const openMissing = async page => {await missingSummary(page).click();await page.getByRole('button',{name:'查看未排入備份清單'}).click();return page.getByRole('dialog',{name:'尚未排入備份',exact:true});};
 

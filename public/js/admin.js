@@ -4,6 +4,7 @@ import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
 import { backupText, backupLink, missingBackupDialog } from "./admin-backup.js";
+import { pagedListDialog } from "./paginated-dialog.js";
 import { renderDuplicateEvidence } from './admin-duplicate.js';
 import { renderImageExports } from './admin-export.js';
 import { memberContactUI } from './admin-member-contact.js';
@@ -239,7 +240,25 @@ export function adminUI(session) {
           await mutate('backups/backfill', { dry_run: false, file_ids: preview.ready }); await load();
         })));
       })));
-      for (const audit of data.audit ?? []) box.append(node('p', copy(audit.target_id?.startsWith('process:') ? 'backup-process' : audit.action === 'retry' ? 'backup-retry' : 'backup-enqueue') + ` · ${audit.affected_count} · ` + stamp(audit.created_at * 1000), 'tiny'));
+      const section=node('details');
+      section.append(node('summary','備份操作紀錄：'+(Number.isSafeInteger(data.audit_total)?data.audit_total:(data.audit?.length??0))));
+      const opener=button('查看備份操作紀錄',()=>{
+        if(busy||backupDialog?.open)return;
+        let dialog;
+        dialog=pagedListDialog({
+          title:'備份操作紀錄',opener,itemsKey:'audit',fetchPage:page=>request('backups/audit?page='+page),
+          emptyText:'目前沒有備份操作紀錄。',message:adminMessage,
+          renderRow:item=>{
+            const card=node('article','','member-case');
+            const label=item.action==='retry'?'backup-retry':item.action==='backfill'?'backup-enqueue':'backup-process';
+            card.append(node('h3',copy(label)),node('p','影響張數：'+item.affected_count),node('p','操作時間：'+stamp(item.created_at*1000)));
+            return card;
+          },
+          onClose:()=>{if(backupDialog===dialog)backupDialog=null;}
+        });
+        backupDialog=dialog;
+      });
+      section.append(opener);box.append(section);
     } catch (error) {
       if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
       box.append(node('p', copy('backup-unavailable'), 'tiny'));

@@ -17,7 +17,21 @@ const requireReady = env => {
 const summary = adminHandler(async (env, _url, request) => {
   await adminIdentity(request, env, ELEVATED_ROLES);
   const audit = (await env.DB.prepare('SELECT created_at,action,target_id,affected_count FROM backup_admin_audit ORDER BY created_at DESC,id DESC LIMIT 10').all()).results;
-  return jsonSuccess({ ...backupReadiness(env), ...await backupSummary(env.DB), storage:await storageSummary(env.DB), audit });
+  const {total:audit_total}=await env.DB.prepare('SELECT COUNT(*) AS total FROM backup_admin_audit').first();
+  return jsonSuccess({ ...backupReadiness(env), ...await backupSummary(env.DB), storage:await storageSummary(env.DB), audit, audit_total });
+});
+const auditList=adminHandler(async(env,url,request)=>{
+  await adminIdentity(request,env,ELEVATED_ROLES);
+  const raw=url.searchParams.get('page')??'1',page=Number(raw);
+  if([...url.searchParams.keys()].some(k=>k!=='page')||url.searchParams.getAll('page').length>1||
+    !/^[1-9]\d*$/.test(raw)||!Number.isSafeInteger(page)||!Number.isSafeInteger(page*10))invalid();
+  // Metadata-only, GET-only. No backup scheduling, Drive, or R2 access.
+  const [count,rows]=await env.DB.batch([
+    env.DB.prepare('SELECT COUNT(*) AS total FROM backup_admin_audit'),
+    env.DB.prepare('SELECT created_at,action,affected_count FROM backup_admin_audit ORDER BY created_at DESC,id DESC LIMIT 10 OFFSET ?').bind((page-1)*10),
+  ]);
+  const total=count.results[0].total;
+  return jsonSuccess({audit:rows.results,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
 });
 const missingList = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env, ELEVATED_ROLES);
@@ -93,6 +107,7 @@ const processOne = adminHandler(async (env, url, request) => {
 const routes = new Map([
   ['/api/admin/backups', { method: 'GET', handler: summary }],
   ['/api/admin/backups/missing', { method: 'GET', handler: missingList }],
+  ['/api/admin/backups/audit', { method: 'GET', handler: auditList }],
   ['/api/admin/backups/backfill', { method: 'POST', handler: backfill }],
 ]);
 export function backupAdminRoute(path) {

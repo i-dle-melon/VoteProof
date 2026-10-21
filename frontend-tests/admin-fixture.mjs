@@ -11,7 +11,7 @@ export async function adminFixture(page, options = {}) {
   state.tiers = ["普通", "青銅", "白銀", "黃金", "白金", "翡翠", "鑽石", "星耀"].map((name, i) => ({ tier_id: ["normal", "bronze", "silver", "gold", "platinum", "emerald", "diamond", "stellar"][i], name, min_points: i ? null : 0, status: i ? "disabled" : "active", version: 0 }));
   state.submissions = { submissions_enabled: false, submissions_message: "尚未開放投稿", version: 0 };
   state.content={};state.assets=new Map();state.announcements=[];state.audit = []; state.conflict = false; state.failAdmin = false;
-  state.backupReadiness = {enabled:true,configured:true,ready:true,state:'ready',transport:options.backupTransport ?? 'apps_script_pull'}; state.backups = []; state.backupMissing = 0; state.backupBlocked = null;
+  state.backupReadiness = {enabled:true,configured:true,ready:true,state:'ready',transport:options.backupTransport ?? 'apps_script_pull'}; state.backups = []; state.backupMissing = 0; state.backupBlocked = null; state.backupAudit = [];
   if (options.autoConfirm !== false) page.on("dialog", dialog => dialog.accept());
   await page.route("**/api/admin/**", async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, body = request.postData() && request.headers()["content-type"]?.includes("application/json") ? request.postDataJSON() : null;
@@ -39,8 +39,12 @@ export async function adminFixture(page, options = {}) {
       if (state.conflict) return error("CASE_STATUS_CONFLICT", 409);
       state.audit.push({ id: randomUUID(), action: path.includes("campaigns") ? "campaign_update" : "approve", target_id: "LOCAL", admin_member_id: state.member.member_id, created_at: new Date().toISOString() });
     }
-    if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
-    if (path === '/api/admin/backups/missing') {
+    if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: state.backupAudit.slice(0,10), audit_total:state.backupAudit.length });
+    if (path === '/api/admin/backups/audit') {
+       const page=Number(url.searchParams.get('page')??1),total=state.backupAudit.length;
+       return reply({audit:state.backupAudit.slice((page-1)*10,page*10),page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+     }
+     if (path === '/api/admin/backups/missing') {
       const current = Number(url.searchParams.get('page') ?? 1), total = state.backupMissing;
       return reply({ files: Array.from({length:Math.max(0,Math.min(10,total-(current-1)*10))}, (_,i) => ({ file_id:'local-proof-'+((current-1)*10+i+1), case_id:state.caseId, created_at:'2026-10-21T02:00:00.000Z', size:1024, content_type:'image/png' })), page:current, page_size:10, total, total_pages:Math.max(1,Math.ceil(total/10)) });
     }

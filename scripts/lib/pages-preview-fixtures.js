@@ -350,7 +350,13 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
         adminCases.filter(c=>(!url.searchParams.get("status") || c.status===url.searchParams.get("status")) && (!url.searchParams.get("review_stage") || c.review_stage===url.searchParams.get("review_stage"))).map(c=>({...c,primary_file_id:c.files[0].file_id})),
       ),
     );
-  if (p === '/api/admin/backups/missing') {
+  if (p === '/api/admin/backups/audit') {
+     const page=Number(url.searchParams.get('page')??1),total=state.data==='empty'?0:23;
+     return reply({audit:Array.from({length:Math.max(0,Math.min(10,total-(page-1)*10))},(_,i)=>({
+       action:'backfill',affected_count:1,created_at:1791923181-(page-1)*10-i
+     })),page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+   }
+   if (p === '/api/admin/backups/missing') {
     const page = Number(url.searchParams.get('page') ?? 1), total = state.data === 'empty' ? 0 : 23;
     return reply({files:Array.from({length:Math.max(0,Math.min(10,total-(page-1)*10))},(_,i)=>({file_id:'PREVIEW-UNSCHEDULED-'+((page-1)*10+i+1),case_id:'VP-PREVIEW-001',created_at:'2026-10-21T02:00:00.000Z',content_type:'image/png',size:1024})),page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
   }
@@ -364,6 +370,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       counts: { pending: 0, processing: 0, confirmed: 0, failed: 0 },
       missing: state.data === 'empty' ? 0 : 23,
       audit: [],
+      audit_total:state.data==='empty'?0:23,
       backups: [],
     });
   if (p.startsWith("/api/admin/cases/")) {

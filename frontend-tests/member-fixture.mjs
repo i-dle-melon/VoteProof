@@ -23,6 +23,8 @@ export async function memberFixture(page, options = {}) {
     `let next=0;const widgets=new Map();globalThis.turnstile={render(container,opts){const id=String(next++);widgets.set(id,opts);container.textContent='本機隔離驗證';queueMicrotask(()=>opts.callback('local-browser-fixture'));return id;},reset(id){queueMicrotask(()=>widgets.get(id).callback('local-browser-fixture'));}};` }));
   const session = () => ({ member: state.member, csrf_token: state.csrf, ...(options.adminRole ? { elevated_until: state.elevationUntil ?? Date.now() / 1000 + 600 } : {}), expires_in: options.shortSession ? .2 : 600 });
   state.googleConnected = Boolean(options.googleOnly || options.dual); state.passwordConfigured = !options.googleOnly; state.authenticatorConfigured = !options.googleOnly; state.googlePurpose = options.googlePurpose ?? "login";
+  state.authenticatorConfigured=options.authenticatorConfigured??state.authenticatorConfigured;
+  state.googleMfaEnabled=Boolean(options.googleMfaEnabled);state.googleMfaAvailable=Boolean(options.googleMfaAvailable);state.googlePolicyAction=options.googlePolicyAction??null;state.googleMfaPending=false;
   // WebKit cannot fulfill mocked 302 responses; the isolated provider fixture
   // performs the same full-page return using a fixed local navigation.
   await page.route("https://google-auth.local.example/auth/v1/authorize?provider=google", route => route.fulfill({ contentType: "text/html", body: '<script>location.replace("http://127.0.0.1:4173/#google")</script>' }));
@@ -42,13 +44,22 @@ export async function memberFixture(page, options = {}) {
     const tx = () => ({ transaction_id: randomUUID(), expires_in: options.expired ? .1 : 600 });
     if (path === "/api/auth/google/start") {
       state.googlePurpose = body.purpose;
+      state.googlePolicyAction=body.mfa_policy_action??null;
       if (options.googleDown) return error("AUTH_PROVIDER_UNAVAILABLE", 502);
       return reply({ authorize_url: "https://google-auth.local.example/auth/v1/authorize?provider=google", expires_in: 300 });
     }
-    if (path === "/api/auth/google/result") return reply({ ...tx(), status: options.googleResult ?? "GOOGLE_PROFILE_REQUIRED", purpose: state.googlePurpose, email: options.googleEmail ?? "google@local.example", provider_already_linked: options.googleResult === "GOOGLE_CONFIRM_REQUIRED", cancel_unlinks_provider: false });
-    if (path === "/api/auth/google/confirm") { state.authenticated = true; state.googleConnected = true; return reply(session()); }
+    if (path === "/api/auth/google/result") return reply({ ...tx(), status: options.googleResult ?? "GOOGLE_PROFILE_REQUIRED", purpose: state.googlePurpose, mfa_policy_action:state.googlePolicyAction,authenticator_configured:state.authenticatorConfigured,mfa_required:state.googleMfaPending,email: options.googleEmail ?? "google@local.example", provider_already_linked: options.googleResult === "GOOGLE_CONFIRM_REQUIRED", cancel_unlinks_provider: false });
+    if (path === "/api/auth/google/confirm") { if(state.googleMfaEnabled){state.googleMfaPending=true;return reply({...tx(),status:'GOOGLE_MFA_REQUIRED'},202);}state.authenticated = true; state.googleConnected = true; return reply(session()); }
+    if(path==='/api/auth/google/mfa/enroll/start')return reply({otpauth_uri:otp.toString()});
+    if(path==='/api/auth/google/mfa/enroll/verify'){if(state.invalidTotp-->0)return error('AUTH_VERIFICATION_FAILED');state.authenticatorConfigured=true;return reply({authenticator_configured:true,recovery_codes:state.recoveryCodes,google_mfa_enabled:false});}
+    if(['/api/auth/google/mfa/verify','/api/auth/google/mfa/recovery','/api/auth/google/mfa/enable','/api/auth/google/mfa/disable'].includes(path)){
+      if(state.invalidTotp-->0)return error('AUTH_VERIFICATION_FAILED');
+      if(path.endsWith('/enable'))state.googleMfaEnabled=true;if(path.endsWith('/disable'))state.googleMfaEnabled=false;
+      if(path.endsWith('/recovery')&&body.disable_mfa===true)state.googleMfaEnabled=false;
+      state.googleMfaPending=false;state.googlePolicyAction=null;state.authenticated=true;return reply(session());
+    }
     if (path === "/api/auth/google/cancel") return reply({ cancelled: true, provider_unlinked: false });
-    if (path === "/api/auth/login-security") return state.authenticated ? reply({ google: { connected: state.googleConnected, email: "google@local.example" }, password: { configured: state.passwordConfigured }, authenticator: { configured: state.authenticatorConfigured }, current_method: options.googleOnly ? "google" : "password" }) : error("AUTH_REQUIRED", 401);
+    if (path === "/api/auth/login-security") return state.authenticated ? reply({ google: { connected: state.googleConnected, mfa:{enabled:state.googleMfaEnabled,available:state.googleMfaAvailable,generation:state.googleMfaEnabled?1:0}, email: "google@local.example" }, password: { configured: state.passwordConfigured }, authenticator: { configured: state.authenticatorConfigured }, current_method: options.googleOnly ? "google" : "password" }) : error("AUTH_REQUIRED", 401);
     if (path === "/api/auth/password/add/start") return reply({ ...tx(), status: "PASSWORD_MFA_REQUIRED", otpauth_uri: otp.toString() }, 202);
     if (path === "/api/auth/password/add/verify") {
       if (state.invalidTotp-- > 0) return error("AUTH_VERIFICATION_FAILED");

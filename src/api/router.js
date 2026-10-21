@@ -11,6 +11,7 @@ import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
 import { createCase, createDirectCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
 import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
+import {googleMfaVerify,googleMfaRecovery,googleMfaEnable,googleMfaDisable,googleMfaEnrollStart,googleMfaEnrollVerify} from './auth-google-mfa.js';
 import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
 import { checkNickname, updateProfile, listMemberCases, getMemberCase } from "./members.js";
 import { adminRoute } from "./admin.js";
@@ -67,6 +68,12 @@ const routes = new Map([
     "/api/auth/profile-warning": checkNickname,
     "/api/auth/google/start": googleStart,
     "/api/auth/google/confirm": googleConfirm,
+    "/api/auth/google/mfa/verify": googleMfaVerify,
+    "/api/auth/google/mfa/recovery": googleMfaRecovery,
+    "/api/auth/google/mfa/enable": googleMfaEnable,
+    "/api/auth/google/mfa/disable": googleMfaDisable,
+    "/api/auth/google/mfa/enroll/start": googleMfaEnrollStart,
+    "/api/auth/google/mfa/enroll/verify": googleMfaEnrollVerify,
     "/api/auth/google/cancel": googleCancel,
     "/api/auth/google/step-up": googleStepUp,
     "/api/auth/password/add/start": addPasswordStart,

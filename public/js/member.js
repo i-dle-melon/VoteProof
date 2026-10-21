@@ -62,6 +62,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   $("owned-case-detail").addEventListener("close",()=>{if(caseOpener?.isConnected)caseOpener.focus();});
   let profileSnapshot = null, recentSequence = 0, dashboardSequence=0, pendingCaseId=null;
   let googleTx = "", googleProfile = false, googleDeadline = 0, methodTx = "", methodDeadline = 0, pendingEmailAdd = null;
+  let googleMfaMode = 'login', googleMfaRecovery = false, googleMfaEnrolling = false;
   let loginSessionChecked = false, linkPurpose = "connect", setupKind = "enroll", setupTx = "", setupDeadline = 0, recoveryLogout = false;
   const session = new MemberSession({ changed: member => {
     const blocked=session.blocked;$('member-blocked').hidden=!blocked;document.querySelector('.app-shell').inert=blocked;document.querySelector('.bottom-nav').inert=blocked;
@@ -180,6 +181,10 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     $("recover-other-methods").querySelectorAll("details").forEach(d => { d.open = false; });
     $("logout-button").disabled = false; challenge.clear();
     googleTx = methodTx = setupTx = ""; googleDeadline = methodDeadline = setupDeadline = 0;
+    googleMfaMode='login';googleMfaRecovery=googleMfaEnrolling=false;
+    $('google-mfa-recover-policy').checked=false;
+    clearEnrollment($('google-mfa-qr'));$('google-mfa-key').textContent=$('google-mfa-codes').textContent='';$('google-mfa-ack').checked=false;
+    $('google-mfa-form').hidden=$('security-google-mfa').hidden=true;
     clearEnrollment($("security-enroll-qr")); $("security-enroll-key").textContent = ""; $("security-devices").replaceChildren(); $("security-step-status").textContent = "";
     for (const id of ["google-step-form", "security-enroll-form", "security-step-form", "security-google-step", "security-enroll"]) $(id).hidden = true;
     clearEnrollment($("security-qr")); $("security-key").textContent = "";
@@ -194,7 +199,8 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     const section = $("view-" + name); section.setAttribute("aria-busy", "true");
     const submit = [...section.querySelectorAll('button[type="submit"]')].find(button => !button.closest("form").hidden);
     const label = submit?.textContent;
-    if (submit) submit.textContent = name === "register" && registration === "email" ? "正在寄送…" : "正在處理…";
+    const pendingLabel = name === "register" && registration === "email" ? "正在寄送…" : "正在處理…";
+    if (submit) submit.textContent = pendingLabel;
     for (const button of section.querySelectorAll("button")) button.disabled = true;
     $("logout-button").disabled = true;
     try { await action(() => current === epoch && view === name); }
@@ -206,7 +212,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     } finally {
       if (current === epoch) {
         busy = false; section.setAttribute("aria-busy", "false");
-        if (submit) submit.textContent = label;
+        if (submit && submit.textContent === pendingLabel) submit.textContent = label;
         for (const button of section.querySelectorAll("button")) button.disabled = false;
         $("logout-button").disabled = false; syncCooldown();
       }
@@ -220,8 +226,8 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   const expires = data => Date.now() + data.expires_in * 1000;
   const form = (id, name, action) => $(id).addEventListener("submit", event => { event.preventDefault(); void run(name, action); });
 
-  async function beginGoogle(current, purpose = "login") {
-    const data = await post("google/start", { purpose, ...(purpose !== "login" ? { confirmed: true } : {}) });
+  async function beginGoogle(current, purpose = "login", mfaPolicyAction) {
+    const data = await post("google/start", { purpose, ...(purpose !== "login" ? { confirmed: true } : {}), ...(mfaPolicyAction ? {mfa_policy_action:mfaPolicyAction} : {}) });
     if (!current()) return;
     const url = new URL(data.authorize_url);
     if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/auth/v1/authorize" || url.searchParams.get("provider") !== "google") throw new PublicError("SERVICE_UNAVAILABLE");
@@ -236,6 +242,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       await session.refresh().catch(() => {});
       const data = await session.request("/api/auth/google/result", { signal: controller.signal });
       if (current !== epoch || view !== "google") return;
+      if(data.mfa_policy_action || data.mfa_required){
+        googleTx=data.transaction_id;googleDeadline=expires(data);showGoogleMfa(data.mfa_policy_action??'login',data.authenticator_configured!==false);return;
+      }
       if (data.purpose === "security") {
         googleTx = data.transaction_id; googleDeadline = expires(data);
         $("google-title").textContent = "重新驗證身份"; $("google-step-form").hidden = false;
@@ -254,8 +263,63 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     const body = { transaction_id: googleTx, confirmed: true, remember_me: $("google-remember").checked };
     if (googleProfile) { body.nickname = $("google-nickname").value.trim(); const player = $("google-player").value.trim(); if (player) body.player_id = player; }
     const data = await post("google/confirm", body);
-    if (current()) { session.accept(data); googleTx = ""; location.hash = "member"; }
+    if (current()) {
+      if(data.status==='GOOGLE_MFA_REQUIRED'){googleDeadline=expires(data);showGoogleMfa('login');return;}
+      session.accept(data); googleTx = ""; location.hash = "member";
+    }
   });
+  function setGoogleMfaRecovery(recovery){
+    googleMfaRecovery=recovery;$('google-mfa-code-field').hidden=recovery;$('google-mfa-recovery-field').hidden=!recovery;
+    $('google-mfa-code').value=$('google-mfa-recovery').value='';$('google-mfa-other-methods').open=false;
+    $('google-mfa-recover-policy-wrap').hidden=!recovery||googleMfaMode!=='login';$('google-mfa-recover-policy').checked=false;
+    $('google-mfa-switch').textContent=recovery?'改用 Authenticator 驗證碼':'改用未使用的復原碼';
+  }
+  function showGoogleMfa(mode,configured=true){
+    googleMfaMode=mode;googleMfaEnrolling=false;setGoogleMfaRecovery(false);
+    $('google-title').textContent=mode==='login'?'Google 登入額外驗證':mode==='enable'?'啟用 Google 額外驗證':'停用 Google 額外驗證';
+    $('google-message').textContent='Google 身份已驗證。';$('google-mfa-heading').textContent=$('google-title').textContent;
+    $('google-mfa-description').textContent=mode==='login'?'請使用 Authenticator，或改用一組未使用的復原碼，完成後才會登入。':mode==='enable'?'設定並驗證 Authenticator、確認保存復原碼後，才會啟用 Google 登入額外驗證。':'須再次驗證 Authenticator；遺失時可使用一組未使用的復原碼。停用後仍保留 Authenticator。';
+    $('google-confirm-form').hidden=$('google-step-form').hidden=true;$('google-mfa-form').hidden=false;
+    const needsSetup=mode==='enable'&&!configured;
+    $('google-mfa-setup').hidden=!needsSetup;$('google-mfa-code-field').hidden=needsSetup;$('google-mfa-submit').hidden=needsSetup;
+    $('google-mfa-other-methods').hidden=mode==='enable';$('google-mfa-ack-wrap').hidden=mode!=='enable'||needsSetup;
+    $('google-mfa-enrollment').hidden=$('google-mfa-codes-wrap').hidden=true;$('google-mfa-codes').textContent='';$('google-mfa-ack').checked=false;
+    $('google-mfa-submit').textContent=mode==='login'?'驗證並登入':mode==='enable'?'啟用 Google 額外驗證':'停用 Google 額外驗證';
+    if(!needsSetup)$('google-mfa-code').focus();
+  }
+  $('google-mfa-switch').addEventListener('click',()=>{if(busy)return;setGoogleMfaRecovery(!googleMfaRecovery);$(googleMfaRecovery?'google-mfa-recovery':'google-mfa-code').focus();});
+  $('google-mfa-setup').addEventListener('click',()=>void run('google',async current=>{
+    unexpired(googleDeadline);const data=await post('google/mfa/enroll/start',{transaction_id:googleTx});if(!current())return;
+    drawEnrollment($('google-mfa-qr'),data.otpauth_uri);$('google-mfa-key').textContent=enrollmentKey(data.otpauth_uri);
+    googleMfaEnrolling=true;$('google-mfa-setup').hidden=true;$('google-mfa-enrollment').hidden=false;$('google-mfa-code-field').hidden=false;
+    $('google-mfa-submit').hidden=false;$('google-mfa-submit').textContent='確認 Authenticator 設定';$('google-mfa-code').focus();
+  }));
+  form('google-mfa-form','google',async current=>{
+    unexpired(googleDeadline);
+    const proof=googleMfaRecovery?{recovery_code:$('google-mfa-recovery').value.trim()}:{code:codeValue($('google-mfa-code').value)};
+    $('google-mfa-code').value=$('google-mfa-recovery').value='';
+    const body={transaction_id:googleTx,...proof};
+    if(googleMfaEnrolling){
+      const data=await post('google/mfa/enroll/verify',body);if(!current())return;
+      googleMfaEnrolling=false;clearEnrollment($('google-mfa-qr'));$('google-mfa-key').textContent='';$('google-mfa-enrollment').hidden=true;
+      $('google-mfa-codes').textContent=data.recovery_codes.join('\n');$('google-mfa-codes-wrap').hidden=false;$('google-mfa-ack-wrap').hidden=false;
+      $('google-mfa-submit').textContent='啟用 Google 額外驗證';$('google-message').textContent='Authenticator 已設定，Google 額外驗證仍未啟用。請保存復原碼，等待下一組驗證碼後確認啟用。';return;
+    }
+    if(googleMfaMode==='enable'){
+      if(!$('google-mfa-ack').checked)throw new PublicError('AUTH_VERIFICATION_FAILED');body.recovery_confirmed=true;
+    }
+    const endpoint=googleMfaMode==='login'?(googleMfaRecovery?'recovery':'verify'):googleMfaMode;
+    if(googleMfaMode==='login' && googleMfaRecovery && $('google-mfa-recover-policy').checked){
+      if(!confirmed('使用本次 Google 身份與復原碼停用 Google 額外驗證？其他 Google 登入將失效；密碼登入規則不變。'))return;
+      body.disable_mfa=body.confirmed=true;
+    }
+    const data=await post('google/mfa/'+endpoint,body);if(!current())return;
+    const mode=googleMfaMode;if(data.member)session.accept(data);else await session.refresh();
+    $('google-mfa-codes').textContent='';googleTx='';location.hash=mode==='login'?'member':'security';
+  });
+  $('google-mfa-cancel').addEventListener('click',()=>void run('google',async current=>{
+    await post('google/cancel',{transaction_id:googleTx});if(current()){googleTx='';location.hash=session.member?'security':'login';}
+  }));
   $("google-cancel").addEventListener("click", () => void run("google", async current => {
     await post("google/cancel", { transaction_id: googleTx });
     if (current()) { googleTx = ""; location.hash = session.member ? "member" : "login"; }
@@ -275,7 +339,12 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       if (current !== epoch || view !== "security") return;
       $("security-google").textContent = data.google.connected ? "Google · 已連結 · " + data.google.email : "Google · 尚未連結";
       $("security-password").textContent = data.password.configured ? "信箱與密碼 · 已設定" : "信箱與密碼 · 尚未設定";
+      $('security-google-mfa').hidden=!data.google.connected;
+      $('security-google-mfa-state').textContent=data.google.mfa?.enabled?'Google 額外驗證已啟用，新登入需 Google OAuth＋Authenticator。':data.google.mfa?.available?'Google 額外驗證未啟用，可自行選擇啟用。':'Google 額外驗證未啟用，目前尚未開放設定。';
+      $('security-google-mfa-enable').hidden=!data.google.connected||data.google.mfa?.enabled||!data.google.mfa?.available;
+      $('security-google-mfa-disable').hidden=!data.google.connected||!data.google.mfa?.enabled;
       $("security-totp").textContent = data.authenticator.configured ? (data.password.configured ? "VoteProof Authenticator · 已設定，用於密碼登入與管理員安全驗證" : "VoteProof Authenticator · 已設定，用於額外安全驗證；一般 Google 登入不需要") : "VoteProof Authenticator · 一般 Google 登入不需要；新增密碼或管理員存取時必須設定";
+      if(data.google.mfa?.enabled)$('security-totp').textContent='VoteProof Authenticator · 已設定，Google 登入額外驗證已啟用。';
       $("security-recovery-state").textContent=Number.isInteger(data.recovery?.remaining)?`未使用復原碼：${data.recovery.remaining} 組`:"復原碼狀態暫時無法取得";
       $("security-connect").hidden = data.google.connected; $("security-reauth").hidden = !data.google.connected;
       $("security-add").hidden = data.password.configured; $("security-change").hidden = !data.password.configured;
@@ -288,6 +357,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     } catch (error) { if (current === epoch && view === "security") $("security-error").textContent = authMessage(error); }
   }
   const explainLink = () => { linkPurpose = "connect"; $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = false; };
+  for(const action of ['enable','disable'])$('security-google-mfa-'+action).addEventListener('click',()=>void run('security',current=>beginGoogle(current,'security',action)));
   $("security-connect").addEventListener("click", explainLink); $("security-reauth").addEventListener("click", () => { explainLink(); });
   $("security-link-confirm").addEventListener("click", () => void run("security", current => beginGoogle(current, linkPurpose)));
   $("security-link-cancel").addEventListener("click", () => { $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = true; });

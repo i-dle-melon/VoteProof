@@ -1263,6 +1263,38 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   取消驗證
                 </button>
               </form>
+              <form id="google-mfa-form" hidden novalidate>
+                <h2 id="google-mfa-heading">Google 額外驗證</h2>
+                <p id="google-mfa-description"></p>
+                <button class="btn btn-white" id="google-mfa-setup" type="button" hidden>設定 Authenticator</button>
+                <div id="google-mfa-enrollment" hidden>
+                  <canvas id="google-mfa-qr" role="img" aria-label="Google 額外驗證 Authenticator 設定 QR"></canvas>
+                  <code id="google-mfa-key" class="enrollment-key"></code>
+                  <p class="tiny">請勿分享設定金鑰。離開此頁會清除金鑰。</p>
+                </div>
+                <div id="google-mfa-codes-wrap" hidden>
+                  <p>請先保存以下一次性復原碼，離開此頁後不會再次顯示。</p>
+                  <pre id="google-mfa-codes" class="google-mfa-recovery-codes"></pre>
+                </div>
+                <div class="field" id="google-mfa-code-field">
+                  <button class="authenticator-help" type="button" data-authenticator-help aria-haspopup="dialog" aria-controls="authenticator-help-dialog">Authenticator 教學</button>
+                  <label for="google-mfa-code">Authenticator 驗證碼</label>
+                  <input id="google-mfa-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+                </div>
+                <div class="field" id="google-mfa-recovery-field" hidden>
+                  <label for="google-mfa-recovery">未使用的復原碼</label>
+                  <input id="google-mfa-recovery" autocomplete="off" maxlength="43" />
+                  <label class="check-row" id="google-mfa-recover-policy-wrap" hidden><input id="google-mfa-recover-policy" type="checkbox" />我已遺失 Authenticator，使用此復原碼停用 Google 額外驗證</label>
+                </div>
+                <details id="google-mfa-other-methods">
+                  <summary>其他方式驗證</summary>
+                  <button class="btn btn-soft" id="google-mfa-switch" type="button">改用未使用的復原碼</button>
+                  <p class="tiny">若 Authenticator 與復原碼均遺失，請使用原登入信箱聯絡 <a href="mailto:idle.voteproof.verify@gmail.com">idle.voteproof.verify@gmail.com</a>。</p>
+                </details>
+                <label class="check-row" id="google-mfa-ack-wrap" hidden><input id="google-mfa-ack" type="checkbox" />我已保存並持有可用的復原碼</label>
+                <button class="btn btn-primary" id="google-mfa-submit" type="submit">驗證並登入</button>
+                <button class="btn btn-white" id="google-mfa-cancel" type="button">取消驗證</button>
+              </form>
               <form id="google-confirm-form" hidden novalidate>
                 <div id="google-profile" hidden>
                   <div class="field">
@@ -1311,6 +1343,13 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <p id="security-password"></p>
               <p id="security-totp"></p>
               <p id="security-recovery-state" class="tiny"></p>
+              <section id="security-google-mfa" hidden>
+                <h2>Google 登入額外驗證</h2>
+                <p id="security-google-mfa-state" role="status"></p>
+                <p class="tiny">可自行選擇 Google OAuth 後是否再驗證 VoteProof Authenticator。不建立 Google 信任裝置，也不影響密碼登入規則。</p>
+                <button class="btn btn-white" id="security-google-mfa-enable" type="button" hidden>啟用 Google 額外驗證</button>
+                <button class="btn btn-white" id="security-google-mfa-disable" type="button" hidden>停用 Google 額外驗證</button>
+              </section>
               <p class="tiny">
                 Google 帳號復原由 Google 管理。VoteProof 密碼復原仍需要 TOTP 與未使用復原碼。
               </p>
@@ -1442,7 +1481,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               <p class="tiny">
                 管理員在本次登入完成 Authenticator
                 驗證後，直到登出或登入到期前無需重複驗證。安全設定變更仍需近期身份驗證；一般 Google
-                登入不需 Authenticator。
+                登入只有在主動啟用 Google 額外驗證後才需要 Authenticator。
               </p>
               <button class="btn btn-primary" type="button" id="security-google-step" hidden>
                 使用 Google 重新驗證身份

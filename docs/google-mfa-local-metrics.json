@@ -1,0 +1,179 @@
+{
+  "environment": "Windows; local Miniflare/workerd; disposable D1/R2; mock provider",
+  "node": "v24.21.0",
+  "samples": "one bounded synthetic flow per mode; wall-time samples are not CPU or a percentile benchmark",
+  "d1_unit": "executed SQL statements and DB API trips, including rate limits and atomic guards; internal SQLite trigger sub-statements excluded",
+  "worker_cpu_ms": "UNMEASURED; no Cloudflare deployment or real CPU traces",
+  "metrics": [
+    {
+      "name": "MFA_OFF_start",
+      "status": 200,
+      "reads": 0,
+      "writes": 4,
+      "trips": 3,
+      "policy_reads": 0,
+      "wall_ms": 6.94,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_OFF_callback",
+      "status": 303,
+      "reads": 4,
+      "writes": 5,
+      "trips": 7,
+      "policy_reads": 1,
+      "wall_ms": 16.7,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_OFF_result",
+      "status": 200,
+      "reads": 1,
+      "writes": 0,
+      "trips": 1,
+      "policy_reads": 0,
+      "wall_ms": 2.93,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_OFF_confirm",
+      "status": 200,
+      "reads": 5,
+      "writes": 10,
+      "trips": 9,
+      "policy_reads": 1,
+      "wall_ms": 14.99,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_ON_start",
+      "status": 200,
+      "reads": 0,
+      "writes": 4,
+      "trips": 3,
+      "policy_reads": 0,
+      "wall_ms": 6.54,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_ON_callback",
+      "status": 303,
+      "reads": 4,
+      "writes": 5,
+      "trips": 7,
+      "policy_reads": 1,
+      "wall_ms": 16,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_ON_result",
+      "status": 200,
+      "reads": 1,
+      "writes": 0,
+      "trips": 1,
+      "policy_reads": 0,
+      "wall_ms": 4.02,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_ON_challenge",
+      "status": 202,
+      "reads": 4,
+      "writes": 6,
+      "trips": 8,
+      "policy_reads": 1,
+      "wall_ms": 13.27,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "MFA_ON_verify",
+      "status": 200,
+      "reads": 3,
+      "writes": 12,
+      "trips": 9,
+      "policy_reads": 1,
+      "wall_ms": 17.68,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "/api/auth/me",
+      "status": 200,
+      "reads": 1,
+      "writes": 0,
+      "trips": 1,
+      "policy_reads": 0,
+      "wall_ms": 3.03,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "/api/me/cases",
+      "status": 200,
+      "reads": 2,
+      "writes": 0,
+      "trips": 2,
+      "policy_reads": 0,
+      "wall_ms": 5.35,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "/api/submissions/status",
+      "status": 200,
+      "reads": 1,
+      "writes": 0,
+      "trips": 1,
+      "policy_reads": 0,
+      "wall_ms": 3.31,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "/api/leaderboards",
+      "status": 200,
+      "reads": 7,
+      "writes": 3,
+      "trips": 10,
+      "policy_reads": 0,
+      "wall_ms": 16.82,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "upload_prepare",
+      "status": 200,
+      "reads": 1,
+      "writes": 0,
+      "trips": 1,
+      "policy_reads": 0,
+      "wall_ms": 6.88,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "image_PUT",
+      "status": 200,
+      "reads": 2,
+      "writes": 2,
+      "trips": 4,
+      "policy_reads": 0,
+      "wall_ms": 27.09,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "upload_complete",
+      "status": 200,
+      "reads": 3,
+      "writes": 3,
+      "trips": 3,
+      "policy_reads": 0,
+      "wall_ms": 9.32,
+      "worker_cpu_ms": "UNMEASURED"
+    },
+    {
+      "name": "case_create",
+      "status": 201,
+      "reads": 4,
+      "writes": 7,
+      "trips": 7,
+      "policy_reads": 0,
+      "wall_ms": 27.14,
+      "worker_cpu_ms": "UNMEASURED"
+    }
+  ]
+}

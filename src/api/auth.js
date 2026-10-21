@@ -186,15 +186,21 @@ export async function issueSession(
     tx,
     recoveryCodes,
     method = "password",
+    googleMfa,
+    expiresAt,
   } = {},
 ) {
   const db = authDatabase(env),
     now = authNow(),
     token = newAuthToken(),
     hash = await sessionHash(token);
-  const ttl = remember
+  let ttl = remember
     ? AUTH_LIMITS.rememberSeconds
     : AUTH_LIMITS.sessionSeconds;
+  if (method === 'google') {
+    if (!googleMfa || !Number.isSafeInteger(googleMfa.generation) || googleMfa.generation < 0 || typeof googleMfa.verified !== 'boolean') throw invalidVerification();
+    if (expiresAt !== undefined) { ttl = Math.min(ttl, expiresAt - now);if (!Number.isSafeInteger(ttl) || ttl <= 0) throw invalidVerification(); }
+  }
   let previous;
   try {
     previous = readCookie(request, SESSION_COOKIE);
@@ -213,7 +219,7 @@ export async function issueSession(
   statements.push(
     db
       .prepare(
-        `INSERT INTO auth_sessions(token_hash,member_id,created_at,expires_at,elevated_until,reauthenticated_until,auth_method,google_authenticated_until) VALUES(?,?,?,?,${mfa ? MFA_ELEVATION_SQL : "?"},?,?,?)`,
+        `INSERT INTO auth_sessions(token_hash,member_id,created_at,expires_at,elevated_until,reauthenticated_until,auth_method,google_authenticated_until${method==='google'?',google_mfa_generation,google_mfa_verified':''}) VALUES(?,?,?,?,${mfa ? MFA_ELEVATION_SQL : "?"},?,?,?${method==='google'?',?,?':''})`,
       )
       .bind(
         hash,
@@ -224,6 +230,7 @@ export async function issueSession(
         mfa ? now + AUTH_LIMITS.securitySeconds : 0,
         method,
         method === "google" ? now + AUTH_LIMITS.securitySeconds : 0,
+        ...(method === 'google' ? [googleMfa.generation, Number(googleMfa.verified)] : []),
       ),
   );
   if (trust) {

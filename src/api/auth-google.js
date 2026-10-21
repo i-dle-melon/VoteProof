@@ -7,6 +7,7 @@ import { encryptEmail, decryptEmail, emailHash } from "../lib/auth-identity.js";
 import { googleAuthorization, exchangeGoogle } from "../lib/supabase-auth.js";
 import { sha256, QUERY_KEY_PATTERN } from "../lib/case-keys.js";
 import { jsonSuccess } from "./response.js";
+import { googleMfaPolicy, googleMfaGuard, googleMfaAvailable } from '../lib/google-login-mfa.js';
 
 export const GOOGLE_COOKIE = "__Host-vp-google";
 export const GOOGLE_SECONDS = 300;
@@ -16,9 +17,11 @@ export const activeIdentity = (member, subject) => ({ sql: "EXISTS(SELECT 1 FROM
 
 export const googleStart = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env), body = await readAuthJson(request);
-  onlyFields(body, ["purpose", "confirmed"]);
+  onlyFields(body, ["purpose", "confirmed", "mfa_policy_action"]);
   const purpose = body.purpose ?? "login";
   if (!["login", "connect", "security"].includes(purpose) || (purpose !== "login" && body.confirmed !== true)) throw invalidVerification();
+  if (body.mfa_policy_action !== undefined && (purpose !== 'security' || !['enable','disable'].includes(body.mfa_policy_action))) throw invalidVerification();
+  if (body.mfa_policy_action === 'enable' && !googleMfaAvailable(env)) throw new AuthError(503,'AUTH_GOOGLE_MFA_UNAVAILABLE','Google MFA opt-in is not available');
   const member = await memberSession(request, env, purpose !== "login");
   // Login cannot silently switch a signed-in account; use the bound connect path.
   if (purpose === "login" && member) throw conflict();
@@ -30,8 +33,8 @@ export const googleStart = authHandler(async (env, _url, request) => {
   const authorize = await googleAuthorization(env, redirect, verifier);
   await db.batch([
     db.prepare("DELETE FROM auth_google_flows WHERE id IN(SELECT id FROM auth_google_flows WHERE expires_at<=? LIMIT 100)").bind(now),
-    db.prepare(`INSERT INTO auth_google_flows(id,state_hash,browser_hash,purpose,member_id,session_hash,email_ciphertext,email_iv,email_key_version,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(id, await sha256("VoteProof/oauth-state/v1:" + state), await browserHash(browser), purpose, member?.member_id ?? null, member?.tokenHash ?? null, encrypted.email_ciphertext, encrypted.email_iv, encrypted.email_key_version, now, now + GOOGLE_SECONDS),
+    db.prepare(`INSERT INTO auth_google_flows(id,state_hash,browser_hash,purpose,member_id,session_hash,email_ciphertext,email_iv,email_key_version,created_at,expires_at,mfa_policy_action) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, await sha256("VoteProof/oauth-state/v1:" + state), await browserHash(browser), purpose, member?.member_id ?? null, member?.tokenHash ?? null, encrypted.email_ciphertext, encrypted.email_iv, encrypted.email_key_version, now, now + GOOGLE_SECONDS, body.mfa_policy_action ?? null),
   ]);
   return withCookies(jsonSuccess({ authorize_url: authorize, expires_in: GOOGLE_SECONDS }), [cookie(GOOGLE_COOKIE, browser, GOOGLE_SECONDS)]);
 });
@@ -83,7 +86,9 @@ export const googleCallback = authHandler(async (env, url, request) => {
     await identityEvent(db, row.member_id, row.id, "google_conflict", verified.id, verified.identity_id).run();
     throw error;
   }
+  const policy = await googleMfaPolicy(db, mapping.existing?.member_id ?? '');
   const tx = await createTransaction(db, "google", { flow_id: row.id, purpose: row.purpose, session_hash: row.session_hash,
+    mfa_policy_action:row.mfa_policy_action, google_mfa_generation:policy.generation,
     provider_subject: verified.id, google_identity_id: verified.identity_id, email_lookup_hash: mapping.lookup,
     ...(await encryptEmail(env, verified.email, "google-proof:" + row.id)),
     provider_linked: Boolean(mapping.existing), google_enabled: Boolean(mapping.existing?.google_identity_id) }, mapping.existing?.member_id ?? null);
@@ -109,9 +114,11 @@ export const googleResult = authHandler(async (env, _url, request) => {
   if (!tx) throw invalidVerification();
   const data = JSON.parse(tx.payload);
   if (data.session_hash) { const member = await memberSession(request, env); if (member.tokenHash !== data.session_hash || member.member_id !== tx.member_id) throw invalidVerification(); }
+  const authenticator = data.mfa_policy_action ? await authDatabase(env).prepare('SELECT member_id FROM member_credentials WHERE member_id=?').bind(tx.member_id).first() : null;
   return jsonSuccess({ transaction_id: tx.id, expires_in: Math.max(0, tx.created_at + GOOGLE_SECONDS - authNow()),
+    ...(data.mfa_policy_action ? {authenticator_configured:Boolean(authenticator)} : {}),
     status: tx.member_id ? (data.google_enabled ? "GOOGLE_LOGIN_READY" : "GOOGLE_CONFIRM_REQUIRED") : "GOOGLE_PROFILE_REQUIRED",
-    purpose: data.purpose, email: await decryptEmail(env, data, "google-proof:" + data.flow_id), provider_already_linked: data.provider_linked,
+    purpose: data.purpose, mfa_policy_action:data.mfa_policy_action ?? null, mfa_required:data.mfa_stage==='login', email: await decryptEmail(env, data, "google-proof:" + data.flow_id), provider_already_linked: data.provider_linked,
     cancel_unlinks_provider: false });
 });
 
@@ -127,6 +134,17 @@ export const googleConfirm = authHandler(async (env, _url, request) => {
   const existing = mapping.existing;
   if (tx.member_id && existing?.member_id !== tx.member_id) throw conflict();
   const member = existing?.member_id ?? "M-" + crypto.randomUUID(), statements = [], guards = [];
+  const policy = await googleMfaPolicy(db, member);
+  if (policy.generation !== tx.data.google_mfa_generation) throw invalidVerification();
+  guards.push(googleMfaGuard(member,policy));
+  if (policy.enabled) {
+    if (!existing || tx.data.mfa_stage) throw invalidVerification();
+    const payload = JSON.stringify({...tx.data,mfa_stage:'login',remember_me:body.remember_me===true});
+    await authAtomic(db, [...guards, transactionGuard(tx), activeIdentity(member,tx.data.provider_subject),
+      {sql:'EXISTS(SELECT 1 FROM auth_transactions WHERE id=? AND payload=?)',args:[tx.id,tx.payload]}],
+      [db.prepare('UPDATE auth_transactions SET payload=? WHERE id=?').bind(payload,tx.id)]);
+    return jsonSuccess({status:'GOOGLE_MFA_REQUIRED',transaction_id:tx.id,expires_in:Math.max(0,Math.min(tx.expires_at,tx.created_at+GOOGLE_SECONDS)-authNow())},'no-store',202);
+  }
   if (existing) {
     guards.push(activeIdentity(member, tx.data.provider_subject));
     if (tx.data.session_hash) guards.push({ sql: "EXISTS(SELECT 1 FROM auth_sessions WHERE token_hash=? AND member_id=? AND revoked_at IS NULL AND expires_at>?)", args: [tx.data.session_hash, member, authNow()] });
@@ -141,7 +159,7 @@ export const googleConfirm = authHandler(async (env, _url, request) => {
       .bind(tx.data.provider_subject, member, mapping.lookup, protectedEmail.email_ciphertext, protectedEmail.email_iv, protectedEmail.email_key_version, authNow(), tx.data.google_identity_id));
   }
   statements.push(identityEvent(db, member, tx.data.flow_id, "google_enabled", tx.data.provider_subject, tx.data.google_identity_id));
-  try { return await issueSession(request, env, member, { guards, statements, tx, remember: body.remember_me === true, method: "google" }); }
+  try { return await issueSession(request, env, member, { guards, statements, tx, remember: body.remember_me === true, method: "google", googleMfa:{generation:policy.generation,verified:false} }); }
   catch (original) { const e=fanIdError(original); if(e.code?.startsWith("FAN_ID_")) throw e; if (e instanceof AuthError || /constraint/i.test(String(e.message))) throw conflict(); throw e; }
 });
 export const googleCancel = authHandler(async (env, _url, request) => {
@@ -153,11 +171,14 @@ export const googleCancel = authHandler(async (env, _url, request) => {
 
 export const loginSecurity = authHandler(async (env, _url, request) => {
   const member = await memberSession(request, env), db = authDatabase(env);
-  const identity = await db.prepare("SELECT * FROM auth_identities WHERE member_id=?").bind(member.member_id).first();
+  const identity = await db.prepare(`SELECT i.*,coalesce(p.enabled,0) AS login_mfa_enabled,coalesce(p.generation,0) AS login_mfa_generation
+    FROM auth_identities i LEFT JOIN google_login_mfa p ON p.member_id=i.member_id WHERE i.member_id=?`).bind(member.member_id).first();
   const credentials = await db.prepare("SELECT member_id FROM member_credentials WHERE member_id=?").bind(member.member_id).first();
   if (!identity) throw invalidVerification();
   const recovery=await db.prepare('SELECT COUNT(*) remaining FROM recovery_codes WHERE member_id=? AND used_at IS NULL').bind(member.member_id).first();
-  return jsonSuccess({ google: { connected: Boolean(identity.google_identity_id), ...(identity.google_identity_id ? { email: await decryptEmail(env, identity, identity.provider_subject) } : {}) },
+  // Fold security metadata into the pre-existing identity read; no extra trip.
+  const policy = {enabled:identity.login_mfa_enabled===1,generation:identity.login_mfa_generation};
+  return jsonSuccess({ google: { connected: Boolean(identity.google_identity_id), mfa:{enabled:policy.enabled,generation:policy.generation,available:googleMfaAvailable(env)}, ...(identity.google_identity_id ? { email: await decryptEmail(env, identity, identity.provider_subject) } : {}) },
     password: { configured: Boolean(identity.password_enabled) }, authenticator: { configured: Boolean(credentials), required_for_password: true, required_for_admin: true },
     recovery: { remaining: recovery.remaining },current_method: member.auth_method, unlink_supported: false, google_assisted_password_reset_supported: false });
 });

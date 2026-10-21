@@ -106,7 +106,7 @@ export const googleTotpEnrollVerify = authHandler(async (env, _url, request) => 
 export const googleStepUp = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env), body = await readAuthJson(request); onlyFields(body, ["transaction_id", "code"]);
   const tx = await googleProof(request, env, body);
-  if (tx.data.purpose !== "security" || !tx.member_id || !tx.data.session_hash) throw invalidVerification();
+  if (tx.data.purpose !== "security" || tx.data.mfa_policy_action || !tx.member_id || !tx.data.session_hash) throw invalidVerification();
   const member = await memberSession(request, env), record = await credentials(db, tx.member_id);
   if (!record) throw new AuthError(403, "AUTH_MFA_ENROLLMENT_REQUIRED", "Enroll VoteProof Authenticator before elevated access");
   const step = await totpStep(record, tx.member_id, body.code, env), now = authNow();

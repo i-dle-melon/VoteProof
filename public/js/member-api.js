@@ -169,6 +169,7 @@ export const authMessage = (error) => ({
   AUTH_IDENTITY_CONFLICT: "這個登入身份無法連結。請使用原登入方式，或聯絡支援；不會自動合併會員。",
   AUTH_METHOD_CONFLICT: "登入方式設定未完成。請使用 Google 登入，並重試原本的設定；若已過期請聯絡支援。",
   AUTH_GOOGLE_REAUTH_REQUIRED: "請先重新驗證 Google，再為同一會員新增密碼登入。",
+  AUTH_GOOGLE_MFA_UNAVAILABLE: "Google 額外驗證尚未開放設定；已啟用的驗證仍維持有效。",
   AUTH_PROVIDER_UNAVAILABLE: "會員服務暫時無法使用（Google 或身份服務）。請稍後重試；免登入功能仍可使用。",
   AUTH_STEP_UP_REQUIRED: "此操作需要重新驗證登入身份及 Authenticator。",
   AUTH_MFA_ENROLLMENT_REQUIRED: "請先在登入與安全設定 Authenticator，再重新驗證身份。",

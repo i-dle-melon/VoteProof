@@ -2768,6 +2768,7 @@ button.legacy-case-row:hover {
 .backup-pagination { display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px; }
 .backup-pagination label { display:flex;align-items:center;gap:8px; }
 .backup-pagination input { width:5em;min-width:0;max-width:100%;box-sizing:border-box; }
+.google-mfa-recovery-codes { white-space:pre-wrap;overflow-wrap:anywhere; }
 .paginated-list-dialog { overflow-wrap:anywhere; }
 .paginated-list-dialog .point-record-row { border-bottom:1px solid var(--line); }
 .paginated-list-dialog .backup-missing-list { min-width:0; }

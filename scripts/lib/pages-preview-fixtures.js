@@ -324,7 +324,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     });
   if (p === "/api/auth/login-security")
     return reply({
-      google: { connected: true, email: "展示帳號・無真實信箱" },
+      google: { connected: true, mfa:{enabled:false,generation:0,available:false}, email: "展示帳號・無真實信箱" },
       password: { configured: true },
       authenticator: { configured: true },
       recovery: { remaining: 8 },

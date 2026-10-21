@@ -185,6 +185,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     $('google-mfa-recover-policy').checked=false;
     clearEnrollment($('google-mfa-qr'));$('google-mfa-key').textContent=$('google-mfa-codes').textContent='';$('google-mfa-ack').checked=false;
     $('google-mfa-form').hidden=$('security-google-mfa').hidden=true;
+    $('security-password-devices').hidden=$('member-password-devices').hidden=true;
     clearEnrollment($("security-enroll-qr")); $("security-enroll-key").textContent = ""; $("security-devices").replaceChildren(); $("security-step-status").textContent = "";
     for (const id of ["google-step-form", "security-enroll-form", "security-step-form", "security-google-step", "security-enroll"]) $(id).hidden = true;
     clearEnrollment($("security-qr")); $("security-key").textContent = "";
@@ -326,6 +327,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   }));
   async function loadSecurity() {
     const current = epoch;
+    $('security-password-devices').hidden=true;
     for (const id of ["security-connect", "security-reauth", "security-add", "security-change", "security-manage"]) $(id).hidden = true;
     if (pendingEmailAdd) {
       $("security-google").textContent = "信箱已驗證，屬於使用 Google 登入的既有會員。";
@@ -353,7 +355,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       $("security-google-step").hidden = !data.google.connected || !data.authenticator.configured;
       $("security-step-form").hidden = !data.password.configured;
       $("security-step-status").textContent = "";
-      void loadDevices(current);
+      $('security-password-devices').hidden=!data.password.configured;
+      if(data.password.configured)void loadDevices(current);
+      else { $('security-devices').replaceChildren();$('security-devices-status').textContent=''; }
     } catch (error) { if (current === epoch && view === "security") $("security-error").textContent = authMessage(error); }
   }
   const explainLink = () => { linkPurpose = "connect"; $("security-link-notice").hidden = $("security-link-confirm").hidden = $("security-link-cancel").hidden = false; };
@@ -423,11 +427,11 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     try {
       const data = await session.request("/api/auth/trusted-devices", { signal: controller.signal });
       if (sequence !== epoch || view !== "security" || owner !== session.member?.member_id) return;
-      $("security-devices-status").textContent = data.devices.length ? "" : "目前沒有信任的裝置。";
+      $("security-devices-status").textContent = data.devices.length ? "" : "目前沒有已信任的裝置。";
       for (const device of data.devices) {
         const card = element("article", "", "member-case"), revoke = element("button", "撤銷裝置信任", "btn btn-white"); revoke.type = "button";
-        const stamp = value => new Date(value * 1000).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
-        card.append(element("strong", device.label || "信任裝置"), element("p", "到期時間 · " + stamp(device.expires_at)), revoke);
+        const stamp = value => Number.isFinite(value) ? new Date(value * 1000).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false }) : '—';
+        card.append(element("strong", device.label || "信任裝置"), element("p", "建立時間 · " + stamp(device.created_at)),element("p", "最後使用時間 · " + stamp(device.last_used_at)),element("p", "到期時間 · " + stamp(device.expires_at)), revoke);
         revoke.addEventListener("click", () => { if (confirmed("撤銷這個裝置的信任？下次密碼登入將需要 Authenticator。")) void run("security", async current => {
           await post("trusted-devices/" + device.id + "/revoke", {}); if (current()) await loadDevices();
         }); }); $("security-devices").append(card);
@@ -662,6 +666,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
     finally { if (casesBusy === sequence) { casesBusy = null; $("member-cases-more").disabled = $("owned-cases-more").disabled = false; } }
   }
   async function loadMemberMethods(owner,sequence){
+    $('member-password-devices').hidden=true;
     $("member-auth-status").textContent='正在確認登入方式…';
     try{const data=await session.request('/api/auth/login-security');if(!sameMember(owner,sequence))return;
       $("member-auth-method").textContent=data.current_method==='google'?'Google':data.current_method==='password'?'信箱 / 密碼':'已登入';
@@ -669,8 +674,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       $("member-password-state").textContent=data.password.configured?'已設定':'未設定';
       $("member-totp-state").textContent=data.authenticator.configured?'已設定':'尚未設定';
       $("member-recovery-state").textContent=Number.isInteger(data.recovery?.remaining)?'尚有 '+data.recovery.remaining+' 組':'可至安全性設定管理';
-      $("member-auth-status").textContent='Google 一般登入不需 TOTP；管理權限一律需近期 MFA。';
-      void session.request('/api/auth/trusted-devices').then(devices=>{if(sameMember(owner,sequence))$("member-trusted-state").textContent=devices.devices.length?`${devices.devices.length} 個信任裝置`:"沒有信任裝置";}).catch(()=>{if(sameMember(owner,sequence))$("member-trusted-state").textContent="暫時無法取得";});
+      $("member-auth-status").textContent=data.google.mfa?.enabled?'Google 額外驗證已啟用；管理權限仍需另行安全驗證。':'Google 額外驗證未啟用；管理權限一律需安全驗證。';
+      $('member-password-devices').hidden=!data.password.configured;
+      if(data.password.configured)void session.request('/api/auth/trusted-devices').then(devices=>{if(sameMember(owner,sequence))$("member-trusted-state").textContent=devices.devices.length?`${devices.devices.length} 個信任裝置`:"目前沒有已信任的裝置。";}).catch(()=>{if(sameMember(owner,sequence))$("member-trusted-state").textContent="暫時無法取得";});
     }catch{if(sameMember(owner,sequence)){for(const id of ['member-auth-method','member-google-state','member-password-state','member-totp-state','member-recovery-state','member-trusted-state'])$(id).textContent='暫時無法取得';$("member-auth-status").textContent='登入方式暫時無法取得，請至安全性設定重新載入。';}}
   }
   async function loadMember() {

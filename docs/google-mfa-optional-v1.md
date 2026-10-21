@@ -61,3 +61,12 @@ Actual ordinary member, cases, public ranking, submission status, upload prepare
 `login-security` necessarily returns own MFA settings, including when the existing Member Center calls it. Its policy metadata is joined by member primary key into the pre-existing identity SELECT, rather than adding a new query or round trip. No other ordinary session read performs that join.
 
 **Cloudflare Worker CPU: UNMEASURED / 未測.** No cloud deployment or native CPU trace was authorized/performed. Workers Free CPU readiness is UNKNOWN; do not convert these wall times into CPU or claim PASS. A bounded isolated CPU check and real-provider controlled acceptance remain separate pre-release validation items.
+
+## Part B: password trusted-device UI
+
+- Title: `密碼登入信任裝置`.
+- Description: `此功能僅適用於「密碼」登入，信任期限為 30 天。(Google免設定)`.
+- Empty state: `目前沒有已信任的裝置。`.
+- Both Security and Member Center hide the whole password-device block until the existing `password.configured` is true. Google-only members, including those with Google MFA ON, perform no device-list requests. Password-only and dual members retain the existing listing/revoke mechanisms and 30-day expiry.
+- Cards show creation, last use and expiry from existing fields; no backend, cookie, device table, API, polling or trust-lifetime change.
+- `password-trusted-ui.spec.js`: 18/18 PASS across desktop/Android/iPhone, including exact copy, visibility, preserved CSRF revoke, zero device requests for Google-only, mobile/desktop dark/light and no polling.

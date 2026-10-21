@@ -270,7 +270,7 @@ test("MFA expires during admin fetch, private previews/nav are cleared", async (
 });
 test("security devices/recovery/reset require confirmation and use supported endpoints", async ({ page }) => {
   const state = await adminFixture(page); state.devices = [{ id: "12345678-1234-4234-8234-123456789abc", label: "本機手機", expires_at: Date.now() / 1000 + 500 }];
-  await page.goto("/#security"); await page.locator("#security-devices").getByRole("button").click(); await expect(page.locator("#security-devices-status")).toContainText("沒有信任");
+  await page.goto("/#security"); await page.locator("#security-devices").getByRole("button").click(); await expect(page.locator("#security-devices-status")).toHaveText("目前沒有已信任的裝置。");
   await page.locator("#security-regenerate").click(); await expect(page.locator("#security-recovery-codes li")).toHaveCount(10); await page.locator("#security-recovery-ack").check(); await page.locator("#security-done").click(); await expect(page.locator("#security-recovery-codes")).toBeEmpty();
   await page.locator("#security-reset").click(); await expect(page.locator("#security-enroll-form")).toBeVisible(); await page.locator("#security-enroll-code").fill("001234"); await page.locator('#security-enroll-form button[type="submit"]').click();
   await expect(page.locator("#security-recovery-codes li")).toHaveCount(10); await expect(page.locator("#login-entry")).toBeVisible(); await page.locator("#security-recovery-ack").check(); await page.locator("#security-done").click(); await expect(page).toHaveURL(/#login$/);

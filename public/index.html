@@ -1136,8 +1136,8 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                       <dt>公開榜位置</dt>
                       <dd id="member-public-rank">—</dd>
                     </div>
-                    <div>
-                      <dt>信任裝置</dt>
+                    <div id="member-password-devices" hidden>
+                      <dt>密碼登入信任裝置</dt>
                       <dd id="member-trusted-state">正在確認…</dd>
                     </div>
                     <div>
@@ -1536,12 +1536,15 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 </div>
                 <button class="btn btn-primary" type="submit">驗證 Authenticator</button>
               </form>
-              <h2>信任的裝置</h2>
+              <section id="security-password-devices" hidden>
+              <h2>密碼登入信任裝置</h2>
+              <p class="tiny">此功能僅適用於「密碼」登入，信任期限為 30 天。(Google免設定)</p>
               <p id="security-devices-status" role="status" aria-live="polite"></p>
               <div id="security-devices"></div>
               <button class="btn btn-white" type="button" id="security-revoke-others">
-                撤銷其他信任裝置</button
-              ><a class="btn btn-soft" href="#member">返回會員中心</a>
+                撤銷其他信任裝置</button>
+              </section>
+              <a class="btn btn-soft" href="#member">返回會員中心</a>
             </div>
           </section>
 

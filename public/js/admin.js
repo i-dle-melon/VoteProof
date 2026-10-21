@@ -415,7 +415,7 @@ export function adminUI(session) {
     await paged("leaderboards", "leaderboards", row => {
       const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", row.is_public ? copy("admin-copy-086") : copy("admin-copy-087")));
       if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
-      if(row.is_current_comeback)c.append(node("span","本次回歸","status neutral"));
+      if(row.is_current_comeback)c.append(node("span","本次回歸","status comeback"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
       if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); },'btn status rejected')); return c;
     }, boardsArchived ? new URLSearchParams({status:"archived"}) : new URLSearchParams(), {

@@ -1,5 +1,11 @@
 import { PublicError } from "./api.js";
 
+// An expired active Campaign is effectively closed for display/submissions.
+ // The persisted status stays unchanged until an authorized admin save; no cron or D1 mutation.
+export const effectiveCampaignStatus = (row, now = Date.now()) =>
+  row?.status === "active" && Number.isFinite(Date.parse(row.end_at)) && Date.parse(row.end_at) <= now
+    ? "closed" : row?.status;
+
 export function dailyLimit(mode, value) {
   if (mode === "unlimited") return null;
   if (mode === "zero") return 0;

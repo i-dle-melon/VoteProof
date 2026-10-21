@@ -1,5 +1,5 @@
 import {renderStorage} from './admin-storage.js';
-import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage } from "./admin-api.js";
+import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage, effectiveCampaignStatus } from "./admin-api.js";
 import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
@@ -91,12 +91,28 @@ export function adminUI(session) {
   const mutate = (path, body) => request(path, { method: "POST", body });
   function heading(title, copy) { $("admin-panel").append(node("h2", title)); if (copy) $("admin-panel").append(node("p", copy, "tiny")); }
   function formCard(title,container=$("admin-panel")) { const f = node("form", "", "admin-editor"); f.noValidate = false; f.append(node("h3", title)); container.append(f); return f; }
-  function bindForm(form, action) {
+  function bindForm(form, action, errorTarget = null) {
     const born = sequence;
-    form.addEventListener("submit", event => { event.preventDefault(); if (!form.reportValidity()) return; void run(async current => {
-      if (!window.confirm(copy("admin-copy-026"))) return;
-      await action(); if (current()) { await load(); $("admin-status").textContent = copy("admin-copy-027"); }
-    }, born); });
+    // HTML validation can prevent the submit event entirely. Surface that failure
+    // beside the Save button instead of silently ignoring the user's click.
+    if (errorTarget) form.addEventListener("invalid", () => {
+      errorTarget.textContent = "請確認必填欄位及輸入格式；尚未送出保存。";
+    }, true);
+    form.addEventListener("submit", event => { event.preventDefault(); if (!form.reportValidity()) return;
+      if(errorTarget) errorTarget.textContent = "";
+      void run(async current => {
+        if (!window.confirm(copy("admin-copy-026"))) return;
+        try {
+          await action(); if (current()) { await load(); $("admin-status").textContent = copy("admin-copy-027"); }
+        } catch (error) {
+          if (errorTarget?.isConnected) {
+            errorTarget.textContent = adminMessage(error);
+            errorTarget.scrollIntoView({block:"nearest"});
+          }
+          throw error;
+        }
+      }, born);
+    });
   }
   function rowsTable(rows, fields) {
     const wrap = node("div", "", "table-wrap"), table = node("table"), head = node("tr"), body = node("tbody");
@@ -339,7 +355,7 @@ export function adminUI(session) {
     $("admin-panel").append(button(copy("admin-copy-060"), () => campaignEditor(null), "btn btn-primary"));
     await paged("campaigns", "campaigns", row => {
       // Classification is Admin metadata; historical unknown IDs stay visible.
-      const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p",'活動分類：'+row.category+(row.solo_target?' · '+row.solo_target:'')), node("p", stamp(row.start_at) + " ～ " + stamp(row.end_at) + copy("admin-copy-061")), node("p", `每次通過 ${row.points_per_proof} 點 · ` + (row.daily_limit === null ? copy("admin-copy-062") : row.daily_limit === 0 ? copy("admin-copy-063") : `每日最多 ${row.daily_limit} 次計分`)), button(row.status === "archived" ? copy("admin-copy-064") : copy("admin-copy-065"), () => campaignEditor(row))); return c;
+      const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[effectiveCampaignStatus(row)], "status"), node("p",'活動分類：'+row.category+(row.solo_target?' · '+row.solo_target:'')), node("p", stamp(row.start_at) + " ～ " + stamp(row.end_at) + copy("admin-copy-061")), node("p", `每次通過 ${row.points_per_proof} 點 · ` + (row.daily_limit === null ? copy("admin-copy-062") : row.daily_limit === 0 ? copy("admin-copy-063") : `每日最多 ${row.daily_limit} 次計分`)), button(row.status === "archived" ? copy("admin-copy-064") : copy("admin-copy-065"), () => campaignEditor(row))); return c;
     });
   }
   async function campaignEditor(row) {
@@ -366,7 +382,10 @@ export function adminUI(session) {
     const cap = field(f, "daily_limit", copy("admin-copy-078"), "number", row?.daily_limit ?? "", { min: 1, max: 1000, step: 1 });
     const sync = () => { cap.disabled = mode.value !== "limited"; cap.required = !cap.disabled; }; mode.addEventListener("change", sync); sync();
     const statuses = row ? ({ draft: ["draft", "active", "archived"], active: ["active", "closed"], closed: ["closed", "archived"], archived: ["archived"] }[row.status]) : ["draft", "active"];
-    field(f, "status", copy("admin-copy-079"), "select", row?.status ?? "active", { choices: statuses.map(key => [key, statusNames[key]]) }); field(f, "note", copy("admin-copy-080"), "textarea", row?.note, { maxLength: 1000 });
+    field(f, "status", copy("admin-copy-079"), "select", row ? effectiveCampaignStatus(row) : "active", { choices: statuses.map(key => [key, statusNames[key]]) });
+    if(row?.status==="active" && effectiveCampaignStatus(row)==="closed")
+      f.append(node("p","活動已超過結束時間，投稿已自動停止。保存後會將活動狀態正式更新為「已結束」。","notice"));
+    field(f, "note", copy("admin-copy-080"), "textarea", row?.note, { maxLength: 1000 });
     field(f,'submission_instructions','投稿說明（公開顯示）','textarea',content.submission_instructions,{maxLength:5000});
     const example=field(f,'example_image','投稿範例圖片','file','',{accept:'image/png,image/jpeg,image/webp'}),preview=node('img'),remove=button('移除範例圖片',()=>{assetId=null;example.value='';preview.hidden=true;preview.removeAttribute('src');});
     preview.alt='投稿範例預覽';preview.className='campaign-example-preview';preview.hidden=true;f.append(preview,remove,node('p','圖片選填，支援 PNG／JPEG／WEBP，最多 5 MB。儲存後套用至此活動。','tiny'));
@@ -375,14 +394,16 @@ export function adminUI(session) {
     if(assetId){try{const blob=await access.asset(assetId,null,controller.signal);if(born!==sequence||!visible)return;showPreview(blob);}catch{f.append(node('p','既有範例圖片暫時無法預覽；原圖設定仍保留。','tiny'));}}
     example.addEventListener('change',()=>{const file=example.files[0];if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>5242880){example.value='';$('admin-status').textContent='範例圖片僅支援 PNG／JPEG／WEBP，最多 5 MB。';return;}showPreview(file);uploaded=null;});
     if (row?.status === "archived") { for (const el of f.elements) el.disabled = true; f.append(node("p", copy("admin-copy-081"))); }
-    else { submitButton(f, copy("admin-copy-082")); bindForm(f, async () => {const file=example.files[0],campaignId=row?.campaign_id??value(f,'campaign_id');
+    else { submitButton(f, copy("admin-copy-082"));
+    const saveError=node('p','','notice warn');saveError.id='campaign-save-error';saveError.setAttribute('role','alert');f.append(saveError);
+    bindForm(f, async () => {const file=example.files[0],campaignId=row?.campaign_id??value(f,'campaign_id');
       if(file&&(uploaded?.file!==file||uploaded?.campaignId!==campaignId)){const data=await access.asset(campaignId,file,controller.signal);assetId=data.asset_id;uploaded={file,campaignId};}
       return mutate(row ? "campaigns/" + row.campaign_id + "/update" : "campaigns", {
       ...(row ? { expected_version: row.version } : { campaign_id: value(f, "campaign_id") }), name: value(f, "name"), category: value(f, "category"),solo_target:value(f,"category")==="Solo"?(row?.solo_target??value(f,"solo_target")):null,
       start_at: locked ? row.start_at : utcFromTaipei(value(f, "start_at")), end_at: locked ? row.end_at : utcFromTaipei(value(f, "end_at")), campaign_timezone: row?.campaign_timezone && locked ? row.campaign_timezone : value(f, "campaign_timezone"),
       points_per_proof: integer(f, "points_per_proof", 0, 1000000), daily_limit: dailyLimit(mode.value, cap.value), status: value(f, "status"), note: value(f, "note") || null,
       submission_instructions:value(f,'submission_instructions'),example_asset_id:assetId,
-    });}); } f.append(button(copy("admin-copy-083"), () => void load()));
+    });},saveError); } f.append(button(copy("admin-copy-083"), () => void load()));
   }
   async function boards() {
     heading(copy("admin-copy-019"), copy("admin-copy-084"));

@@ -98,6 +98,29 @@ test("review sends expected_version and conflict requires a fresh explicit read"
 test("empty admin case list is honest", async ({ page }) => {
   await adminFixture(page, { emptyCases: true }); await page.goto("/#admin"); await expect(panel(page)).toContainText("目前沒有符合條件的案件。");
 });
+test("expired active campaign displays ended and saves closed explicitly without changing time window",async({page})=>{
+  const state=await adminFixture(page);
+  await page.clock.setFixedTime(new Date('2026-10-21T02:00:00.000Z'));
+  await open(page,"活動管理");
+  await expect(panel(page)).toContainText("已結束");
+  expect(state.campaigns[0].status).toBe("active"); // derived UI state, no D1 mutation
+  await save(page,"編輯活動");
+  await expect(page.locator("#admin-field-status")).toHaveValue("closed");
+  await expect(panel(page)).toContainText("投稿已自動停止");
+  await save(page,"保存活動");
+  await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/LOCAL/update')).length).toBe(1);
+  const update=state.calls.find(c=>c.path.endsWith('/LOCAL/update')).body;
+  expect(update.status).toBe("closed");expect(update.end_at).toBe("2026-10-20T14:59:00.000Z");
+  await expect(panel(page)).toContainText("已結束");
+});
+test("invalid campaign fields show a nearby error instead of silently ignoring Save",async({page})=>{
+  await adminFixture(page);await open(page,"活動管理");await save(page,"編輯活動");
+  await page.locator("#admin-field-name").fill("");
+  await save(page,"保存活動");
+  await expect(page.locator("#campaign-save-error")).toContainText("尚未送出保存");
+  await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy","false");
+});
+
 test("campaign editor preserves active timestamps and null unlimited", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "活動管理"); await expect(panel(page)).toContainText("不限次數"); await save(page, "編輯活動");
   await expect(page.locator("#admin-field-start_at")).toHaveValue(/^2026-09-10T23:00(?::00)?$/); await expect(page.locator("#admin-field-start_at")).toBeDisabled();

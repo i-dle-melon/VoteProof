@@ -22,7 +22,11 @@ const summary = row => Object.fromEntries(["campaign_id", "name", "category", "s
 const campaignResult = row => { const { last_mutation_id, ...safe } = row; return safe; };
 export async function saveCampaign(db, actor, input, existing = null, bucket = null) {
   if (existing) campaignUpdatePolicy(existing, input);
-  await requireActiveSoloTarget(db, input);
+  // A retired historical Solo target must not prevent securely closing/archiving
+  // the existing campaign. It still cannot be used for newly active campaigns.
+  const historicalClosure = Boolean(existing?.category === "Solo" &&
+    existing.solo_target === input.solo_target && (input.status === "closed" || input.status === "archived"));
+  if (!historicalClosure) await requireActiveSoloTarget(db, input);
   const id = existing?.campaign_id ?? input.campaign_id, marker = crypto.randomUUID(), now = new Date().toISOString();
   const previousContent=input.content?await campaignContent(db,id):null;
   if(input.content?.example_asset_id && !await db.prepare('SELECT asset_id FROM campaign_example_assets WHERE asset_id=? AND campaign_id=? AND retired_at IS NULL').bind(input.content.example_asset_id,id).first())throw new AdminError(400,'INVALID_CAMPAIGN_ASSET','範例圖片不屬於此活動。');
@@ -30,17 +34,19 @@ export async function saveCampaign(db, actor, input, existing = null, bucket = n
     input.vote_start_date, input.vote_end_date, input.points_per_proof, input.daily_limit, input.status, input.note];
   const assetGuard=input.content?"(? IS NULL OR EXISTS(SELECT 1 FROM campaign_example_assets WHERE asset_id=? AND campaign_id=? AND retired_at IS NULL))":"1";
   const assetArgs=input.content?[input.content.example_asset_id,input.content.example_asset_id,id]:[];
-  const targetGuard = "(?='團體' OR EXISTS(SELECT 1 FROM solo_targets WHERE target_id=? AND active=1))";
+  const targetGuard = historicalClosure ? "1=1" :
+    "(?='團體' OR EXISTS(SELECT 1 FROM solo_targets WHERE target_id=? AND active=1))";
+  const targetArgs = historicalClosure ? [] : [input.category,input.solo_target];
   const statement = existing
     ? db.prepare(`UPDATE campaigns SET name = ?, category = ?, solo_target = ?, start_at = ?, end_at = ?, campaign_timezone = ?,
         vote_start_date = ?, vote_end_date = ?, points_per_proof = ?, daily_limit = ?, status = ?, note = ?,
         updated_at = ?, updated_by = ?, version = version + 1, last_mutation_id = ?
         WHERE campaign_id = ? AND version = ? AND status = ? AND ${targetGuard} AND ${assetGuard} AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, input.category,input.solo_target,...assetArgs,...actorBindings(actor))
+      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, ...targetArgs,...assetArgs,...actorBindings(actor))
     : db.prepare(`INSERT INTO campaigns (name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
         points_per_proof, daily_limit, status, note, campaign_id, created_at, updated_at, created_by, updated_by, last_mutation_id)
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${targetGuard} AND ${assetGuard} AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, input.category,input.solo_target,...assetArgs,...actorBindings(actor));
+      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker,...targetArgs,...assetArgs,...actorBindings(actor));
   let result;
   try {
     result = await db.batch([
@@ -70,7 +76,7 @@ export async function saveCampaign(db, actor, input, existing = null, bucket = n
     if (!existing && stored) throw new AdminError(409, "CAMPAIGN_EXISTS", "Campaign already exists");
     throw new AdminError(503, "CAMPAIGN_SERVICE_UNAVAILABLE", "Campaign service is unavailable");
   }
-  if (result[0].meta.changes !== 1) { await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
+  if (result[0].meta.changes !== 1) { if(!historicalClosure) await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
   let cleanupPending=false;
   if(bucket&&previousContent?.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id){
     try{const asset=await db.prepare('SELECT object_key FROM campaign_example_assets WHERE asset_id=? AND campaign_id=?').bind(previousContent.example_asset_id,id).first();

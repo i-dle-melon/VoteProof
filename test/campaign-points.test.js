@@ -31,6 +31,24 @@ async function make(c, member, metadata = {}) { return h.makeCase({ member, meta
 const adjustment = (actor, member, points, key = randomUUID(), reason = "本機調整") => local.fetch("/api/admin/points/adjustments", "POST",
   { member_id: member.memberId, points, reason }, { ...actor.headers, "Idempotency-Key": key });
 
+test("historical retired Solo targets permit closing/archiving but prohibit staying active",async()=>{
+  const c=await campaign({name:'既有 Solo 活動',end_at:'2026-10-20T00:00:00.000Z'});
+  await local.db.prepare("UPDATE solo_targets SET active=0 WHERE target_id='miyeon'").run();
+  try {
+    await error(await update(c,{status:'active'}),400,'SOLO_TARGET_UNAVAILABLE');
+    const closedResponse=await update(c,{status:'closed'});
+    assert.equal(closedResponse.status,200);
+    const closed=(await closedResponse.json()).data;
+    assert.equal(closed.status,'closed');assert.equal(closed.end_at,c.end_at);
+    const archivedResponse=await update(closed,{status:'archived'});
+    assert.equal(archivedResponse.status,200);
+    assert.equal((await archivedResponse.json()).data.status,'archived');
+    assert.equal((await local.db.prepare('SELECT COUNT(*) AS n FROM point_transactions WHERE campaign_id=?').bind(c.campaign_id).first()).n,0);
+  } finally {
+    await local.db.prepare("UPDATE solo_targets SET active=1 WHERE target_id='miyeon'").run();
+  }
+});
+
 test("Unlimited Campaign round-trips null through admin/public/update/audit; 1000 is accepted", async () => {
   const c = await campaign({ daily_limit: null });
   assert.equal(c.daily_limit, null);

@@ -29,20 +29,20 @@ async function fixtureRevoke(proof,time) {
   await local.db.prepare(`INSERT INTO point_transactions(transaction_id,created_at,member_id,case_id,campaign_id,category,vote_type,vote_date,points,reason,created_by,reference_transaction_id)
     VALUES(?,?,?,?,?,'proof_revoked',?,?,?,'Local reversal',?,?)`).bind(randomUUID(),time,proof.member.memberId,proof.id,proof.campaign,proof.voteType,proof.voteDate,-proof.points,h.admin.memberId,proof.tx).run();
 }
-test('Definition create, unique ID, actors and audit; no public snapshot before rebuild',async () => {
+test('Definition create, unique ID, actors and audit; public empty definition before rebuild',async () => {
   const b = await h.create(); assert.equal(b.version,0); assert.equal(b.created_by,h.admin.memberId); assert.equal(b.last_mutation_id,undefined);
-  assert.equal(await h.snapshot(b),undefined);
+  assert.deepEqual((await h.snapshot(b)).rankings,[]); assert.equal((await h.snapshot(b)).generated_at,null);
   await err(await local.fetch('/api/admin/leaderboards','POST',definition({leaderboard_id:b.leaderboard_id}),h.admin.headers),409,'LEADERBOARD_EXISTS');
   assert.equal((await local.db.prepare("SELECT action FROM admin_audit_logs WHERE target_type='leaderboard' AND target_id=?").bind(b.leaderboard_id).first()).action,'leaderboard_create');
 });
 test('enabled custom button registry exposes safe names before scores; OFF and draft hide it',async()=>{
   const b=await h.create({type:'custom',name:'生日應援榜',start_date:'2026-01-01',end_date:'2026-12-31'});
   const read=async()=> (await (await local.fetch('/api/leaderboards?id='+b.leaderboard_id)).json()).data;
-  let data=await read();assert.deepEqual(data.leaderboards,[]);assert.equal(data.generated_at,null);
+  let data=await read();assert.equal(data.leaderboards.length,1);assert.deepEqual(data.leaderboards[0].rankings,[]);assert.equal(data.leaderboards[0].generated_at,null);assert.equal(data.generated_at,null);
   assert.deepEqual(data.custom_boards,[{leaderboard_id:b.leaderboard_id,name:'生日應援榜',type:'custom',campaign_id:null,vote_type:null}]);
   const off=await h.update(b,{is_public:false});assert.equal(off.status,200);assert.deepEqual((await read()).custom_boards,[]);
   const offRow=(await off.json()).data;const on=await h.update(offRow,{is_public:true,name:'新的按鈕名稱'});assert.equal(on.status,200);
-  data=await read();assert.equal(data.custom_boards[0].name,'新的按鈕名稱');assert.deepEqual(data.leaderboards,[]);
+  data=await read();assert.equal(data.custom_boards[0].name,'新的按鈕名稱');assert.equal(data.leaderboards[0].name,'新的按鈕名稱');assert.deepEqual(data.leaderboards[0].rankings,[]);
   const draft=await h.create({type:'custom',status:'draft',start_date:'2026-01-01',end_date:'2026-12-31'});
   assert.deepEqual((await (await local.fetch('/api/leaderboards?id='+draft.leaderboard_id)).json()).data.custom_boards,[]);
   assert.equal((await local.db.prepare('SELECT COUNT(*) n FROM leaderboard_runs WHERE leaderboard_id=?').bind(b.leaderboard_id).first()).n,0);
@@ -63,7 +63,8 @@ test('Campaign FK validation, archived campaign cannot acquire new scope',async 
 test('Definition CAS protects concurrent updates; mutations invalidate current snapshot',async () => {
   const b = await h.create(); await publish(b); const row = await current(b);
   const r = await Promise.all([h.update(row,{name:'A'}),h.update(row,{name:'B'})]); assert.deepEqual(r.map(x=>x.status).sort(),[200,409]);
-  assert.equal((await current(b)).current_run_id,null); assert.equal(await h.snapshot(b),undefined);
+  assert.equal((await current(b)).current_run_id,null);
+  const pending = await h.snapshot(b); assert.deepEqual(pending.rankings,[]);assert.equal(pending.generated_at,null);
 });
 test('Archive preserves historical run for admin, hides public and is immutable',async () => {
   const b = await h.create(); const run = await publish(b), row = await current(b);
@@ -73,6 +74,39 @@ test('Archive preserves historical run for admin, hides public and is immutable'
   await err(await h.update(archived,{name:'change'}),409,'LEADERBOARD_CONFLICT');
   await err(await h.rebuild(archived),409,'LEADERBOARD_CONFLICT');
   await assert.rejects(local.db.prepare('DELETE FROM leaderboards WHERE leaderboard_id=?').bind(b.leaderboard_id).run());
+});
+test('Public active comeback is discoverable with no run, never guesses points and respects privacy',async()=>{
+  const c=await h.campaign({category:'團體'});
+  const target=await h.create({name:'本次回歸測試空榜',type:'campaign',campaign_id:c,vote_type:'團體',is_current_comeback:true});
+  const read=async id => (await (await local.fetch('/api/leaderboards'+(id?'?id='+encodeURIComponent(id):''))).json()).data;
+  let all=await read(),board=all.leaderboards.find(b=>b.leaderboard_id===target.leaderboard_id);
+  assert.ok(board);assert.equal(board.name,'本次回歸測試空榜');assert.equal(board.is_current_comeback,true);
+  assert.equal(board.generated_at,null);assert.deepEqual(board.rankings,[]);
+  assert.equal((await local.db.prepare('SELECT COUNT(*) AS n FROM leaderboard_runs WHERE leaderboard_id=?').bind(target.leaderboard_id).first()).n,0);
+  assert.equal((await read(target.leaderboard_id)).leaderboards.length,1);
+  assert.ok(!JSON.stringify(board).includes('run_id'));
+  const privateBoard=await h.create({name:'私人回歸',type:'campaign',campaign_id:c,is_public:false});
+  const draft=await h.create({name:'草稿回歸',type:'campaign',campaign_id:c,status:'draft'});
+  for(const hidden of [privateBoard,draft]){
+    assert.deepEqual((await read(hidden.leaderboard_id)).leaderboards,[]);
+  }
+  const published=await publish(target);assert.equal(published.row_count,0);
+  board=(await read(target.leaderboard_id)).leaderboards[0];
+  assert.ok(board.generated_at);assert.deepEqual(board.rankings,[]);
+  await h.update(await current(target),{status:'archived'});
+  assert.deepEqual((await read(target.leaderboard_id)).leaderboards,[]);
+});
+test('Unpublished new scope never leaks a previous public ranking while keeping its public tab',async()=>{
+  const c=await h.campaign(),member=await h.identity();
+  await fixtureProof(member,c,10,at(7));
+  const board=await h.create({type:'campaign',campaign_id:c,start_date:null,end_date:null});
+  await publish(board);
+  const old=(await h.snapshot(board));assert.equal(old.rankings.find(r=>r.member_id===member.memberId).points,10);
+  const response=await h.update(await current(board),{name:'新範圍未公布'});
+  assert.equal(response.status,200);
+  const next=await h.snapshot(board);
+  assert.equal(next.name,'新範圍未公布');assert.deepEqual(next.rankings,[]);assert.equal(next.generated_at,null);
+  assert.ok(!(await local.fetch('/api/leaderboards?id='+board.leaderboard_id)).headers.get('cache-control').includes('no-store'));
 });
 test('Admin RBAC and auth statuses apply to ALL definition/preview/rebuild endpoints',async () => {
   const b = await h.create(), member = await h.identity(), suspended = await h.identity({role:'admin',status:'suspended'}), expired = await h.identity({role:'admin',expired:true});

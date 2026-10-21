@@ -139,11 +139,13 @@ export async function rebuildBoard(db, actor, board, expectedVersion) {
   if (result[0].meta.changes !== 1 || result[3].meta.changes !== 1) throw boardConflict();
   return { ...result[5].results[0], version:expectedVersion+1 };
 }
-// One joined query per response: a concurrent publish cannot mix runs/rows.
+// Read-only public definitions include active/public boards before their first
+// rebuild; no snapshot means no scores. A joined successful run remains the
+// sole source of ranks, so historical/unpublished rows are never exposed.
 export async function publishedBoards(db, id = null, admin = false) {
   const rows = (await db.prepare(`SELECT b.leaderboard_id,b.name,b.type,b.campaign_id,b.vote_type,b.is_current_comeback,r.run_id,r.generated_at,
       x.rank,x.member_id,x.nickname,m.player_id fan_id,x.points,x.proof_count,x.reached_at
-    FROM leaderboards b JOIN leaderboard_runs r ON r.run_id = b.current_run_id AND r.status = 'success'
+    FROM leaderboards b ${admin ? 'JOIN' : 'LEFT JOIN'} leaderboard_runs r ON r.run_id = b.current_run_id AND r.status = 'success'
     LEFT JOIN leaderboard_results x ON x.run_id = r.run_id LEFT JOIN members m ON m.member_id=x.member_id
     WHERE b.type!='all_time' AND (? IS NULL OR b.leaderboard_id = ?) ${admin ? '' : "AND b.is_public = 1 AND b.status = 'active'"}
     ORDER BY b.leaderboard_id,x.rank`).bind(id,id).all()).results;

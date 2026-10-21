@@ -8,7 +8,7 @@ const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", cat
 async function fixture(page, options = {}) {
   const query = randomBytes(32).toString("base64url"), token = randomBytes(24).toString("base64url");
   const caseId = `VP-${today().replaceAll("-", "")}-${"A".repeat(16)}`;
-  const boards = [{ leaderboard_id: "LOCAL-BOARD", name: "公開榜", generated_at: new Date().toISOString(),
+  const boards = options.boards ?? [{ leaderboard_id: "LOCAL-BOARD", name: "公開榜", generated_at: new Date().toISOString(),
     rankings: [{ rank: 7, nickname: options.nickname ?? "測試粉絲", points: 10, proof_count: 2, player_id: "not-for-display", email: "not-for-display" }] },
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
   const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, failBoards: 0 };
@@ -94,6 +94,18 @@ for (const [daily_limit, copy] of [[0, "本活動不計分"], [1, "每日最多 
   });
 }
 
+test("public comeback definition without a published run displays an empty scoreboard, not missing category",async({page})=>{
+  await fixture(page,{boards:[{leaderboard_id:"LOCAL-COMEBACK",name:"本次回歸空榜",type:"campaign",
+    campaign_id:campaign.campaign_id,vote_type:"團體",is_current_comeback:true,generated_at:null,rankings:[]}]});
+  await page.goto("/#leaderboards");
+  await expect(page.locator("#board-select")).toHaveValue("LOCAL-COMEBACK");
+  await expect(page.locator("#board-name")).toHaveText("本次回歸空榜");
+  await expect(page.locator("#boards-message")).toHaveText("這個排行榜目前還沒有成績。");
+  await expect(page.locator("#board-table")).toBeHidden();
+  await page.locator('#board-categories [data-category="comeback"]').click();
+  await expect(page.locator("#board-name")).toHaveText("本次回歸空榜");
+  await expect(page.locator("#board-generated")).toBeEmpty();
+});
 test("home empty leaderboard has an honest empty state", async ({ page }) => {
   await fixture(page, { emptyBoards: true }); await page.goto("/");
   await expect(page.locator("#home-boards-message")).toHaveText("目前沒有公開排行榜。");

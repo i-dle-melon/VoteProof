@@ -4,6 +4,8 @@
   "samples": "one bounded synthetic flow per mode; wall-time samples are not CPU or a percentile benchmark",
   "d1_unit": "executed SQL statements and DB API trips, including rate limits and atomic guards; internal SQLite trigger sub-statements excluded",
   "worker_cpu_ms": "UNMEASURED; no Cloudflare deployment or real CPU traces",
+  "cloudflare_worker_cpu_status": "UNKNOWN",
+  "measurement_limitations": "Worker-issued D1 statements/API trips only. Internal D1 SQL trigger queries and internal execution costs are not included in statement/trip counts. Counts are not total DB work, billable rows, or CPU measurements.",
   "metrics": [
     {
       "name": "MFA_OFF_start",

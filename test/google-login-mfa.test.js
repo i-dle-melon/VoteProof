@@ -83,19 +83,72 @@ test('recovery is Google-bound, one-use and atomic under concurrent login withou
  const row=await local.db.prepare('SELECT max(elevated_until) n FROM auth_sessions WHERE member_id=?').bind(m.member.member_id).first();assert.equal(row.n,0);
 });
 
-test('the final recovery code can explicitly disable Google MFA in the same atomic login transaction',async()=>{
- const m=await enabled(),p=await challenge(m);
- await local.db.prepare('UPDATE recovery_codes SET used_at=1 WHERE member_id=? AND code_hash NOT IN(SELECT code_hash FROM recovery_codes WHERE member_id=? AND used_at IS NULL LIMIT 1)').bind(m.member.member_id,m.member.member_id).run();
- // Keep the exact known code by marking the others rather than exposing hashes.
- const {recoveryHash}=await import('../src/lib/auth-crypto.js'),hash=await recoveryHash(m.member.member_id,m.codes[0]);
- await local.db.prepare('UPDATE recovery_codes SET used_at=CASE WHEN code_hash=? THEN NULL ELSE 1 END WHERE member_id=?').bind(hash,m.member.member_id).run();
- assert.equal((await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true},p.headers)).status,400);
+for(const remaining of [10,1])test(`any unused recovery code can explicitly disable Google MFA with ${remaining} codes remaining`,async()=>{
+ const m=await enabled(),previous=await challenge(m);
+ const other=await sessionFrom(await post('google/mfa/verify',{transaction_id:previous.result.transaction_id,code:await code(m)},previous.headers),m);
+ const p=await challenge(m),credentialsBefore=await local.db.prepare('SELECT * FROM member_credentials WHERE member_id=?').bind(m.member.member_id).first();
+ if(remaining===1){
+  const {recoveryHash}=await import('../src/lib/auth-crypto.js'),hash=await recoveryHash(m.member.member_id,m.codes[0]);
+  await local.db.prepare('UPDATE recovery_codes SET used_at=CASE WHEN code_hash=? THEN NULL ELSE 1 END WHERE member_id=?').bind(hash,m.member.member_id).run();
+ }
+ assert.equal((await local.db.prepare('SELECT count(*) n FROM recovery_codes WHERE member_id=? AND used_at IS NULL').bind(m.member.member_id).first()).n,remaining);
  const r=await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true,confirmed:true},p.headers);assert.equal(r.status,200);
  const policy=await local.db.prepare('SELECT enabled,generation FROM google_login_mfa WHERE member_id=?').bind(m.member.member_id).first();assert.deepEqual(policy,{enabled:0,generation:2});
- assert.equal((await local.db.prepare('SELECT count(*) n FROM recovery_codes WHERE member_id=? AND used_at IS NULL').bind(m.member.member_id).first()).n,0);
+ assert.equal((await local.db.prepare('SELECT count(*) n FROM recovery_codes WHERE member_id=? AND used_at IS NULL').bind(m.member.member_id).first()).n,remaining-1);
  assert.equal((await local.fetch('/api/auth/me','GET',undefined,m.headers)).status,401);
- assert.ok(await local.db.prepare('SELECT member_id FROM member_credentials WHERE member_id=?').bind(m.member.member_id).first());
+ assert.equal((await local.fetch('/api/auth/me','GET',undefined,other.headers)).status,401);
+ const current=await sessionFrom(r,m);assert.equal((await local.fetch('/api/auth/me','GET',undefined,current.headers)).status,200);
+ assert.equal((await local.db.prepare("SELECT count(*) n FROM auth_sessions WHERE member_id=? AND auth_method='google' AND revoked_at IS NULL").bind(m.member.member_id).first()).n,1);
+ assert.deepEqual(await local.db.prepare('SELECT * FROM member_credentials WHERE member_id=?').bind(m.member.member_id).first(),credentialsBefore);
  assert.equal((await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true,confirmed:true},p.headers)).status,400);
+});
+
+test('recovery disable requires both literal true confirmations and rejects invalid intent without consuming proof',async()=>{
+ const m=await enabled(),p=await challenge(m),before=await sessionCount(m);
+ const transaction=await local.db.prepare('SELECT * FROM auth_transactions WHERE id=?').bind(p.result.transaction_id).first();
+ for(const flags of [
+  {disable_mfa:true},{disable_mfa:true,confirmed:false},{disable_mfa:true,confirmed:'true'},
+  {disable_mfa:true,confirmed:1},{disable_mfa:false,confirmed:true},
+  {disable_mfa:'true',confirmed:true},{disable_mfa:1,confirmed:true},{confirmed:true},
+ ])assert.equal((await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],...flags},p.headers)).status,400);
+ assert.equal(await sessionCount(m),before);
+ assert.deepEqual(await local.db.prepare('SELECT enabled,generation FROM google_login_mfa WHERE member_id=?').bind(m.member.member_id).first(),{enabled:1,generation:1});
+ assert.equal((await local.db.prepare('SELECT count(*) n FROM recovery_codes WHERE member_id=? AND used_at IS NOT NULL').bind(m.member.member_id).first()).n,0);
+ assert.deepEqual(await local.db.prepare('SELECT * FROM auth_transactions WHERE id=?').bind(p.result.transaction_id).first(),transaction);
+ assert.equal((await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true,confirmed:true},p.headers)).status,200);
+});
+
+for(const differentCodes of [false,true])test(`concurrent recovery disable with ${differentCodes?'different codes':'the same code'} commits exactly once`,async()=>{
+ const m=await enabled(),a=await challenge(m),b=await challenge(m),before=await sessionCount(m);
+ const results=await Promise.all([a,b].map((p,i)=>post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[differentCodes?i:0],disable_mfa:true,confirmed:true},p.headers)));
+ assert.deepEqual(results.map(r=>r.status).sort(),[200,400]);assert.equal(await sessionCount(m),before+1);
+ assert.deepEqual(await local.db.prepare('SELECT enabled,generation FROM google_login_mfa WHERE member_id=?').bind(m.member.member_id).first(),{enabled:0,generation:2});
+ assert.equal((await local.db.prepare('SELECT count(*) n FROM recovery_codes WHERE member_id=? AND used_at IS NOT NULL').bind(m.member.member_id).first()).n,1);
+ assert.equal((await local.db.prepare("SELECT count(*) n FROM google_login_mfa_events WHERE member_id=? AND action='disable'").bind(m.member.member_id).first()).n,1);
+ assert.equal((await local.db.prepare("SELECT count(*) n FROM auth_sessions WHERE member_id=? AND auth_method='google' AND revoked_at IS NULL").bind(m.member.member_id).first()).n,1);
+});
+
+test('recovery disable never elevates reviewer, admin or super_admin sessions or changes their roles',async()=>{
+ for(const role of ['reviewer','admin','super_admin']){
+  const m=await enabled(),now=new Date().toISOString(),id=randomUUID();
+  await local.db.prepare("INSERT INTO admin_memberships(id,member_id,role,status,created_at,updated_at) VALUES(?,?,?,'active',?,?)").bind(id,m.member.member_id,role,now,now).run();
+  const p=await challenge(m),s=await sessionFrom(await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true,confirmed:true},p.headers),m);
+  assert.equal((await local.fetch('/api/admin/me','GET',undefined,s.headers)).status,403);
+  const sessions=await local.db.prepare('SELECT elevated_until,reauthenticated_until FROM auth_sessions WHERE member_id=? AND revoked_at IS NULL').bind(m.member.member_id).all();
+  assert.equal(sessions.results.length,1);assert.deepEqual(sessions.results[0],{elevated_until:0,reauthenticated_until:0});
+  assert.deepEqual(await local.db.prepare('SELECT role,status FROM admin_memberships WHERE id=?').bind(id).first(),{role,status:'active'});
+ }
+});
+
+test('failed recovery disable rolls back policy, session revocation, code consumption and audit together',async()=>{
+ const m=await enabled(),p=await challenge(m),before=await sessionCount(m);
+ await local.db.prepare("CREATE TRIGGER fixture_disable_failure BEFORE INSERT ON google_login_mfa_events WHEN NEW.action='login_recovery' BEGIN SELECT RAISE(ABORT,'fixture'); END").run();
+ try{assert.equal((await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true,confirmed:true},p.headers)).status,503);}finally{await local.db.prepare('DROP TRIGGER fixture_disable_failure').run();}
+ assert.equal(await sessionCount(m),before);assert.equal((await local.fetch('/api/auth/me','GET',undefined,m.headers)).status,200);
+ assert.deepEqual(await local.db.prepare('SELECT enabled,generation FROM google_login_mfa WHERE member_id=?').bind(m.member.member_id).first(),{enabled:1,generation:1});
+ assert.equal((await local.db.prepare('SELECT count(*) n FROM recovery_codes WHERE member_id=? AND used_at IS NOT NULL').bind(m.member.member_id).first()).n,0);
+ assert.equal((await local.db.prepare("SELECT count(*) n FROM google_login_mfa_events WHERE member_id=? AND action='disable'").bind(m.member.member_id).first()).n,0);
+ assert.equal((await post('google/mfa/recovery',{transaction_id:p.result.transaction_id,recovery_code:m.codes[0],disable_mfa:true,confirmed:true},p.headers)).status,200);
 });
 
 test('D1/audit failure rolls back factor consumption and session issuance; explicit retry can succeed',async()=>{

@@ -17,6 +17,7 @@ test('Google login accepts one recovery method and clears it after success witho
  await page.locator('#google-mfa-other-methods summary').click();await page.locator('#google-mfa-switch').click();
  await expect(page.locator('#google-mfa-code')).toBeHidden();await page.locator('#google-mfa-recovery').fill(state.recoveryCodes[0]);await submit(page);
  await expect(page).toHaveURL(/#member$/);const call=state.calls.find(c=>c.path==='/api/auth/google/mfa/recovery');expect(call.body.code).toBeUndefined();
+ expect(call.body.disable_mfa).toBeUndefined();expect(call.body.confirmed).toBeUndefined();expect(state.googleMfaEnabled).toBe(true);
  expect(await page.evaluate(()=>JSON.stringify([location.href,{...localStorage},{...sessionStorage}]))).not.toContain(state.recoveryCodes[0]);await expect(page.locator('#google-mfa-recovery')).toHaveValue('');
 });
 test('Google-only opt-in uses fresh OAuth, enrolls separately, saves recovery codes and only then enables MFA',async({page})=>{
@@ -38,12 +39,27 @@ test('configured dual member does not enroll again and can disable with fresh Go
  const call=state.calls.find(c=>c.path.endsWith('/mfa/disable'));expect(call.body.code).toBeUndefined();expect(state.calls.some(c=>c.path.includes('/mfa/enroll'))).toBe(false);
 });
 
-test('recovery can explicitly stop Google MFA after a separate confirmation',async({page})=>{
+for(const remaining of [10,1])test(`any unused recovery code can stop Google MFA after explicit confirmation with ${remaining} remaining`,async({page})=>{
  const state=await memberFixture(page,{googleOnly:true,googleResult:'GOOGLE_LOGIN_READY',googleMfaEnabled:true});await pending(page,state);
+ state.recoveryCodes=state.recoveryCodes.slice(0,remaining);
  await page.locator('#google-mfa-other-methods summary').click();await page.locator('#google-mfa-switch').click();
+ await expect(page.locator('#google-mfa-recover-policy-wrap')).toContainText('任一有效且未使用的復原碼');
+ await expect(page.locator('#google-mfa-recover-policy-wrap')).toContainText('不受剩餘組數限制');
+ for(const width of [320,390,430]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
  await page.locator('#google-mfa-recovery').fill(state.recoveryCodes[0]);await page.locator('#google-mfa-recover-policy').check();page.once('dialog',d=>d.accept());await submit(page);
  await expect(page).toHaveURL(/#member$/);expect(state.googleMfaEnabled).toBe(false);
  expect(state.calls.find(c=>c.path.endsWith('/mfa/recovery')).body).toMatchObject({disable_mfa:true,confirmed:true});
+});
+
+test('cancelling recovery disable confirmation keeps the challenge and never sends a disable request',async({page})=>{
+ const state=await memberFixture(page,{googleOnly:true,googleResult:'GOOGLE_LOGIN_READY',googleMfaEnabled:true});await pending(page,state);
+ await page.locator('#google-mfa-other-methods summary').click();await page.locator('#google-mfa-switch').click();
+ await page.locator('#google-mfa-recovery').fill(state.recoveryCodes[0]);await page.locator('#google-mfa-recover-policy').check();
+ page.once('dialog',d=>d.dismiss());await submit(page);
+ await expect(page.locator('#google-mfa-form')).toBeVisible();expect(state.authenticated).toBe(false);expect(state.googleMfaEnabled).toBe(true);
+ expect(state.calls.some(c=>c.path.endsWith('/mfa/recovery'))).toBe(false);
+ await page.locator('#google-mfa-recover-policy').uncheck();await submit(page);await expect(page).toHaveURL(/#member$/);
+ expect(state.googleMfaEnabled).toBe(true);expect(state.calls.find(c=>c.path.endsWith('/mfa/recovery')).body.disable_mfa).toBeUndefined();
 });
 test('closed opt-in rollout hides enable but does not hide disabling an existing policy',async({page})=>{
  const state=await memberFixture(page,{authenticated:true,googleOnly:true});await page.goto('/#security');await expect(page.locator('#security-google-mfa-state')).toContainText('尚未開放');await expect(page.locator('#security-google-mfa-enable')).toBeHidden();

@@ -31,6 +31,49 @@ async function make(c, member, metadata = {}) { return h.makeCase({ member, meta
 const adjustment = (actor, member, points, key = randomUUID(), reason = "本機調整") => local.fetch("/api/admin/points/adjustments", "POST",
   { member_id: member.memberId, points, reason }, { ...actor.headers, "Idempotency-Key": key });
 
+test("historical retired Solo targets permit expired edits/closing/archiving but prohibit live activation",async()=>{
+  const c=await campaign({name:'既有 Solo 活動',end_at:'2026-10-20T00:00:00.000Z'});
+  const live=await campaign();
+  await local.db.prepare("UPDATE solo_targets SET active=0 WHERE target_id='miyeon'").run();
+  try {
+    await error(await update(live,{status:'active'}),400,'SOLO_TARGET_UNAVAILABLE');
+    await error(await local.fetch('/api/admin/campaigns','POST',campaignBody(),admin.headers),400,'SOLO_TARGET_UNAVAILABLE');
+    const editedResponse=await update(c,{name:'歷史活動更新',points_per_proof:15,daily_limit:null,note:'保留原始狀態',submission_instructions:'歷史投稿說明',example_asset_id:null});
+    assert.equal(editedResponse.status,200);
+    const edited=(await editedResponse.json()).data;
+    assert.equal(edited.status,'active');assert.equal(edited.name,'歷史活動更新');assert.equal(edited.points_per_proof,15);assert.equal(edited.daily_limit,null);
+    assert.equal(edited.solo_target,c.solo_target);assert.equal(edited.end_at,c.end_at);
+    assert.equal((await (await get(`/api/admin/campaigns/${c.campaign_id}/guidance`)).json()).data.submission_instructions,'歷史投稿說明');
+    await error(await update(edited,{end_at:live.end_at}),409,'CAMPAIGN_CONFLICT');
+    await error(await update(edited,{solo_target:'yuqi'}),409,'CAMPAIGN_CONFLICT');
+    const closedResponse=await update(edited,{status:'closed'});
+    assert.equal(closedResponse.status,200);
+    const closed=(await closedResponse.json()).data;
+    assert.equal(closed.status,'closed');assert.equal(closed.end_at,c.end_at);
+    const archivedResponse=await update(closed,{status:'archived'});
+    assert.equal(archivedResponse.status,200);
+    assert.equal((await archivedResponse.json()).data.status,'archived');
+    assert.equal((await local.db.prepare('SELECT COUNT(*) AS n FROM point_transactions WHERE campaign_id=?').bind(c.campaign_id).first()).n,0);
+  } finally {
+    await local.db.prepare("UPDATE solo_targets SET active=1 WHERE target_id='miyeon'").run();
+  }
+});
+
+test("Campaign effective status filtering includes expired raw active without changing persisted status/version",async()=>{
+  const expired=await campaign({end_at:'2026-10-21T16:00:00.000Z'}),live=await campaign();
+  const closed=await campaign();await update(closed,{status:'closed'});
+  const rows=async status=>(await (await get('/api/admin/campaigns?limit=50&status='+status)).json()).data.campaigns;
+  const ended=await rows('closed'),active=await rows('active');
+  assert.ok(ended.some(c=>c.campaign_id===expired.campaign_id&&c.status==='active'&&c.version===expired.version));
+  assert.ok(ended.some(c=>c.campaign_id===closed.campaign_id));
+  assert.ok(!active.some(c=>c.campaign_id===expired.campaign_id));
+  assert.ok(active.some(c=>c.campaign_id===live.campaign_id));
+  const after=(await (await get('/api/admin/campaigns/'+expired.campaign_id)).json()).data;
+  assert.equal(after.status,'active');assert.equal(after.version,expired.version);
+  assert.ok(Math.abs(Date.parse(after.server_now)-Date.now())<10000);
+  assert.ok(ended.every(row=>Number.isFinite(Date.parse(row.server_now))));
+});
+
 test("Unlimited Campaign round-trips null through admin/public/update/audit; 1000 is accepted", async () => {
   const c = await campaign({ daily_limit: null });
   assert.equal(c.daily_limit, null);

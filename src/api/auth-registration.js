@@ -11,6 +11,7 @@ import { supabaseConfig, adminCreateVerifiedUser, adminDeleteUser } from "../lib
 import { mailConfig, sendVerificationEmail } from "../lib/mail-relay.js";
 import { EMAIL_LIMITS, emailBudget, reserveEmail } from "../lib/registration-quota.js";
 import { equalQueryHash } from "../lib/case-keys.js";
+import { fanIdTaken } from "../lib/fan-id.js";
 function randomCode() {
   const sample = new Uint32Array(1); do { crypto.getRandomValues(sample); } while (sample[0] >= 4294000000);
   return String(sample[0] % 1000000).padStart(6, "0");
@@ -84,8 +85,11 @@ export const registrationVerifyEmail = authHandler(async (env, _url, request) =>
 export const registrationCredentials = authHandler(async (env, _url, request) => {
   const db = await authContext(request, env); supabaseConfig(env);
   const body = await readAuthJson(request); onlyFields(body, ["transaction_id", "password", "nickname", "player_id"]);
-  const password = passwordInput(body.password), profile = profileInput({ nickname: body.nickname ?? "會員", ...(body.player_id === undefined ? {} : { player_id: body.player_id }) });
+  const password = passwordInput(body.password), profile = profileInput({ nickname: body.nickname ?? "會員", ...(body.player_id === undefined ? {} : { player_id: body.player_id }) }, { requireFanId: true });
   const tx = await readTransaction(request, env, body, "email_register");
+  // Early feedback only; the existing normalized DB UNIQUE constraint remains
+  // authoritative when the member is inserted after TOTP verification.
+  if (await db.prepare("SELECT 1 FROM members WHERE lower(trim(player_id))=lower(trim(?)) LIMIT 1").bind(profile.player_id).first()) throw fanIdTaken();
   const row = await db.prepare("SELECT * FROM auth_email_challenges WHERE id=? AND state='verified' AND expires_at>?").bind(tx.data.challenge_id, authNow()).first();
   if (!row) throw invalidVerification();
   const enrollmentId = crypto.randomUUID(), memberId = "M-" + crypto.randomUUID(), now = authNow();

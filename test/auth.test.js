@@ -158,7 +158,7 @@ test("case-insensitive email uniqueness prevents a second independently verified
 const m=await login(local);const email="  "+m.email.toUpperCase()+"  ";
 await local.db.prepare("UPDATE auth_email_sends SET created_at=created_at-61 WHERE email_lookup_hash=?").bind(await local.emailHash(m.email)).run();
 const verified=await verifiedEmail(email);
-await expectError(await local.fetch("/api/auth/register/credentials","POST",{transaction_id:verified.id,password:password()},verified.headers),400,"AUTH_VERIFICATION_FAILED");
+await expectError(await local.fetch("/api/auth/register/credentials","POST",{transaction_id:verified.id,password:password(),player_id:"stale-"+verified.id},verified.headers),400,"AUTH_VERIFICATION_FAILED");
 assert.equal((await local.db.prepare("SELECT count(*) n FROM auth_identities WHERE email_lookup_hash=?").bind(await local.emailHash(m.email)).first()).n,1);
 });
 

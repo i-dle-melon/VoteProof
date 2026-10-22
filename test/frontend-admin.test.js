@@ -2,8 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
 import { MemberSession, adminPath } from "../public/js/member-api.js";
-import { AdminAccess, dailyLimit, utcFromTaipei, taipeiInput, reviewActions, adminMessage } from "../public/js/admin-api.js";
+import { AdminAccess, dailyLimit, utcFromTaipei, taipeiInput, reviewActions, adminMessage, effectiveCampaignStatus } from "../public/js/admin-api.js";
 const identity = () => ({ member: { member_id: "M-" + randomUUID(), nickname: "本機", status: "active" }, csrf_token: randomBytes(32).toString("hex"), expires_in: 600, elevated_until: Date.now() / 1000 + 600 });
+
+test('Campaign effective state has the exact UTC/Taipei exclusive end boundary and preserves raw status',()=>{
+  const row={status:'active',end_at:'2026-10-22T23:00:00+08:00'};
+  assert.equal(effectiveCampaignStatus(row,Date.parse('2026-10-22T14:59:59.999Z')),'active');
+  assert.equal(effectiveCampaignStatus(row,Date.parse('2026-10-22T15:00:00.000Z')),'closed');
+  assert.equal(row.status,'active');
+  for(const status of ['draft','closed','archived'])assert.equal(effectiveCampaignStatus({...row,status},Date.parse('2026-10-23T00:00:00Z')),status);
+});
+test('Campaign effective state uses server UTC instead of a skewed device clock',()=>{
+  const row={status:'active',end_at:'2000-01-01T00:00:05.000Z',server_now:'2000-01-01T00:00:00.000Z'};
+  assert.equal(effectiveCampaignStatus(row),'active');
+  assert.equal(effectiveCampaignStatus({...row,server_now:row.end_at}),'closed');
+});
 test("campaign daily limit explicitly preserves unlimited/zero/cap", () => {
   assert.equal(adminPath('/api/admin/solo-targets'),true);
   assert.equal(adminPath('/api/admin/solo-targets?token=forged'),false);

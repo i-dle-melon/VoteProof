@@ -1,5 +1,5 @@
 import {renderStorage} from './admin-storage.js';
-import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage } from "./admin-api.js";
+import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adminMessage, watchCampaignStatus } from "./admin-api.js";
 import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
@@ -50,10 +50,11 @@ export function adminUI(session) {
   let blockDialog=null;
   let backupDialog=null;
   let memberContact=null;
+  let campaignWatches=[];
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
   function clearImages() { for (const url of urls) URL.revokeObjectURL(url); urls = []; }
-  function clearPanel() { backupDialog?.close();backupDialog?.remove();backupDialog=null;memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
+  function clearPanel() { for(const stop of campaignWatches)stop();campaignWatches=[];backupDialog?.close();backupDialog?.remove();backupDialog=null;memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
   const access = new AdminAccess(session, actor => {
     $("admin-nav-group").hidden = $("member-admin-entry").hidden = !actor;
     $("admin-content").hidden = !actor; $("admin-gate").hidden = Boolean(actor);
@@ -91,12 +92,28 @@ export function adminUI(session) {
   const mutate = (path, body) => request(path, { method: "POST", body });
   function heading(title, copy) { $("admin-panel").append(node("h2", title)); if (copy) $("admin-panel").append(node("p", copy, "tiny")); }
   function formCard(title,container=$("admin-panel")) { const f = node("form", "", "admin-editor"); f.noValidate = false; f.append(node("h3", title)); container.append(f); return f; }
-  function bindForm(form, action) {
+  function bindForm(form, action, errorTarget = null) {
     const born = sequence;
-    form.addEventListener("submit", event => { event.preventDefault(); if (!form.reportValidity()) return; void run(async current => {
-      if (!window.confirm(copy("admin-copy-026"))) return;
-      await action(); if (current()) { await load(); $("admin-status").textContent = copy("admin-copy-027"); }
-    }, born); });
+    // HTML validation can prevent the submit event entirely. Surface that failure
+    // beside the Save button instead of silently ignoring the user's click.
+    if (errorTarget) form.addEventListener("invalid", () => {
+      errorTarget.textContent = "請確認必填欄位及輸入格式；尚未送出保存。";
+    }, true);
+    form.addEventListener("submit", event => { event.preventDefault(); if (!form.reportValidity()) return;
+      if(errorTarget) errorTarget.textContent = "";
+      void run(async current => {
+        if (!window.confirm(copy("admin-copy-026"))) return;
+        try {
+          await action(); if (current()) { await load(); $("admin-status").textContent = copy("admin-copy-027"); }
+        } catch (error) {
+          if (errorTarget?.isConnected) {
+            errorTarget.textContent = adminMessage(error);
+            errorTarget.scrollIntoView({block:"nearest"});
+          }
+          throw error;
+        }
+      }, born);
+    });
   }
   function rowsTable(rows, fields) {
     const wrap = node("div", "", "table-wrap"), table = node("table"), head = node("tr"), body = node("tbody");
@@ -239,7 +256,7 @@ export function adminUI(session) {
           await mutate('backups/backfill', { dry_run: false, file_ids: preview.ready }); await load();
         })));
       })));
-      for (const audit of data.audit ?? []) box.append(node('p', copy(audit.target_id?.startsWith('process:') ? 'backup-process' : audit.action === 'retry' ? 'backup-retry' : 'backup-enqueue') + ` · ${audit.affected_count} · ` + stamp(audit.created_at * 1000), 'tiny'));
+      for (const audit of data.audit ?? []) missing.append(node('p', copy(audit.target_id?.startsWith('process:') ? 'backup-process' : audit.action === 'retry' ? 'backup-retry' : 'backup-enqueue') + ` · ${audit.affected_count} · ` + stamp(audit.created_at * 1000), 'tiny'));
     } catch (error) {
       if (['ADMIN_FORBIDDEN','ADMIN_STEP_UP_REQUIRED','AUTH_REQUIRED','MEMBER_SUSPENDED','REQUEST_CANCELLED'].includes(error.code)) throw error;
       box.append(node('p', copy('backup-unavailable'), 'tiny'));
@@ -339,7 +356,9 @@ export function adminUI(session) {
     $("admin-panel").append(button(copy("admin-copy-060"), () => campaignEditor(null), "btn btn-primary"));
     await paged("campaigns", "campaigns", row => {
       // Classification is Admin metadata; historical unknown IDs stay visible.
-      const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p",'活動分類：'+row.category+(row.solo_target?' · '+row.solo_target:'')), node("p", stamp(row.start_at) + " ～ " + stamp(row.end_at) + copy("admin-copy-061")), node("p", `每次通過 ${row.points_per_proof} 點 · ` + (row.daily_limit === null ? copy("admin-copy-062") : row.daily_limit === 0 ? copy("admin-copy-063") : `每日最多 ${row.daily_limit} 次計分`)), button(row.status === "archived" ? copy("admin-copy-064") : copy("admin-copy-065"), () => campaignEditor(row))); return c;
+      const c = node("article", "", "member-case"), badge=node("span","","status");
+      campaignWatches.push(watchCampaignStatus(row,status=>{badge.textContent=statusNames[status];}));
+      c.append(node("h3", row.name), badge, node("p",'活動分類：'+row.category+(row.solo_target?' · '+row.solo_target:'')), node("p", stamp(row.start_at) + " ～ " + stamp(row.end_at) + copy("admin-copy-061")), node("p", `每次通過 ${row.points_per_proof} 點 · ` + (row.daily_limit === null ? copy("admin-copy-062") : row.daily_limit === 0 ? copy("admin-copy-063") : `每日最多 ${row.daily_limit} 次計分`)), button(row.status === "archived" ? copy("admin-copy-064") : copy("admin-copy-065"), () => campaignEditor(row))); return c;
     });
   }
   async function campaignEditor(row) {
@@ -366,7 +385,20 @@ export function adminUI(session) {
     const cap = field(f, "daily_limit", copy("admin-copy-078"), "number", row?.daily_limit ?? "", { min: 1, max: 1000, step: 1 });
     const sync = () => { cap.disabled = mode.value !== "limited"; cap.required = !cap.disabled; }; mode.addEventListener("change", sync); sync();
     const statuses = row ? ({ draft: ["draft", "active", "archived"], active: ["active", "closed"], closed: ["closed", "archived"], archived: ["archived"] }[row.status]) : ["draft", "active"];
-    field(f, "status", copy("admin-copy-079"), "select", row?.status ?? "active", { choices: statuses.map(key => [key, statusNames[key]]) }); field(f, "note", copy("admin-copy-080"), "textarea", row?.note, { maxLength: 1000 });
+    const statusControl=field(f, "status", copy("admin-copy-079"), "select", row?.status ?? "active", { choices: statuses.map(key => [key, statusNames[key]]) });
+    if(row){
+      const effective=node('p','','tiny'),notice=node('p','活動已超過結束時間，投稿已自動停止。一般編輯不會改變原始狀態；如要正式結束，請選擇「已結束（手動）」並保存。','notice');
+      effective.dataset.campaignEffective='';f.append(effective,notice);
+      campaignWatches.push(watchCampaignStatus(row,status=>{
+        effective.textContent='目前顯示：'+statusNames[status]+' · 原始狀態：'+statusNames[row.status];
+        const expired=row.status==='active'&&status==='closed';notice.hidden=!expired;
+        if(row.status==='active'){
+          statusControl.querySelector('[value="active"]').textContent=expired?'已結束（依時間；原始狀態：'+statusNames.active+'）':statusNames.active;
+          statusControl.querySelector('[value="closed"]').textContent='已結束（手動）';
+        }
+      }));
+    }
+    field(f, "note", copy("admin-copy-080"), "textarea", row?.note, { maxLength: 1000 });
     field(f,'submission_instructions','投稿說明（公開顯示）','textarea',content.submission_instructions,{maxLength:5000});
     const example=field(f,'example_image','投稿範例圖片','file','',{accept:'image/png,image/jpeg,image/webp'}),preview=node('img'),remove=button('移除範例圖片',()=>{assetId=null;example.value='';preview.hidden=true;preview.removeAttribute('src');});
     preview.alt='投稿範例預覽';preview.className='campaign-example-preview';preview.hidden=true;f.append(preview,remove,node('p','圖片選填，支援 PNG／JPEG／WEBP，最多 5 MB。儲存後套用至此活動。','tiny'));
@@ -375,14 +407,16 @@ export function adminUI(session) {
     if(assetId){try{const blob=await access.asset(assetId,null,controller.signal);if(born!==sequence||!visible)return;showPreview(blob);}catch{f.append(node('p','既有範例圖片暫時無法預覽；原圖設定仍保留。','tiny'));}}
     example.addEventListener('change',()=>{const file=example.files[0];if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>5242880){example.value='';$('admin-status').textContent='範例圖片僅支援 PNG／JPEG／WEBP，最多 5 MB。';return;}showPreview(file);uploaded=null;});
     if (row?.status === "archived") { for (const el of f.elements) el.disabled = true; f.append(node("p", copy("admin-copy-081"))); }
-    else { submitButton(f, copy("admin-copy-082")); bindForm(f, async () => {const file=example.files[0],campaignId=row?.campaign_id??value(f,'campaign_id');
+    else { submitButton(f, copy("admin-copy-082"));
+    const saveError=node('p','','notice warn');saveError.id='campaign-save-error';saveError.setAttribute('role','alert');f.append(saveError);
+    bindForm(f, async () => {const file=example.files[0],campaignId=row?.campaign_id??value(f,'campaign_id');
       if(file&&(uploaded?.file!==file||uploaded?.campaignId!==campaignId)){const data=await access.asset(campaignId,file,controller.signal);assetId=data.asset_id;uploaded={file,campaignId};}
       return mutate(row ? "campaigns/" + row.campaign_id + "/update" : "campaigns", {
       ...(row ? { expected_version: row.version } : { campaign_id: value(f, "campaign_id") }), name: value(f, "name"), category: value(f, "category"),solo_target:value(f,"category")==="Solo"?(row?.solo_target??value(f,"solo_target")):null,
       start_at: locked ? row.start_at : utcFromTaipei(value(f, "start_at")), end_at: locked ? row.end_at : utcFromTaipei(value(f, "end_at")), campaign_timezone: row?.campaign_timezone && locked ? row.campaign_timezone : value(f, "campaign_timezone"),
       points_per_proof: integer(f, "points_per_proof", 0, 1000000), daily_limit: dailyLimit(mode.value, cap.value), status: value(f, "status"), note: value(f, "note") || null,
       submission_instructions:value(f,'submission_instructions'),example_asset_id:assetId,
-    });}); } f.append(button(copy("admin-copy-083"), () => void load()));
+    });},saveError); } f.append(button(copy("admin-copy-083"), () => void load()));
   }
   async function boards() {
     heading(copy("admin-copy-019"), copy("admin-copy-084"));
@@ -394,7 +428,7 @@ export function adminUI(session) {
     await paged("leaderboards", "leaderboards", row => {
       const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", row.is_public ? copy("admin-copy-086") : copy("admin-copy-087")));
       if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
-      if(row.is_current_comeback)c.append(node("span","本次回歸","status neutral"));
+      if(row.is_current_comeback)c.append(node("span","本次回歸","status comeback"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
       if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); },'btn status rejected')); return c;
     }, boardsArchived ? new URLSearchParams({status:"archived"}) : new URLSearchParams(), {

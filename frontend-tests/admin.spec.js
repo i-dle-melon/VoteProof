@@ -98,6 +98,74 @@ test("review sends expected_version and conflict requires a fresh explicit read"
 test("empty admin case list is honest", async ({ page }) => {
   await adminFixture(page, { emptyCases: true }); await page.goto("/#admin"); await expect(panel(page)).toContainText("目前沒有符合條件的案件。");
 });
+test("expired active campaign displays ended and saves closed explicitly without changing time window",async({page})=>{
+  const state=await adminFixture(page);
+  await page.clock.setFixedTime(new Date('2026-10-21T02:00:00.000Z'));
+  await open(page,"活動管理");
+  await expect(panel(page)).toContainText("已結束");
+  expect(state.campaigns[0].status).toBe("active"); // derived UI state, no D1 mutation
+  await save(page,"編輯活動");
+  await expect(page.locator("#admin-field-status")).toHaveValue("active");
+  await expect(panel(page)).toContainText("投稿已自動停止");
+  await page.locator('#admin-field-status').selectOption('closed');
+  await save(page,"保存活動");
+  await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/LOCAL/update')).length).toBe(1);
+  const update=state.calls.find(c=>c.path.endsWith('/LOCAL/update')).body;
+  expect(update.status).toBe("closed");expect(update.end_at).toBe("2026-10-20T14:59:00.000Z");
+  await expect(panel(page)).toContainText("已結束");
+});
+
+test('campaign crosses expiry while open without losing edits or implicitly closing raw status',async({page})=>{
+  await page.clock.install({time:new Date('2026-10-20T14:58:55.000Z')});
+  const state=await adminFixture(page);await open(page,'活動管理');
+  await expect(panel(page).locator('.status')).toHaveText('開放');
+  await page.clock.fastForward(5000);await expect(panel(page).locator('.status')).toHaveText('已結束');
+  expect(state.calls.filter(c=>c.method==='POST'&&c.path.includes('/campaigns'))).toHaveLength(0);
+  await save(page,'編輯活動');await page.locator('#admin-field-name').fill('到期後一般編輯');
+  await save(page,'保存活動');
+  await expect.poll(()=>state.calls.filter(c=>c.path.endsWith('/LOCAL/update')).length).toBe(1);
+  const body=state.calls.find(c=>c.path.endsWith('/LOCAL/update')).body;
+  expect(body.status).toBe('active');expect(body.expected_version).toBe(0);expect(body.end_at).toBe('2026-10-20T14:59:00.000Z');
+  await save(page,'編輯活動');await page.locator('#admin-field-name').fill('未送出內容');
+  await page.clock.fastForward(5000);await expect(page.locator('#admin-field-name')).toHaveValue('未送出內容');
+  await expect(page.locator('[data-campaign-effective]')).toContainText('已結束');
+});
+
+test('campaign editor expiry timer preserves dirty form values and explicit manual choice',async({page})=>{
+  await page.clock.install({time:new Date('2026-10-20T14:58:55.000Z')});
+  const state=await adminFixture(page);await open(page,'活動管理');await save(page,'編輯活動');
+  await page.locator('#admin-field-name').fill('尚未保存');
+  await page.locator('#admin-field-status').selectOption('closed');
+  await page.clock.fastForward(5000);
+  await expect(page.locator('[data-campaign-effective]')).toContainText('已結束');
+  await expect(page.locator('#admin-field-name')).toHaveValue('尚未保存');
+  await expect(page.locator('#admin-field-status')).toHaveValue('closed');
+  expect(state.calls.filter(c=>c.method==='POST'&&c.path.includes('/campaigns'))).toHaveLength(0);
+});
+
+test('campaign expiry follows server UTC despite a skewed device clock and preserves its anchor on edit',async({page})=>{
+  await page.clock.install({time:new Date('2000-01-01T00:00:00.000Z')});
+  const state=await adminFixture(page);state.campaigns[0].server_now='2026-10-20T14:58:55.000Z';
+  await open(page,'活動管理');await expect(panel(page).locator('.status')).toHaveText('開放');
+  await page.clock.fastForward(3000);await save(page,'編輯活動');
+  await expect(page.locator('[data-campaign-effective]')).toContainText('開放');
+  await page.clock.fastForward(2000);await expect(page.locator('[data-campaign-effective]')).toContainText('已結束');
+  expect(state.calls.filter(c=>c.method==='POST'&&c.path.includes('/campaigns'))).toHaveLength(0);
+});
+
+test('archived campaign remains read only',async({page})=>{
+  const state=await adminFixture(page);state.campaigns[0].status='archived';await open(page,'活動管理');await save(page,'查看活動');
+  await expect(page.locator('#admin-field-name')).toBeDisabled();
+  await expect(panel(page).getByRole('button',{name:'保存活動',exact:true})).toHaveCount(0);
+});
+test("invalid campaign fields show a nearby error instead of silently ignoring Save",async({page})=>{
+  await adminFixture(page);await open(page,"活動管理");await save(page,"編輯活動");
+  await page.locator("#admin-field-name").fill("");
+  await save(page,"保存活動");
+  await expect(page.locator("#campaign-save-error")).toContainText("尚未送出保存");
+  await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy","false");
+});
+
 test("campaign editor preserves active timestamps and null unlimited", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "活動管理"); await expect(panel(page)).toContainText("不限次數"); await save(page, "編輯活動");
   await expect(page.locator("#admin-field-start_at")).toHaveValue(/^2026-09-10T23:00(?::00)?$/); await expect(page.locator("#admin-field-start_at")).toBeDisabled();
@@ -129,6 +197,28 @@ test("leaderboard preserves server ranks and rebuild is versioned, no result edi
   const state = await adminFixture(page); await open(page, "排行榜管理"); await save(page, "重建成績");
   await expect(panel(page)).toContainText("本機公開成績"); await save(page, "查看目前成績"); await expect(panel(page).locator("tbody tr td").first()).toHaveText("4");
   expect(state.calls.find(c => c.path.endsWith("/rebuild")).body).toEqual({ expected_version: 0 }); await expect(panel(page).locator("input")).toHaveCount(0);
+});
+
+test('comeback status capsule matches completed green without its checkmark and preserves public category',async({page})=>{
+  const state=await adminFixture(page);state.boards[0].is_current_comeback=true;
+  state.boards.push({...state.boards[0],leaderboard_id:'OTHER',name:'其他活動榜',is_current_comeback:false});
+  await open(page,'排行榜管理');
+  const badge=panel(page).locator('.status.comeback');await expect(badge).toHaveCount(1);await expect(badge).toHaveText('本次回歸');
+  for(const width of [390,1280])for(const theme of ['dark','light']){
+    await page.setViewportSize({width,height:844});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+    const styles=await badge.evaluate(el=>{
+      const completed=document.createElement('span');completed.className='status completed';completed.textContent='已完成';el.parentElement.append(completed);
+      const properties=['color','backgroundColor','borderRadius','padding','fontSize','fontWeight'];
+      const values=node=>Object.fromEntries(properties.map(key=>[key,getComputedStyle(node)[key]]));
+      const result={badge:values(el),completed:values(completed),before:getComputedStyle(el,'::before').content,completedBefore:getComputedStyle(completed,'::before').content};
+      completed.remove();return result;
+    });
+    expect(styles.badge).toEqual(styles.completed);expect(['none','normal','""']).toContain(styles.before);expect(styles.completedBefore).toContain('✓');
+  }
+  await page.evaluate(()=>{location.hash='leaderboards';});
+  await expect(page.locator('[data-category="comeback"]')).toBeVisible();
+  await expect(page.locator('[data-category="comeback"]')).toHaveText('本次回歸');
+  expect(state.calls.filter(c=>c.method==='POST')).toEqual([]);
 });
 test("leaderboard definition update uses explicit scoped filters", async ({ page }) => {
   const state = await adminFixture(page); await open(page, "排行榜管理"); await save(page, "查看設定"); await page.locator("#admin-field-type").selectOption("custom");

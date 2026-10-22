@@ -9,6 +9,7 @@ import {
   normalizeEmail,
   passwordInput,
   booleanInput,
+  profileInput,
   invalidVerification,
 } from "./auth-validation.js";
 import {
@@ -47,6 +48,9 @@ export const registrationVerify = authHandler(async (env, _url, request) => {
     remember = booleanInput(body.remember_me),
     tx = await readTransaction(request, env, body, "register"),
     data = tx.data;
+  // Also reject pre-update enrollment transactions without a fan ID before
+  // creating a member/session. Existing member login never uses this route.
+  const profile = profileInput({ nickname: data.nickname, ...(data.player_id === undefined ? {} : { player_id: data.player_id }) }, { requireFanId: true });
   const step = await totpStep(data, data.member_id, body.code, env),
     now = authNow(),
     timestamp = new Date().toISOString();
@@ -75,7 +79,7 @@ export const registrationVerify = authHandler(async (env, _url, request) => {
           data.member_id,
           data.login_name,
           data.nickname,
-          data.player_id ?? null,
+          profile.player_id,
           timestamp,
           timestamp,
           timestamp,

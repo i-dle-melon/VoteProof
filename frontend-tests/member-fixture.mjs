@@ -34,6 +34,7 @@ export async function memberFixture(page, options = {}) {
     const reply = (data, status = 200) => route.fulfill({ status, headers: { "Cache-Control": "no-store" }, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
     const error = (code, status = 400) => route.fulfill({ status, headers: { "Retry-After": "90" }, contentType: "application/json", body: JSON.stringify({ ok: false, error: { code, message: "private provider message" } }) });
     if(path==="/api/auth/profile-warning")return reply({duplicate:false});
+    if(state.fanIdTaken && ['/api/auth/register/credentials','/api/auth/google/confirm'].includes(path))return error('FAN_ID_TAKEN',409);
     if (path === "/api/submissions/status") return reply({ submissions_enabled: !options.submissionsOff, submissions_message: options.submissionsMessage ?? null });
     if (path.startsWith("/api/auth/") || path.startsWith("/api/me/")) {
       if (state.authDown) return error("AUTH_PROVIDER_UNAVAILABLE", 502);

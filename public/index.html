@@ -735,7 +735,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   </button>
                 </div>
               </form>
-              <form id="register-password-form" hidden novalidate><div class="field"><label for="register-nickname">暱稱</label><input id="register-nickname" maxlength="50" value="會員" required /></div><p id="register-nickname-warning" role="status" class="notice warn" hidden></p><div class="field"><label for="register-fan">粉絲 ID（會公開顯示）</label><input id="register-fan" maxlength="100" /><p class="tiny">首次設定：全會員唯一，建立後無法修改；可稍後在會員中心設定。</p></div>
+              <form id="register-password-form" hidden novalidate><div class="field"><label for="register-nickname">暱稱</label><input id="register-nickname" maxlength="50" value="會員" required /></div><p id="register-nickname-warning" role="status" class="notice warn" hidden></p><div class="field"><label for="register-fan">粉絲 ID（必填）</label><input id="register-fan" maxlength="100" required aria-describedby="register-fan-help" /><p id="register-fan-help" class="tiny">粉絲 ID 將用於會員識別、積分及排行榜。請確認填寫正確，設定後不可自行修改。</p></div>
                 <p>信箱驗證完成。請設定 12～128 個字元的密碼，不會另外要求字元種類。</p>
                 <div class="field">
                   <label for="register-password">密碼</label>
@@ -1270,8 +1270,9 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                     ><input id="google-nickname" autocomplete="nickname" maxlength="50" /><p id="google-nickname-warning" class="notice warn" role="status" hidden></p>
                   </div>
                   <div class="field">
-                    <label for="google-player">粉絲 ID（會公開顯示）</label
-                    ><input id="google-player" maxlength="100" autocomplete="off" />
+                    <label for="google-player">粉絲 ID（必填）</label
+                    ><input id="google-player" maxlength="100" autocomplete="off" aria-describedby="google-fan-help" />
+                    <p id="google-fan-help" class="tiny">粉絲 ID 將用於會員識別、積分及排行榜。請確認填寫正確，設定後不可自行修改。</p>
                   </div>
                   <p>不需 VoteProof 密碼、Authenticator 或復原碼。</p>
                 </div>

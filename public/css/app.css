@@ -1667,7 +1667,8 @@ tbody tr:first-child td:first-child {
   color: #ff9900;
 }
 .status.approved,
-.status.completed {
+.status.completed,
+.status.comeback {
   background: rgba(0, 205, 60, 0.12);
   color: var(--primary);
 }
@@ -2335,7 +2336,8 @@ button.legacy-case-row:hover {
   background: color-mix(in srgb, var(--warning) 12%, var(--card));
 }
 .status.approved,
-.status.completed {
+.status.completed,
+.status.comeback {
   color: var(--primary);
   background: color-mix(in srgb, var(--primary) 11%, var(--card));
 }

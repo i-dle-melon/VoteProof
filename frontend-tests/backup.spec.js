@@ -90,6 +90,24 @@ test('Apps Script ready state allows retry/enqueue but hides Worker manual execu
 const missingSummary = page => page.locator('#admin-panel summary').filter({hasText:'尚未排入備份'});
 const openMissing = async page => {await missingSummary(page).click();await page.getByRole('button',{name:'查看未排入備份清單'}).click();return page.getByRole('dialog',{name:'尚未排入備份',exact:true});};
 
+for(const missing of [0,2])test(`missing backup disclosure also hides history at count ${missing}`,async({page})=>{
+  const state=await adminFixture(page);
+  await page.route('**/api/admin/backups',route=>route.fulfill({json:{ok:true,data:{...state.backupReadiness,
+    counts:{pending:0,processing:0,confirmed:0,failed:0},missing,
+    audit:[{action:'enqueue',affected_count:7,created_at:1770000000}]}}}));
+  await ready(page);
+  const summary=missingSummary(page),details=summary.locator('..');
+  const history=details.getByText(/^排入本次備份 · 7 ·/);
+  await expect(summary).toHaveText('尚未排入備份：'+missing);
+  await expect(history).toHaveCount(1);await expect(history).toBeHidden();
+  await expect(page.getByRole('button',{name:'查看未排入備份清單'})).toBeHidden();
+  await summary.click();await expect(history).toBeVisible();
+  await expect(page.getByRole('button',{name:'查看未排入備份清單'})).toBeVisible();
+  if(missing)await expect(page.getByRole('button',{name:'檢查未備份證明'})).toBeVisible();
+  await summary.click();await expect(history).toBeHidden();
+  expect(state.calls.filter(c=>c.method==='POST')).toEqual([]);
+});
+
 test('missing backups are initially collapsed, including zero; dialog is empty and Escape restores focus',async({page})=>{
   const state=await adminFixture(page);await ready(page);
   await expect(missingSummary(page)).toHaveText('尚未排入備份：0');

@@ -19,28 +19,37 @@ export const campaignSummarySql = alias => `json_object('campaign_id', ${alias}.
   'campaign_timezone', ${alias}.campaign_timezone, 'points_per_proof', ${alias}.points_per_proof,
   'daily_limit', ${alias}.daily_limit, 'status', ${alias}.status, 'version', ${alias}.version)`;
 const summary = row => Object.fromEntries(["campaign_id", "name", "category", "solo_target", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "version"].map(k => [k, row[k]]));
-const campaignResult = row => { const { last_mutation_id, ...safe } = row; return safe; };
+const campaignResult = row => { const { last_mutation_id, ...safe } = row; return { ...safe, server_now: new Date().toISOString() }; };
 export async function saveCampaign(db, actor, input, existing = null, bucket = null) {
   if (existing) campaignUpdatePolicy(existing, input);
-  await requireActiveSoloTarget(db, input);
-  const id = existing?.campaign_id ?? input.campaign_id, marker = crypto.randomUUID(), now = new Date().toISOString();
+  const now = new Date().toISOString();
+  // Retired targets still permit historical edits after server-side expiry or
+  // explicit closing/archiving. Frozen dates/target, raw status and version CAS
+  // remain enforced; a new or still-live campaign still needs an active target.
+  const historicalClosure = Boolean(existing?.category === "Solo" &&
+    existing.solo_target === input.solo_target && (input.status === "closed" || input.status === "archived" ||
+      (existing.status === "active" && existing.end_at <= now && input.status === "active")));
+  if (!historicalClosure) await requireActiveSoloTarget(db, input);
+  const id = existing?.campaign_id ?? input.campaign_id, marker = crypto.randomUUID();
   const previousContent=input.content?await campaignContent(db,id):null;
   if(input.content?.example_asset_id && !await db.prepare('SELECT asset_id FROM campaign_example_assets WHERE asset_id=? AND campaign_id=? AND retired_at IS NULL').bind(input.content.example_asset_id,id).first())throw new AdminError(400,'INVALID_CAMPAIGN_ASSET','範例圖片不屬於此活動。');
   const values = [input.name, input.category, input.solo_target, input.start_at, input.end_at, input.campaign_timezone,
     input.vote_start_date, input.vote_end_date, input.points_per_proof, input.daily_limit, input.status, input.note];
   const assetGuard=input.content?"(? IS NULL OR EXISTS(SELECT 1 FROM campaign_example_assets WHERE asset_id=? AND campaign_id=? AND retired_at IS NULL))":"1";
   const assetArgs=input.content?[input.content.example_asset_id,input.content.example_asset_id,id]:[];
-  const targetGuard = "(?='團體' OR EXISTS(SELECT 1 FROM solo_targets WHERE target_id=? AND active=1))";
+  const targetGuard = historicalClosure ? "1=1" :
+    "(?='團體' OR EXISTS(SELECT 1 FROM solo_targets WHERE target_id=? AND active=1))";
+  const targetArgs = historicalClosure ? [] : [input.category,input.solo_target];
   const statement = existing
     ? db.prepare(`UPDATE campaigns SET name = ?, category = ?, solo_target = ?, start_at = ?, end_at = ?, campaign_timezone = ?,
         vote_start_date = ?, vote_end_date = ?, points_per_proof = ?, daily_limit = ?, status = ?, note = ?,
         updated_at = ?, updated_by = ?, version = version + 1, last_mutation_id = ?
         WHERE campaign_id = ? AND version = ? AND status = ? AND ${targetGuard} AND ${assetGuard} AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, input.category,input.solo_target,...assetArgs,...actorBindings(actor))
+      .bind(...values, now, actor.member.member_id, marker, id, input.expected_version, existing.status, ...targetArgs,...assetArgs,...actorBindings(actor))
     : db.prepare(`INSERT INTO campaigns (name, category, solo_target, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date,
         points_per_proof, daily_limit, status, note, campaign_id, created_at, updated_at, created_by, updated_by, last_mutation_id)
         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${targetGuard} AND ${assetGuard} AND ${ELEVATED_AUTH_GUARD}`)
-      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker, input.category,input.solo_target,...assetArgs,...actorBindings(actor));
+      .bind(...values, id, now, now, actor.member.member_id, actor.member.member_id, marker,...targetArgs,...assetArgs,...actorBindings(actor));
   let result;
   try {
     result = await db.batch([
@@ -70,7 +79,7 @@ export async function saveCampaign(db, actor, input, existing = null, bucket = n
     if (!existing && stored) throw new AdminError(409, "CAMPAIGN_EXISTS", "Campaign already exists");
     throw new AdminError(503, "CAMPAIGN_SERVICE_UNAVAILABLE", "Campaign service is unavailable");
   }
-  if (result[0].meta.changes !== 1) { await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
+  if (result[0].meta.changes !== 1) { if(!historicalClosure) await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
   let cleanupPending=false;
   if(bucket&&previousContent?.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id){
     try{const asset=await db.prepare('SELECT object_key FROM campaign_example_assets WHERE asset_id=? AND campaign_id=?').bind(previousContent.example_asset_id,id).first();
@@ -89,7 +98,12 @@ export async function listCampaigns(db, url) {
   for (const k of url.searchParams.keys()) if (!["status", "limit", "cursor"].includes(k) || url.searchParams.getAll(k).length !== 1) invalid();
   const status = url.searchParams.get("status"), raw = url.searchParams.get("limit"), limit = raw === null ? 20 : Number(raw);
   if (status !== null && !CAMPAIGN_STATUSES.includes(status) || raw !== null && !/^[1-9]\d?$/.test(raw) || limit > 50) invalid();
-  const clauses = [], values = []; if (status) { clauses.push("status = ?"); values.push(status); }
+  const clauses = [], values = [], now = new Date().toISOString();
+  // Filter by the same effective state shown in Admin, without mutating raw
+  // status/version or using the browser clock as submission authorization.
+  if (status === "active") { clauses.push("(status = 'active' AND end_at > ?)"); values.push(now); }
+  else if (status === "closed") { clauses.push("(status = 'closed' OR (status = 'active' AND end_at <= ?))"); values.push(now); }
+  else if (status) { clauses.push("status = ?"); values.push(status); }
   const encoded = url.searchParams.get("cursor");
   if (encoded !== null) {
     try {

@@ -1,5 +1,32 @@
 import { PublicError } from "./api.js";
 
+// An expired active Campaign is effectively closed for display/submissions.
+// The persisted status stays unchanged until an explicit status change.
+const campaignClocks = new WeakMap();
+function campaignNow(row) {
+  const server = Date.parse(row?.server_now);
+  if (!Number.isFinite(server)) return Date.now(); // Compatible with old Workers/fixtures.
+  if (!campaignClocks.has(row)) campaignClocks.set(row, { server, received: performance.now() });
+  const clock = campaignClocks.get(row);
+  return clock.server + performance.now() - clock.received;
+}
+export const effectiveCampaignStatus = (row, now = campaignNow(row)) =>
+  row?.status === "active" && Number.isFinite(Date.parse(row.end_at)) && Date.parse(row.end_at) <= now
+    ? "closed" : row?.status;
+
+// Display only. Never writes state or grants submission permission.
+export function watchCampaignStatus(row, render) {
+  let timer;
+  const refresh = () => {
+    render(effectiveCampaignStatus(row));
+    const remaining = Date.parse(row.end_at) - campaignNow(row);
+    if (row.status === "active" && remaining > 0)
+      timer = setTimeout(refresh, Math.min(remaining, 2147483647));
+  };
+  refresh();
+  return () => clearTimeout(timer);
+}
+
 export function dailyLimit(mode, value) {
   if (mode === "unlimited") return null;
   if (mode === "zero") return 0;

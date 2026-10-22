@@ -216,6 +216,11 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   async function warnNickname(prefix){const input=$(prefix+"-nickname"),name=input.value.trim();if(!name)return showNicknameWarning(prefix,false);try{const data=await session.request("/api/auth/profile-warning",{method:"POST",body:{nickname:name}});if(input.value.trim()===name)showNicknameWarning(prefix,data.duplicate);}catch{showNicknameWarning(prefix,false);}}
   for(const prefix of ["profile","google","register"])$(prefix+"-nickname").addEventListener("blur",()=>void warnNickname(prefix));
   const post = (path, body) => session.request("/api/auth/" + path, { method: "POST", body, signal: controller.signal });
+  function requiredFanId(id) {
+    const value = $(id).value.trim();
+    if (!value) { $(id).focus(); throw new PublicError("FAN_ID_REQUIRED"); }
+    return value;
+  }
   const unexpired = time => { if (Date.now() >= time) throw new PublicError("AUTH_VERIFICATION_FAILED"); };
   const expires = data => Date.now() + data.expires_in * 1000;
   const form = (id, name, action) => $(id).addEventListener("submit", event => { event.preventDefault(); void run(name, action); });
@@ -247,12 +252,13 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
       $("google-message").textContent = googleProfile ? "Google 已驗證信箱。請設定 VoteProof 資料，即可建立會員；不需要 VoteProof 密碼。" :
         data.provider_already_linked && data.status === "GOOGLE_CONFIRM_REQUIRED" ? "這個 Google 帳號符合既有 VoteProof 會員。Google 已連結至既有帳號。確認後啟用同一會員的 Google 登入；取消只停止本次啟用，不會解除登入方式。" : "Google 已驗證身份，繼續登入同一 VoteProof 會員。取消不會解除登入方式。";
       $("google-profile").hidden = !googleProfile; $("google-confirm-form").hidden = false;
+      $("google-player").required = googleProfile;
     } catch (error) { if (current === epoch && view === "google") $("google-error").textContent = authMessage(error); }
   }
   form("google-confirm-form", "google", async current => {
     unexpired(googleDeadline);
     const body = { transaction_id: googleTx, confirmed: true, remember_me: $("google-remember").checked };
-    if (googleProfile) { body.nickname = $("google-nickname").value.trim(); const player = $("google-player").value.trim(); if (player) body.player_id = player; }
+    if (googleProfile) { body.nickname = $("google-nickname").value.trim(); body.player_id = requiredFanId("google-player"); }
     const data = await post("google/confirm", body);
     if (current()) { session.accept(data); googleTx = ""; location.hash = "member"; }
   });
@@ -420,8 +426,9 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
   });
   form("register-password-form", "register", async current => {
     unexpired(deadline); const password = passwordValue($("register-password").value, $("register-confirm").value);
+    const player_id = requiredFanId("register-fan");
     $("register-password").value = $("register-confirm").value = "";
-    const data = await post("register/credentials", { transaction_id: transactionId, password,nickname:$("register-nickname").value.trim()||"會員",...($("register-fan").value.trim()?{player_id:$("register-fan").value.trim()}:{}) });
+    const data = await post("register/credentials", { transaction_id: transactionId, password,nickname:$("register-nickname").value.trim()||"會員",player_id });
     if (!current()) return;
     const manual = enrollmentKey(data.otpauth_uri);
     drawEnrollment($("enrollment-qr"), data.otpauth_uri); $("enrollment-key").textContent = manual;

@@ -18,7 +18,7 @@ async function verified(h = local, address = email()) {
   const c = await start(h, address), r = await h.fetch("/api/auth/register/verify-email", "POST", { challenge_id: c.challenge_id, code: h.provider.codeFor(address) }, c.headers);
   assert.equal(r.status, 202); return { ...c, ...(await r.json()).data, headers: { ...c.headers, Cookie: responseCookie(r, LOGIN_COOKIE) } };
 }
-const credentials = (h, v, pw = secret()) => h.fetch("/api/auth/register/credentials", "POST", { transaction_id: v.transaction_id, password: pw }, v.headers);
+const credentials = (h, v, pw = secret()) => h.fetch("/api/auth/register/credentials", "POST", { transaction_id: v.transaction_id, password: pw, player_id: "local-"+v.transaction_id }, v.headers);
 async function seedBudget(h, count, age = 100, extra = {}) {
   const now = Math.floor(Date.now() / 1000);
   await h.db.batch(Array.from({ length: count }, () => h.db.prepare("INSERT INTO auth_email_sends(id,challenge_id,email_lookup_hash,source_hash,created_at,status) VALUES(?,?,?,?,?,'reserved')")

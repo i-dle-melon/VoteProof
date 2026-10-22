@@ -102,8 +102,10 @@ export function transactionId(value) {
     throw invalidVerification();
   return value;
 }
-export function profileInput(body) {
+export function profileInput(body, { requireFanId = false } = {}) {
   onlyFields(body, ["nickname", "player_id"]);
+  if (requireFanId && (body.player_id == null || (typeof body.player_id === "string" && !body.player_id.trim())))
+    throw new AuthError(400, "FAN_ID_REQUIRED", "請填寫粉絲 ID，才能完成註冊。");
   if (!Object.keys(body).length) invalidAuth();
   const result = {};
   for (const [field, max] of [

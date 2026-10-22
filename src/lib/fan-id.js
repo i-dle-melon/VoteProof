@@ -1,7 +1,7 @@
 import { AuthError } from '../api/auth-validation.js';
 // Preserve existing trim/display behavior; fold ASCII case only, no Unicode conversion.
 export const normalizeFanId = value => value.trim().replace(/[A-Z]/g, c => c.toLowerCase());
-export const fanIdTaken = () => new AuthError(409,'FAN_ID_TAKEN','這個粉絲 ID 已被使用，請選擇其他 ID。');
+export const fanIdTaken = () => new AuthError(409,'FAN_ID_TAKEN','此粉絲 ID 已被使用，請確認後重新輸入。');
 export const fanIdImmutable = () => new AuthError(409,'FAN_ID_IMMUTABLE','粉絲 ID 建立後無法修改。');
 export function fanIdError(error) {
   const message = String(error?.message ?? error);

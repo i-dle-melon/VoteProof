@@ -10,6 +10,7 @@ async function startRegistration(page) {
 async function enrollment(page, state) {
   await startRegistration(page); await page.locator("#register-code").fill("001234"); await clickSubmit(page, "register-code-form");
   await expect(page.locator("#register-password-form")).toBeVisible();
+  await page.locator("#register-fan").fill("local-fan");
   await page.locator("#register-password").fill(state.password); await page.locator("#register-confirm").fill(state.password);
   await clickSubmit(page, "register-password-form"); await expect(page.locator("#register-totp-form")).toBeVisible();
 }
@@ -313,6 +314,7 @@ test("pagehide/BFCache cannot retain enrollment QR or one-time recovery codes", 
 });
 test("late enrollment response after navigation cannot reinsert secret/QR", async ({ page }) => {
   const state = await memberFixture(page); await startRegistration(page); await page.locator("#register-code").fill("001234"); await clickSubmit(page, "register-code-form");
+  await page.locator("#register-fan").fill("local-late-enrollment");
   state.delay = true; await page.locator("#register-password").fill(state.password); await page.locator("#register-confirm").fill(state.password);
   await clickSubmit(page, "register-password-form"); await page.evaluate(() => { location.hash = "home"; });
   await expect(page.locator("#view-home")).toBeVisible(); await expect(page.locator("#enrollment-key")).toBeEmpty();

@@ -11,7 +11,7 @@ before(async () => { local = await localCaseRuntime(); });
 after(async () => { await local?.runtime.dispose(); });
 const count = async (table, member) => (await local.db.prepare(`SELECT count(*) n FROM ${table}` + (member ? " WHERE member_id=?" : "")).bind(...(member ? [member] : [])).first()).n;
 const post = (path, body, headers = loginHeaders()) => local.fetch("/api/auth/" + path, "POST", body, headers);
-const confirm = (p, extra = {}) => post("google/confirm", { transaction_id: p.result.transaction_id, confirmed: true, nickname: "本機Google", ...extra }, p.headers);
+const confirm = (p, extra = {}) => post("google/confirm", { transaction_id: p.result.transaction_id, confirmed: true, nickname: "本機Google", player_id: "google-"+p.result.transaction_id, ...extra }, p.headers);
 async function passwordSetup(member) {
   const r = await post("password/add/start", { confirmed: true }, member.headers); assert.equal(r.status, 202);
   const data = (await r.json()).data;

@@ -164,7 +164,8 @@ export function codeValue(value) {
   return code;
 }
 export const authMessage = (error) => ({
-  FAN_ID_TAKEN: "這個粉絲 ID 已被使用，請選擇其他 ID。",
+  FAN_ID_REQUIRED: "請填寫粉絲 ID，才能完成註冊。",
+  FAN_ID_TAKEN: "此粉絲 ID 已被使用，請確認後重新輸入。",
   FAN_ID_IMMUTABLE: "粉絲 ID 建立後無法修改。",
   AUTH_IDENTITY_CONFLICT: "這個登入身份無法連結。請使用原登入方式，或聯絡支援；不會自動合併會員。",
   AUTH_METHOD_CONFLICT: "登入方式設定未完成。請使用 Google 登入，並重試原本的設定；若已過期請聯絡支援。",

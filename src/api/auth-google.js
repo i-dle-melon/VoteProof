@@ -132,11 +132,11 @@ export const googleConfirm = authHandler(async (env, _url, request) => {
     if (tx.data.session_hash) guards.push({ sql: "EXISTS(SELECT 1 FROM auth_sessions WHERE token_hash=? AND member_id=? AND revoked_at IS NULL AND expires_at>?)", args: [tx.data.session_hash, member, authNow()] });
     statements.push(db.prepare("UPDATE auth_identities SET google_identity_id=? WHERE provider_subject=?").bind(tx.data.google_identity_id, tx.data.provider_subject));
   } else {
-    const profile = profileInput({ nickname: body.nickname, ...(body.player_id === undefined ? {} : { player_id: body.player_id }) }), now = new Date().toISOString();
+    const profile = profileInput({ nickname: body.nickname, ...(body.player_id === undefined ? {} : { player_id: body.player_id }) }, { requireFanId: true }), now = new Date().toISOString();
     guards.push({ sql: "NOT EXISTS(SELECT 1 FROM auth_identities WHERE provider_subject=? OR email_lookup_hash=?) AND NOT EXISTS(SELECT 1 FROM auth_enrollments WHERE email_lookup_hash=? AND state NOT IN('deleted','active'))", args: [tx.data.provider_subject, mapping.lookup, mapping.lookup] });
     const protectedEmail = await encryptEmail(env, email, tx.data.provider_subject);
     statements.push(db.prepare("INSERT INTO members(id,member_id,login_name,nickname,player_id,created_at,updated_at,last_login_at) VALUES(?,?,?,?,?,?,?,?)")
-      .bind(crypto.randomUUID(), member, crypto.randomUUID().replaceAll("-", ""), profile.nickname, profile.player_id ?? null, now, now, now));
+      .bind(crypto.randomUUID(), member, crypto.randomUUID().replaceAll("-", ""), profile.nickname, profile.player_id, now, now, now));
     statements.push(db.prepare("INSERT INTO auth_identities(provider,provider_subject,member_id,email_lookup_hash,email_ciphertext,email_iv,email_key_version,created_at,password_enabled,google_identity_id) VALUES('supabase',?,?,?,?,?,?,?,0,?)")
       .bind(tx.data.provider_subject, member, mapping.lookup, protectedEmail.email_ciphertext, protectedEmail.email_iv, protectedEmail.email_key_version, authNow(), tx.data.google_identity_id));
   }

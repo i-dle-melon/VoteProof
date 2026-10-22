@@ -91,17 +91,29 @@ test("Preview cancel aborts package, leaves retry and query can create new snaps
   page,
 }) => {
   await enter(page, "small");
+  // Hold the async sample read so cancellation during preparation is reproducible.
+  // Restore the adapter immediately so the retry uses its normal implementation.
+  await page.evaluate(async () => {
+    const { MemberSession } = await import("/VoteProof/js/member-api.js");
+    const original = MemberSession.prototype.exportSample;
+    MemberSession.prototype.exportSample = async function () {
+      MemberSession.prototype.exportSample = original;
+      await new Promise(resolve => { window.resumeExportSample = resolve; });
+      return original.call(this);
+    };
+  });
   await page
     .locator('[data-package="1"]')
     .getByRole("button", { name: "下載", exact: true })
     .click();
+  await page.waitForFunction(() => typeof window.resumeExportSample === "function");
   await page.getByRole("button", { name: "取消", exact: true }).click();
-  // Cancel may precede the start acknowledgement: planned is safe to retry, too.
-  // Wait for the download attempt to settle; do not assert an unconfirmed server state.
+  await page.evaluate(() => { window.resumeExportSample(); delete window.resumeExportSample; });
+  // The acknowledged attempt must fail safely, then remain available for retry.
   await expect(page.locator("#export-progress")).toHaveCount(0);
   const packageRow = page.locator('[data-package="1"]');
   const state = await packageRow.locator("[data-export-state]").getAttribute("data-export-state");
-  expect(["planned", "failed"]).toContain(state);
+  expect(state).toBe("failed");
   await expect(page.locator(".image-export")).toContainText("本包未完成");
   await packageRow
     .getByRole("button", { name: state === "failed" ? "重新下載" : "下載", exact: true })

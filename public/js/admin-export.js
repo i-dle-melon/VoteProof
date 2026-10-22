@@ -325,6 +325,9 @@ export async function renderImageExports({ container, request, session, signal }
       if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (handle) sink = await handle.createWritable();
       const sample = await session.exportSample?.();
+      // Cancel can terminate the worker while the sample/sink is preparing,
+      // before active.reject exists. Do not wait on that terminated worker.
+      if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (
         !sink &&
         !sample &&

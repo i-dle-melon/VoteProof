@@ -228,15 +228,21 @@ test("homepage CTA, public navigation, keyboard focus and responsive layout", as
   const state = await fixture(page); await page.goto("/");
   await expect(page.locator("#home-title")).toBeVisible(); await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator("#campaign-list")).toContainText(campaign.name); await noOverflow(page);
-  await page.locator(".hero-actions a[href='#lookup']").click(); await expect(page.locator("#lookup-form")).toBeVisible();
+  // Hash navigation also emits popstate. Wait for hashchange before moving
+  // beyond the route heading, so its second focus cannot steal the input focus.
+  const lookupNavigation = page.evaluate(() => new Promise(resolve => {
+    window.addEventListener("hashchange", () => resolve(), { once: true });
+  }));
+  await page.locator(".hero-actions a[href='#lookup']").click();
+  await lookupNavigation;
+  await expect(page.locator("#lookup-form")).toBeVisible();
   await expect(page.locator("#lookup-title")).toBeFocused();
   expect(await page.locator("body").innerText()).not.toMatch(/會員登入|建立會員|管理員登入|模擬|Coming Soon/);
   expect(state.calls.filter((c) => c.path.includes("/auth/")).map(c => c.path)).toEqual(["/api/auth/me"]);
   expect(state.calls.some((c) => c.path.includes("/me/") || c.path.includes("/admin/"))).toBe(false);
   const lookup = page.locator("#lookup-id");
-  await lookup.focus();
-  // Navigation focus can settle asynchronously: assert actual focus and its styling
-  // together so the assertion never samples an unfocused element.
+  await page.keyboard.press("Tab");
+  // Exercise actual keyboard navigation and retain the visible-focus assertion.
   await expect.poll(() =>
     lookup.evaluate(el => ({
       focused: document.activeElement === el,

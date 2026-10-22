@@ -15,6 +15,7 @@ test('member public rank uses only loaded boards and empty ranks remain honest',
  for(const b of boards)b.rankings=[];await page.reload();await expect(page.locator('#member-public-rank')).toHaveText('尚未上榜');
 });
 test('comeback is explicit and non-featured campaigns retain named buttons',async({page})=>{
+ await page.clock.install(); // Install before RankingClient captures Date.now.
  await memberFixture(page);const boards=[{leaderboard_id:'old',type:'campaign',name:'Old named board',rankings:[]},{leaderboard_id:'new',type:'campaign',name:'Selected board',is_current_comeback:true,rankings:[]}];
  await page.route('**/api/leaderboards*',r=>r.fulfill({json:{ok:true,data:{leaderboards:boards,custom_boards:[]}}}));
  await page.goto('/#leaderboards');await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('Selected board');

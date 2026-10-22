@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       approved_sha:
-        description: "已看過 UI Preview 的完整 40 字元 main commit SHA"
+        description: "核准排行榜 Release 的完整 40 字元 commit SHA"
         required: true
         type: string
 permissions:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   validate:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/leaderboard-v1-release-20261022')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     permissions:
@@ -38,6 +38,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           APPROVED_SHA: ${{ inputs.approved_sha }}
+          VALIDATION_REF: ${{ github.ref_name }}
   deploy:
     needs: validate
     runs-on: ubuntu-latest

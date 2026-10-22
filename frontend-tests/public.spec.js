@@ -8,7 +8,7 @@ const campaign = { campaign_id: "LOCAL-BROWSER", name: "本機公開活動", cat
 async function fixture(page, options = {}) {
   const query = randomBytes(32).toString("base64url"), token = randomBytes(24).toString("base64url");
   const caseId = `VP-${today().replaceAll("-", "")}-${"A".repeat(16)}`;
-  const boards = options.boards ?? [{ leaderboard_id: "LOCAL-BOARD", name: "公開榜", generated_at: new Date().toISOString(),
+  const boards = options.boards ?? [{ leaderboard_id: "system-history", name: "公開榜", generated_at: new Date().toISOString(),
     rankings: [{ rank: 7, nickname: options.nickname ?? "測試粉絲", points: 10, proof_count: 2, player_id: "not-for-display", email: "not-for-display" }] },
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
   const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, failBoards: 0 };

@@ -6,11 +6,14 @@ import {unstable_splitSqlQuery} from 'wrangler';
 import {localAdminRuntime} from '../scripts/lib/local-admin-runtime.mjs';
 import {localCaseRuntime,guestBody} from '../scripts/lib/local-case-runtime.mjs';
 import {normalizeFanId} from '../src/lib/fan-id.js';
+import {publicLeaderboardData} from '../src/lib/public-leaderboards.js';
 let h,local,admin;
 before(async()=>{h=await localAdminRuntime();local=h.local;admin=await h.identity({role:'super_admin',fanId:'idle_voteproof'});});
 after(async()=>{await local?.runtime.dispose();});
 const data=async r=>{const j=await r.json();assert.equal(j.ok,true,JSON.stringify(j));return j.data;};
 const profile=(m,body)=>local.fetch('/api/me/profile','PATCH',body,m.headers);
+// Scoring correctness uses fresh SQL; shared public TTL is tested separately.
+const systemRankings=async()=> (await Promise.all(['system-history','system-group','system-solo'].map(id=>publicLeaderboardData(local.db,id)))).flatMap(data=>data.leaderboards);
 async function error(r,status,code){assert.equal(r.status,status);assert.equal((await r.json()).error.code,code);}
 test('fan ID first claim, normalization collision, and race have one winner',async()=>{
  const a=await h.identity({fanId:null}),b=await h.identity({fanId:null});
@@ -73,14 +76,14 @@ test('system history/group/Solo are live historical ledger sums; Solo targets co
  let first;
  for(const [campaign_id,category,solo_target] of campaigns){await local.campaign({campaign_id,category,solo_target,points_per_proof:10,daily_limit:null});const created=await h.makeCase({member:m,metadata:{campaign_id,vote_type:category}});await data(await h.review(admin,created.case_id,'approve'));first??=created;}
  await data(await local.fetch('/api/admin/points/adjustments','POST',{member_id:m.memberId,points:7,reason:'Local valid adjustment'},{...admin.headers,'Idempotency-Key':randomUUID()}));
- let boards=(await data(await local.fetch('/api/leaderboards'))).leaderboards;
+ let boards=await systemRankings();
  assert.equal(boards.find(b=>b.leaderboard_id==='system-history').rankings.find(r=>r.member_id===m.memberId).points,47);
  assert.equal(boards.find(b=>b.leaderboard_id==='system-group').rankings.find(r=>r.member_id===m.memberId).points,10);
  const solo=boards.filter(b=>b.leaderboard_id==='system-solo');assert.equal(solo.length,1);
  assert.equal(solo[0].rankings.find(r=>r.member_id===m.memberId).points,30);
  assert.equal(solo[0].rankings.find(r=>r.member_id===m.memberId).proof_count,3);
  await data(await h.review(admin,first.case_id,'revoke',1,{reason:'Local reversal'}));
- boards=(await data(await local.fetch('/api/leaderboards'))).leaderboards;
+ boards=await systemRankings();
  assert.equal(boards.find(b=>b.leaderboard_id==='system-history').rankings.find(r=>r.member_id===m.memberId).points,37);
  assert.equal(boards.find(b=>b.leaderboard_id==='system-solo').rankings.find(r=>r.member_id===m.memberId).points,20);
  assert.equal(boards.find(b=>b.leaderboard_id==='system-group').rankings.find(r=>r.member_id===m.memberId).points,10);
@@ -111,7 +114,7 @@ test('Solo total aggregates miyeon 10 plus minnie 20 plus yuqi 30 without artist
   await data(await h.review(admin,c.case_id,'approve'));
   await local.db.prepare("UPDATE campaigns SET status='closed',version=version+1 WHERE campaign_id=?").bind(campaign_id).run();
  }
- const rankings=async()=>(await data(await local.fetch('/api/leaderboards?id=system-solo'))).leaderboards[0].rankings;
+ const rankings=async()=>(await publicLeaderboardData(local.db,'system-solo')).leaderboards[0].rankings;
  const rows=(await rankings()).filter(r=>r.member_id===m.memberId);assert.equal(rows.length,1);assert.equal(rows[0].points,60);assert.equal(rows[0].proof_count,3);
  await data(await h.review(admin,proofs[1].case_id,'revoke',1,{reason:'Total board reversal'}));
  const after=(await rankings()).find(r=>r.member_id===m.memberId);assert.equal(after.points,40);assert.equal(after.proof_count,2);

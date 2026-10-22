@@ -7,6 +7,7 @@ import { configureLocalTiers,localTierRows } from '../scripts/lib/local-tier-fix
 import { TIER_IDENTITIES,resolveMemberTier,tierConfigurationReady,memberPointTier,updateMemberTier,tierUpdateInput } from '../src/lib/member-tier.js';
 import { adminIdentity } from '../src/lib/admin-identity.js';
 import { definition } from '../scripts/lib/local-leaderboard-runtime.mjs';
+import {publicLeaderboardData} from '../src/lib/public-leaderboards.js';
 let h,local,admin,reviewer;
 before(async()=>{h=await localAdminRuntime(); local=h.local; admin=await h.identity({role:'admin'}); reviewer=await h.identity({role:'reviewer'});});
 after(async()=>{await local?.runtime.dispose();});
@@ -162,10 +163,12 @@ test('Stellar member has no administrative authorization; normal admin remains a
   assert.equal((await points(admin)).tier.tier_id,'normal');assert.equal((await local.fetch('/api/admin/member-tiers','GET',undefined,admin.headers)).status,200);
 });
 test('System leaderboard ranks stay unchanged while current tier follows configuration',async()=>{
+  await configureLocalTiers(local,admin);
+  const member=await h.identity();assert.equal((await adjust(member,100)).status,201);
   const body={leaderboard_id:'system-history'};
-  const before=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).json();
+  const before={data:await publicLeaderboardData(local.db,body.leaderboard_id)};
   assert.equal((await edit(await row('bronze'),{min_points:101})).status,200);
-  const after=await (await local.fetch('/api/leaderboards?id='+body.leaderboard_id)).json();
+  const after={data:await publicLeaderboardData(local.db,body.leaderboard_id)};
   const snapshot=data=>({...data,data:{...data.data,leaderboards:data.data.leaderboards.map(b=>({...b,rankings:b.rankings.map(({tier,tier_configuration_ready,...rank})=>rank)}))}});
   assert.deepEqual(snapshot(after),snapshot(before));
   assert.ok(after.data.leaderboards[0].rankings.some((r,i)=>r.tier.tier_id!==before.data.leaderboards[0].rankings[i].tier.tier_id));

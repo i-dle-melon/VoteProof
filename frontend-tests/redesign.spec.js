@@ -5,6 +5,7 @@ import { adminFixture } from "./admin-fixture.mjs";
 test("four default categories append configured custom buttons and preserve honest empty states", async ({
   page,
 }) => {
+  await page.clock.install();
   await memberFixture(page);
   const boards = [
     ["history", "all_time", null],
@@ -50,11 +51,13 @@ test("four default categories append configured custom buttons and preserve hone
   await expect(page.locator("#board-results")).toContainText("7");
   await expect(page.locator("#board-results")).toContainText("42 點");
   boards.splice(1, 1);
+  await page.clock.fastForward(120001);
   await page.locator("#boards-refresh").click();
   await page.locator("[data-category=comeback]").click();
   await expect(page.locator("#boards-message")).toContainText("目前沒有公開排行榜");
   await expect(page.locator("#board-table")).toBeHidden();
   boards.splice(0);
+  await page.clock.fastForward(120001);
   await page.locator("#boards-refresh").click();
   await expect(page.locator("#board-categories button")).toHaveText([
     "歷史累計",

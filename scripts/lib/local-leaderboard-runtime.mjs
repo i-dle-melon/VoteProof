@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { localAdminRuntime } from './local-admin-runtime.mjs';
+import {publicLeaderboardData} from '../../src/lib/public-leaderboards.js';
 
 export const definition = (extra = {}) => ({ leaderboard_id:'LB-'+randomUUID(),name:'Local leaderboard',type:'custom',
   campaign_id:null,start_date:'2000-01-01',end_date:'2099-12-31',vote_type:null,top_n:100,is_public:true,status:'active',...extra });
@@ -26,12 +27,14 @@ export async function localLeaderboardRuntime() {
     const proof = await h.makeCase({ member,metadata:{ campaign_id:campaignId,...extra } });
     assert.equal((await h.review(reviewer,proof.case_id,'approve')).status,200); return proof;
   };
-  const snapshot = async (board,adminOnly = false) => {
-    const response = await local.fetch(adminOnly ? `/api/admin/leaderboards/${board.leaderboard_id}/results` : '/api/leaderboards?id='+board.leaderboard_id,
-      'GET',undefined,adminOnly ? admin.headers : {});
+  // Fresh scoring helper; HTTP TTL/authorization is covered by routed tests.
+  const live = async board => (await publicLeaderboardData(local.db,board.leaderboard_id)).leaderboards[0];
+  // Historical snapshots always use authenticated Admin results.
+  const snapshot = async board => {
+    const response = await local.fetch('/api/admin/leaderboards/'+board.leaderboard_id+'/results','GET',undefined,admin.headers);
     assert.equal(response.status,200); return (await response.json()).data.leaderboards[0];
   };
   const update = (board,extra = {},actor = admin) => local.fetch(`/api/admin/leaderboards/${board.leaderboard_id}/update`,'POST',
     { ...Object.fromEntries(['name','type','campaign_id','start_date','end_date','vote_type','top_n','is_public','status'].map(k => [k,board[k]])),expected_version:board.version,...extra },actor.headers);
-  return { ...h,admin,reviewer,create,rebuild,adjust,campaign,award,snapshot,update };
+  return { ...h,admin,reviewer,create,rebuild,adjust,campaign,award,live,snapshot,update };
 }

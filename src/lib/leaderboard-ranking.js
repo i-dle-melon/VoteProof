@@ -1,14 +1,16 @@
 // Fixed SQL, evaluated entirely inside the publish transaction. No client SQL.
 // A member reaches their final pair at the start of its final uninterrupted
 // suffix. Departing and later returning resets this time (including reversals).
-export const LEDGER_CTE = `WITH scoped AS (
+const storedScope = `
   SELECT t.*, CASE WHEN t.category IN ('proof_approved','proof_reapproved') THEN 1
     WHEN t.category = 'proof_revoked' THEN -1 ELSE 0 END AS proof_delta
   FROM point_transactions t JOIN leaderboards b ON b.leaderboard_id = ?
   WHERE (b.campaign_id IS NULL OR t.campaign_id = b.campaign_id)
     AND (b.vote_type IS NULL OR t.vote_type = b.vote_type)
-    AND (b.type != 'custom' OR t.vote_date BETWEEN b.start_date AND b.end_date)
-), history AS (
+    AND (b.type != 'custom' OR t.vote_date BETWEEN b.start_date AND b.end_date)`;
+// Only trusted, fixed application scopes are supplied here; values stay bound.
+// Live public reads and audited manual snapshots share the exact ranking tail.
+export const rankingCte = scope => `WITH scoped AS (${scope}), history AS (
   SELECT *, ROW_NUMBER() OVER w AS step, SUM(points) OVER w AS running_points,
     SUM(proof_delta) OVER w AS running_proofs FROM scoped
   WINDOW w AS (PARTITION BY member_id ORDER BY created_at, CASE WHEN category = 'proof_revoked' THEN 1 ELSE 0 END, transaction_id ROWS UNBOUNDED PRECEDING)
@@ -25,6 +27,7 @@ export const LEDGER_CTE = `WITH scoped AS (
 ), ranked AS (
   SELECT *, ROW_NUMBER() OVER (ORDER BY points DESC, proof_count DESC, reached_at ASC, member_id ASC) AS rank FROM candidates
 )`;
+export const LEDGER_CTE = rankingCte(storedScope);
 // Validate ALL scoped history, even zero/negative or suspended participants.
 // Negative prefix proof counts indicate malformed chronological lifecycle data.
 export const INTEGRITY_SQL = `(SELECT COUNT(*) FROM history WHERE running_proofs < 0

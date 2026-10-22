@@ -53,7 +53,7 @@ export async function buildPagesPreview(output) {
     "index.html",
     "css/app.css",
     "js/app.js",
-    "js/leaderboard-ui.js", "js/vote-date.js",
+    "js/leaderboard-ui.js", "js/leaderboard-refresh.js", "js/vote-date.js",
     "js/campaign-guidance.js", "js/announcements.js",
     "js/api.js",
     "js/member.js",

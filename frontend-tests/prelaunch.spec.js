@@ -4,11 +4,14 @@ import {memberFixture} from './member-fixture.mjs';
 test.use({timezoneId:'America/Los_Angeles'});
 const preview='http://127.0.0.1:4174/VoteProof/';
 const tab=async(page,name)=>{await page.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');};
-test('member best public rank ignores API ordering and empty ranks remain honest',async({page})=>{
+test('member public rank uses only loaded boards and empty ranks remain honest',async({page})=>{
  const state=await memberFixture(page,{authenticated:true});
  const boards=[8,2,5].map((rank,i)=>({leaderboard_id:'B'+i,name:'Board '+i,type:i===1?'campaign':'all_time',is_current_comeback:i===1,vote_type:i===2?'Solo':null,rankings:[{rank,member_id:state.member.member_id,nickname:'Member',points:60,proof_count:3}]}));
  await page.route('**/api/leaderboards*',r=>r.fulfill({json:{ok:true,data:{leaderboards:boards,custom_boards:[]}}}));
- for(let i=0;i<2;i++){await page.goto('/#member');await expect(page.locator('#member-public-rank')).toHaveText('#2');boards.reverse();}
+ await page.goto('/#leaderboards');await expect(page.locator('#board-results')).toContainText('60 點');
+ await page.goto('/#member');await expect(page.locator('#member-public-rank')).toHaveText('#8');
+ await page.goto('/#leaderboards');await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('Board 1');
+ await page.goto('/#member');await expect(page.locator('#member-public-rank')).toHaveText('#2');
  for(const b of boards)b.rankings=[];await page.reload();await expect(page.locator('#member-public-rank')).toHaveText('尚未上榜');
 });
 test('comeback is explicit and non-featured campaigns retain named buttons',async({page})=>{
@@ -16,7 +19,7 @@ test('comeback is explicit and non-featured campaigns retain named buttons',asyn
  await page.route('**/api/leaderboards*',r=>r.fulfill({json:{ok:true,data:{leaderboards:boards,custom_boards:[]}}}));
  await page.goto('/#leaderboards');await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('Selected board');
  await page.locator('[data-custom-board=old]').click();await expect(page.locator('#board-name')).toHaveText('Old named board');
- boards[1].is_current_comeback=false;await page.locator('#boards-refresh').click();await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('');await expect(page.locator('#board-table')).toBeHidden();
+ boards[1].is_current_comeback=false;await page.clock.fastForward(120001);await page.locator('#boards-refresh').click();await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('');await expect(page.locator('#board-table')).toBeHidden();
 });
 test('new Campaign defaults, underscore copy and authoritative Solo dropdown remain intact',async({page})=>{
  const s=await adminFixture(page);await page.goto('/#admin');await tab(page,'活動管理');await page.getByRole('button',{name:'建立活動',exact:true}).click();

@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/solo-total-leaderboard-fix' || github.ref == 'refs/heads/codex/admin-member-mail-v1' || github.ref == 'refs/heads/codex/storage-cold-v1'))
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/solo-total-leaderboard-fix' || github.ref == 'refs/heads/codex/admin-member-mail-v1' || github.ref == 'refs/heads/codex/storage-cold-v1' || github.ref == 'refs/heads/codex/leaderboard-v1-release-20261022'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
         with:
           path: .wrangler/pages-preview
   deploy:
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/solo-total-leaderboard-fix' || github.ref == 'refs/heads/codex/admin-member-mail-v1' || github.ref == 'refs/heads/codex/storage-cold-v1'))
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/solo-total-leaderboard-fix' || github.ref == 'refs/heads/codex/admin-member-mail-v1' || github.ref == 'refs/heads/codex/storage-cold-v1' || github.ref == 'refs/heads/codex/leaderboard-v1-release-20261022'))
     needs: build
     runs-on: ubuntu-latest
     permissions:

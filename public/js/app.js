@@ -9,6 +9,7 @@ import { authMessage } from "./member-api.js";
 import { setupPreview } from "./preview.js";
 import { bestPublicRank, boardCategory as categoryOf } from "./leaderboard-ui.js";
 import { setDefaultVoteDate } from "./vote-date.js";
+import {RankingClient,LeaderboardRefresher} from './leaderboard-refresh.js';
 import {campaignGuidance} from './campaign-guidance.js';
 import {setupAnnouncements} from './announcements.js';
 
@@ -39,7 +40,10 @@ let submissionFlow = 'legacy';
 let selectionWasReady = false, selectionQueue = Promise.resolve(), selectionPending = 0, selectionGeneration = 0;
 let campaignAvailability = "正在載入活動…";
 let submissionIdentityCheck = async () => {};
-let boardLoaded = false, boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
+let boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
+const rankingClient=new RankingClient(api),boardRefresh=new LeaderboardRefresher(loadBoards);
+boardRefresh.visibility(document.visibilityState==='visible');
+let homeBoardLoaded=false,homeBoardLoading=false;
 let voteDateEdited = false;
 setDefaultVoteDate($("vote-date"));
 $("vote-date").addEventListener("input", () => { voteDateEdited = true; });
@@ -484,10 +488,9 @@ function renderBoardTabs() {
     const tab=node("button",label,"tab");tab.type="button";tab.dataset.category=key;
     tab.classList.toggle("active",key===boardCategory);tab.setAttribute("aria-pressed",String(key===boardCategory));tab.disabled=boardLoading;
     tab.addEventListener("click",()=>{
-      ++boardSequence;
       boardCategory=key;const board=publicBoards.find(b=>boardMatches(b,key));
-      $("board-select").value=board?.leaderboard_id??"";renderBoardTabs();renderBoard(board);
-      if(!board)$("boards-message").textContent="這個分類目前沒有公開排行榜。管理員公布後會顯示在這裡。";
+      $("board-select").value=board?.leaderboard_id??"";renderBoardTabs();
+      if(board)void selectBoard();else{renderBoard(null);$("boards-message").textContent="這個分類目前沒有公開排行榜。管理員公布後會顯示在這裡。";}
     });$("board-categories").append(tab);
   }
   for(const board of publicBoards.filter(b=>b.type==="custom" || categoryOf(b).startsWith("named:"))){
@@ -538,45 +541,69 @@ function renderBoard(board) {
   $("boards-message").textContent = ""; $("board-table").hidden = false;
 }
 async function loadBoards() {
-  if (boardLoading) return;
+  if (boardLoading) return false;
   boardLoading = true; const sequence = ++boardSequence;
   $("board-select").disabled = true; $("boards-refresh").disabled = true;
-  publicBoards = []; renderBoardTabs(); renderBoard(null);
-  $("boards-message").textContent = "正在載入排行榜…";
-  renderHomeBoard(null, "正在載入排行榜…");
+  renderBoardTabs();
+  if(!currentBoard)$("boards-message").textContent = "正在載入排行榜…";
   try {
-    const data = await api("/api/leaderboards");
-    if (!Array.isArray(data?.leaderboards)) throw new Error();
-    if (sequence !== boardSequence) return;
-    publicBoards = boardsFrom(data); const previous = $("board-select").value;
+    const data=await rankingClient.get(),previous=$("board-select").value;
+    const next=boardsFrom(data).map(b=>{
+      const old=publicBoards.find(p=>p.leaderboard_id===b.leaderboard_id&&p.version===b.version);
+      return {...b,rankings:old?.rankings??[],generated_at:old?.generated_at??null};
+    });
+    const id=next.some(b=>b.leaderboard_id===previous)?previous:next[0]?.leaderboard_id;
+    const selectedData=id?await rankingClient.get(id):null;
+    if(sequence!==boardSequence)return false;
+    const selected=id?boardsFrom(selectedData).find(b=>b.leaderboard_id===id):null;
+    publicBoards=next.map(b=>b.leaderboard_id===id&&selected?selected:b);
     $("board-select").replaceChildren(...publicBoards.map(b => new Option(b.name, b.leaderboard_id)));
-    if (publicBoards.some(b => b.leaderboard_id === previous)) $("board-select").value = previous;
-    if (!publicBoards.length) $("board-select").append(new Option("沒有公開排行榜", ""));
-    const selected=publicBoards.find(b => b.leaderboard_id === $("board-select").value);
+    if(id)$("board-select").value=id;
+    if(!publicBoards.length)$("board-select").append(new Option("沒有公開排行榜", ""));
     if(selected&&!boardMatches(selected,boardCategory))boardCategory=categoryOf(selected);
     renderBoard(selected);
-    renderHomeBoard(publicBoards[0]);
-    boardLoaded = true; $("board-select").disabled = !publicBoards.length;
+    if(selected?.leaderboard_id==='system-history')renderHomeBoard(selected);
+    $("board-select").disabled = !publicBoards.length;
+    return true;
   } catch {
-    boardLoaded = false; publicBoards = []; renderBoard(null); $("boards-message").textContent = "排行榜暫時無法載入，請按重新載入。";
-    renderHomeBoard(null, "排行榜暫時無法載入，請前往排行榜重新載入。");
-  } finally { boardLoading = false; $("boards-refresh").disabled = false; renderBoardTabs(); renderHomeRank(); }
+    $("boards-message").textContent=currentBoard?"更新失敗，保留上次成功成績；可按重新載入。":"排行榜暫時無法載入，請按重新載入。";
+    return false;
+  } finally { boardLoading = false; $("board-select").disabled=!publicBoards.length;$("boards-refresh").disabled = false; renderBoardTabs(); renderHomeRank(); }
 }
-async function selectBoard() {
+async function loadSelectedBoard() {
   const id = $("board-select").value, sequence = ++boardSequence;
+  if(!id)return false;
+  boardLoading=true;$("boards-refresh").disabled=true;$("board-select").disabled=true;
   const selected=publicBoards.find(b=>b.leaderboard_id===id);if(selected&&!boardMatches(selected,boardCategory))boardCategory=categoryOf(selected);
-  renderBoardTabs(); renderBoard(null); $("boards-message").textContent = "正在載入成績…";
+  renderBoardTabs();if(!currentBoard)$("boards-message").textContent = "正在載入成績…";
   try {
-    const data = await api("/api/leaderboards?id=" + encodeURIComponent(id));
+    const data = await rankingClient.get(id);
     if (sequence === boardSequence) {
       const board = boardsFrom(data).find(b => b.leaderboard_id === id);
       if (board) publicBoards = publicBoards.map(b => b.leaderboard_id === id ? board : b);
       renderBoard(board);
+      if(board?.leaderboard_id==='system-history')renderHomeBoard(board);
     }
-  } catch { if (sequence === boardSequence) $("boards-message").textContent = "成績暫時無法載入，請重新選擇或按重新載入。"; }
+    return true;
+  } catch {
+    if(sequence===boardSequence){
+      if(currentBoard){$("board-select").value=currentBoard.leaderboard_id;boardCategory=categoryOf(currentBoard);}
+      $("boards-message").textContent="更新失敗，保留上次成功成績；可按重新載入。";
+    }return false;
+  }finally{boardLoading=false;$("boards-refresh").disabled=false;$("board-select").disabled=!publicBoards.length;renderBoardTabs();renderHomeRank();}
+}
+function selectBoard(){return boardRefresh.refresh(loadSelectedBoard);}
+async function loadHomeBoard(){
+  if(homeBoardLoaded||homeBoardLoading)return;homeBoardLoading=true;
+  try{
+    const data=await rankingClient.get('system-history'),board=boardsFrom(data)[0];
+    if(board){publicBoards=publicBoards.some(b=>b.leaderboard_id===board.leaderboard_id)?publicBoards.map(b=>b.leaderboard_id===board.leaderboard_id?board:b):[...publicBoards,board];}
+    renderHomeBoard(board);renderHomeRank();homeBoardLoaded=true;
+  }catch{renderHomeBoard(null,"排行榜暫時無法載入，請前往排行榜重新載入。");}
+  finally{homeBoardLoading=false;}
 }
 $("board-select").addEventListener("change", selectBoard);
-$("boards-refresh").addEventListener("click", loadBoards);
+$("boards-refresh").addEventListener("click",()=>void boardRefresh.refresh());
 
 function theme(value) {
   const light = value === "light";
@@ -604,18 +631,20 @@ function navigate(focus = true) {
   }
   if (focus) { $("view-" + view).querySelector("[data-view-title]").focus(); window.scrollTo(0, 0); }
   if (view === "submit") void loadSubmissionStatus().then(mountChallenge);
-  if (view === "leaderboards" && !boardLoaded) void loadBoards();
+  boardRefresh.enter(view==='leaderboards');
+  if(view==='home')void loadHomeBoard();
 }
 document.addEventListener('click',event=>{const link=event.target.closest('a[href^="#"]');if(link&&/^\/admin\/?$/.test(location.pathname)&&link.getAttribute('href')!=='#admin'){event.preventDefault();history.pushState(null,'','/'+link.getAttribute('href'));navigate();}});
 window.addEventListener('popstate',()=>navigate());
 window.addEventListener("hashchange", () => navigate());
 function refreshAvailability() { void loadSubmissionStatus().then(mountChallenge); }
 window.addEventListener("focus", refreshAvailability);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshAvailability(); });
+document.addEventListener("visibilitychange", () => { boardRefresh.visibility(document.visibilityState==='visible');if (document.visibilityState === "visible") refreshAvailability(); });
+window.addEventListener('pagehide',()=>boardRefresh.enter(false));
+window.addEventListener('pageshow',()=>boardRefresh.enter(document.documentElement.dataset.route==='leaderboards'));
 document.addEventListener("voteproof-submissions-updated", refreshAvailability);
 window.addEventListener("beforeunload", (event) => {
   if (submission.pending) { event.preventDefault(); event.returnValue = ""; }
 });
 navigate(false);
 void loadCampaigns().then(() => { if (location.hash === "#submit" && campaigns.length) void mountChallenge(); });
-void loadBoards();

@@ -71,7 +71,7 @@ export const boards = [
   ["custom-two", "展示週末衝刺榜", "custom", null],
   ["custom-three", "展示特別活動榜", "custom", null],
 ].map(([leaderboard_id, name, type, vote_type]) => ({
-  leaderboard_id: "PREVIEW-" + leaderboard_id,
+  leaderboard_id: type==='all_time'?'system-'+leaderboard_id:"PREVIEW-" + leaderboard_id,
   name,
   type,
   vote_type,
@@ -295,7 +295,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
           );
     return reply({
       generated_at: "2026-10-14T04:00:00Z",
-      leaderboards: selected,
+      leaderboards: url.searchParams.has('id')?selected:selected.map(b=>({...b,rankings:[],generated_at:null})),
       custom_boards: selected
         .filter((b) => b.type === "custom")
         .map(({ leaderboard_id, name, type, campaign_id, vote_type }) => ({

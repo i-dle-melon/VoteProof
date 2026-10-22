@@ -66,6 +66,35 @@ test('provenance changes, timeout, API errors and invalid SHA fail closed',async
   await assert.rejects(ensureValidation({sha:'not-a-sha',repository,api:async()=>{throw Error('must not call');}}),/SHA/);
   await assert.rejects(githubClient({token:'fake',repository,fetcher:async()=>new Response('',{status:403})})('/actions/runs'),/403/);
 });
+const releaseRef='codex/leaderboard-v1-release-20261022';
+const releaseRun=extra=>run({head_branch:releaseRef,...extra});
+test('Release gate reuses exact release SHA without dispatch',async()=>{
+  const calls=[];
+  const value=await ensureValidation({ref:releaseRef,sha,repository,api:async(p,b)=>{calls.push({p,b});return p.startsWith('/actions/workflows/')?{workflow_runs:[releaseRun()]}:releaseRun();},sleep:async()=>{throw Error('Already validated');}});
+  assert.equal(value.run_id,12);assert.equal(calls.length,2);assert.ok(calls.every(c=>!c.b));
+});
+test('Release gate rejects unapproved refs and invalid SHA before API access',async()=>{
+  for(const change of [{ref:'codex/other',sha},{ref:releaseRef,sha:'invalid'}])await assert.rejects(ensureValidation({...change,repository,api:async()=>{throw Error('No API allowed');}}),/Exact approved SHA/);
+});
+test('Release gate missing CI dispatches once against exact branch and SHA',async()=>{
+  let sent=0;
+  const api=async(p,b)=>{if(b){assert.equal(b.ref,releaseRef);assert.equal(b.inputs.approved_sha,sha);sent++;return{};}if(p==='/git/ref/heads/'+releaseRef)return{object:{sha}};if(p.startsWith('/actions/workflows/'))return{workflow_runs:sent?[releaseRun()]:[]};return releaseRun();};
+  await ensureValidation({ref:releaseRef,sha,repository,api,sleep:async()=>{}});assert.equal(sent,1);
+});
+test('Release gate moving branch, newest failure and substituted provenance fail closed',async()=>{
+  await assert.rejects(ensureValidation({ref:releaseRef,sha,repository,sleep:async()=>{},api:async p=>p==='/git/ref/heads/'+releaseRef?{object:{sha:other}}:{workflow_runs:[]}}),/changed/);
+  await assert.rejects(ensureValidation({ref:releaseRef,sha,repository,api:async()=>({workflow_runs:[releaseRun(),releaseRun({id:13,conclusion:'failure'})]})}),/failed|cancelled/);
+  await assert.rejects(ensureValidation({ref:releaseRef,sha,repository,api:async p=>p.startsWith('/actions/workflows/')?{workflow_runs:[releaseRun()]}:releaseRun({head_repository:{full_name:'fork/VoteProof'}})}),/provenance/);
+});
+test('Release workflow preserves main, exact SHA, environments and push isolation',async()=>{
+  const prod=await readFile('.github/workflows/production-deploy.yml','utf8'),pages=await readFile('.github/workflows/pages-preview.yml','utf8');
+  assert.ok(prod.includes("github.ref == 'refs/heads/main' || github.ref == 'refs/heads/"+releaseRef+"'"));
+  assert.match(prod,/environment: production/);assert.match(prod,/VALIDATION_REF: \$\{\{ github.ref_name \}\}/);assert.match(prod,/ref: \$\{\{ github.sha \}\}/);
+  assert.doesNotMatch(prod,/^\s*(push|schedule|pull_request|workflow_run):/m);assert.match(prod,/needs: validate/);assert.match(prod,/--keep-vars/);
+  assert.match(pages,/push:\s+branches: \[main\]/);assert.ok(pages.includes("github.event_name == 'workflow_dispatch'"));assert.ok(pages.includes('refs/heads/'+releaseRef));assert.match(pages,/name: github-pages/);
+  assert.doesNotMatch(pages,/CLOUDFLARE|wrangler deploy/);
+});
+
 test('workflow wiring preserves isolation, manual deploy, exact gate and parallel browser matrix',async()=>{
   const read=p=>readFile('.github/workflows/'+p+'.yml','utf8');const [pages,prod,ci]=await Promise.all(['pages-preview','production-deploy','branch-validation'].map(read));
   assert.doesNotMatch(pages,/Require full branch CI|CLOUDFLARE|wrangler deploy/);assert.match(pages,/ci-smoke.spec.js/);assert.match(pages,/pages-public-build.test.js/);

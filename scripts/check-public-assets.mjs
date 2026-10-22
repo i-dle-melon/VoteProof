@@ -19,7 +19,7 @@ async function visit(path) {
 await visit(root);
 const expected = ["_headers", "_redirects", "css/app.css", "index.html", "js/api.js", "js/app.js", "js/submission.js", "js/turnstile.js", "js/ui-system.js", "js/admin.js", "js/admin-api.js", "js/admin-backup.js", "js/admin-duplicate.js", "js/member-api.js", "js/member.js", "js/member-tier-progress.js", "js/qr.js", "js/tier-artwork.js", "js/preview.js", "js/vendor/qrcode.js", ...Object.values(TIER_ARTWORK).map(art => art.src.slice(1))];
 expected.push('js/admin-export.js','js/export-format.js','js/zip-store.js','js/export-worker.js');
-expected.push('js/leaderboard-ui.js','js/vote-date.js');
+expected.push('js/leaderboard-ui.js','js/leaderboard-refresh.js','js/vote-date.js');
 expected.push('js/campaign-guidance.js','js/announcements.js','js/admin-proof-thumbnails.js');
 expected.push('js/admin-member-contact.js','js/admin-storage.js','js/paginated-dialog.js');
 assert.deepEqual(paths.map((p) => relative(root, p).replaceAll("\\", "/")).sort(), expected.sort(), "Unexpected deployable static assets");

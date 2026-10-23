@@ -25,13 +25,13 @@ test('album exact IDs batch approve supports partial failure and retries only fa
  await page.goto(base+'&preview_review=partial#admin');await ready(page);
  await expect(page.locator('.review-album .admin-case-row')).toHaveCount(3);
  await page.locator('.review-album .case-preview').first().scrollIntoViewIfNeeded();await expect(page.locator('.review-album img').first()).toBeVisible();
- await page.getByRole('button',{name:'選取已載入初審案件',exact:true}).click();
+ await page.getByRole('button',{name:'選取前20張初審案件',exact:true}).click();
  await expect(page.locator('[data-review-select]:checked')).toHaveCount(3);
  await page.locator('#admin-batch-approve').click();
  await expect(page.locator('.batch-review-results')).toContainText('成功 2 · 失敗 1');
  await expect(page.locator('.batch-review-results')).toContainText('VP-PREVIEW-004');
  await expect(page.locator('[data-review-select]:checked')).toHaveCount(0);
- await page.getByRole('button',{name:'選取已載入初審案件',exact:true}).click();
+ await page.getByRole('button',{name:'選取前20張初審案件',exact:true}).click();
  await expect(page.locator('[data-review-select]:checked')).toHaveCount(1);
  await page.locator('#admin-batch-approve').click();
  await expect(page.locator('.batch-review-results')).toContainText('成功 1 · 失敗 0');

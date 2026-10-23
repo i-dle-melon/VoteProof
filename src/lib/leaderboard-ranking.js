@@ -28,6 +28,26 @@ export const rankingCte = scope => `WITH scoped AS (${scope}), history AS (
   SELECT *, ROW_NUMBER() OVER (ORDER BY points DESC, proof_count DESC, reached_at ASC, member_id ASC) AS rank FROM candidates
 )`;
 export const LEDGER_CTE = rankingCte(storedScope);
+// Read-only equivalent of the snapshot CTE. A final uninterrupted suffix starts
+// at the LAST transition into the final (points, proofs) pair. The preceding
+// pair is obtained by subtracting this row's deltas, so no departure/history
+// self-join or second grouped ledger scan is needed. Chronological ordering and
+// the full history used by INTEGRITY_SQL remain identical to manual snapshots.
+export const liveRankingCte = scope => `WITH scoped AS (${scope}), history AS (
+  SELECT *, SUM(points) OVER w AS running_points, SUM(proof_delta) OVER w AS running_proofs,
+    SUM(points) OVER (PARTITION BY member_id) AS final_points,
+    SUM(proof_delta) OVER (PARTITION BY member_id) AS final_proofs FROM scoped
+  WINDOW w AS (PARTITION BY member_id ORDER BY created_at, CASE WHEN category = 'proof_revoked' THEN 1 ELSE 0 END, transaction_id ROWS UNBOUNDED PRECEDING)
+), candidates AS (
+  SELECT h.member_id,m.nickname,h.final_points AS points,h.final_proofs AS proof_count,
+    MAX(CASE WHEN h.running_points=h.final_points AND h.running_proofs=h.final_proofs
+      AND (h.running_points-h.points!=h.final_points OR h.running_proofs-h.proof_delta!=h.final_proofs)
+      THEN h.created_at END) AS reached_at
+  FROM history h JOIN members m USING(member_id) WHERE m.status='active' AND h.final_points>0
+  GROUP BY h.member_id,m.nickname,h.final_points,h.final_proofs
+), ranked AS (
+  SELECT *, ROW_NUMBER() OVER (ORDER BY points DESC,proof_count DESC,reached_at ASC,member_id ASC) AS rank FROM candidates
+)`;
 // Validate ALL scoped history, even zero/negative or suspended participants.
 // Negative prefix proof counts indicate malformed chronological lifecycle data.
 export const INTEGRITY_SQL = `(SELECT COUNT(*) FROM history WHERE running_proofs < 0

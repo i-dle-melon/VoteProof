@@ -26,7 +26,10 @@ export async function getLeaderboards(env, url) {
     // Unversioned clients retain the original full list/detail response shape.
     // Resolve serially so a legacy all-board miss does not fan out D1 queries.
     const scores=[];
-    for(const definition of definitions)scores.push(await cachedPublicRanking(env.DB,url,definition,()=>liveBoardRanking(env.DB,definition)));
+    // Only a pure resolver keyed by its exact configuration content is reused.
+    // Each board still reads its own fresh SQL snapshot, including tier totals.
+    const context={tierResolvers:new Map()};
+    for(const definition of definitions)scores.push(await cachedPublicRanking(env.DB,url,definition,()=>liveBoardRanking(env.DB,definition,context)));
     const boards=scores.map(({board})=>{
       if(view==='live')return board;
       if(board.system_fixed){const {is_current_comeback,...legacy}=board;return legacy;}

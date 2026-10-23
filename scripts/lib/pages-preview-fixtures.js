@@ -360,7 +360,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply(
       paged(
         "cases",
-        adminCases.filter(c=>(!url.searchParams.get("status") || c.status===url.searchParams.get("status")) && (!url.searchParams.get("review_stage") || c.review_stage===url.searchParams.get("review_stage"))).map(c=>({...c,primary_file_id:c.files[0].file_id})),
+        adminCases.filter(c=>(!url.searchParams.get("status") || c.status===url.searchParams.get("status")) && (!url.searchParams.get("review_stage") || c.review_stage===url.searchParams.get("review_stage"))).map(c=>({...c,updated_at:c.updated_at??c.created_at,primary_file_id:c.files[0].file_id})),
       ),
     );
   if (p === '/api/admin/backups/missing') {

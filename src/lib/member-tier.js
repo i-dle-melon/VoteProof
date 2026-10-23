@@ -21,16 +21,25 @@ export function tierConfigurationReady(rows) {
 // Pure centralized policy. Rows must come from the same DB snapshot as total.
 export function resolveMemberTier(totalPoints, rows) {
   if (!Number.isSafeInteger(totalPoints)) throw new AdminError(503,'POINT_SUMMARY_UNAVAILABLE','Point summary is unavailable');
-  if (!tierConfigurationReady(rows)) return {tier:{...TIER_IDENTITIES[0],min_points:0},next_tier:null,
-    points_to_next_tier:0,tier_progress:0,tier_configuration_ready:false};
-  const active = [...rows].filter(r=>r.status==='active').sort((a,b)=>a.rank_order-b.rank_order), effective = Math.max(0,totalPoints);
-  const current = active.filter(r=>r.min_points <= effective).at(-1), next = active.find(r=>r.rank_order > current.rank_order) ?? null;
-  const progress = next ? Math.min(100,Math.max(0,Math.round((effective-current.min_points)/(next.min_points-current.min_points)*10000)/100)) : 100;
-  // Normal is a tier floor, not a points reset: a negative balance must be earned
-  // back before the next threshold. Saturate only the display deficit at MAX_SAFE.
-  return {tier:publicTier(current),next_tier:next ? publicTier(next) : null,
-    points_to_next_tier:next ? Math.min(Number.MAX_SAFE_INTEGER,Math.max(0,next.min_points-totalPoints)) : 0,
-    tier_progress:progress,tier_configuration_ready:true};
+  return createTierResolver(rows)(totalPoints);
+}
+// Compile a supplied configuration snapshot once; never cache authority or DB
+// balances. Each returned object stays independent of the configuration input.
+export function createTierResolver(rows) {
+  const active=tierConfigurationReady(rows)?rows.filter(r=>r.status==='active').map(r=>({...r})).sort((a,b)=>a.rank_order-b.rank_order):null;
+  return totalPoints=>{
+    if (!Number.isSafeInteger(totalPoints)) throw new AdminError(503,'POINT_SUMMARY_UNAVAILABLE','Point summary is unavailable');
+    if (!active) return {tier:{...TIER_IDENTITIES[0],min_points:0},next_tier:null,
+      points_to_next_tier:0,tier_progress:0,tier_configuration_ready:false};
+    const effective = Math.max(0,totalPoints);
+    const current = active.filter(r=>r.min_points <= effective).at(-1), next = active.find(r=>r.rank_order > current.rank_order) ?? null;
+    const progress = next ? Math.min(100,Math.max(0,Math.round((effective-current.min_points)/(next.min_points-current.min_points)*10000)/100)) : 100;
+    // Normal is a tier floor, not a points reset: a negative balance must be earned
+    // back before the next threshold. Saturate only the display deficit at MAX_SAFE.
+    return {tier:publicTier(current),next_tier:next ? publicTier(next) : null,
+      points_to_next_tier:next ? Math.min(Number.MAX_SAFE_INTEGER,Math.max(0,next.min_points-totalPoints)) : 0,
+      tier_progress:progress,tier_configuration_ready:true};
+  };
 }
 export async function memberPointTier(db,memberId) {
   // One SELECT snapshot, no duplicated SUM per tier and no cached member tier.

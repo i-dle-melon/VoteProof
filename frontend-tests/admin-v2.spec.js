@@ -27,7 +27,7 @@ test('approve all pages across unloaded cases, four per POST and exactly one fin
  const state=await adminFixture(page);const items=Array.from({length:25},(_,i)=>({case_id:'VP-GLOBAL-'+i,expected_version:0}));const posts=[];let pageReads=0;
  await page.route('**/api/admin/cases/initial-review*',route=>{const u=new URL(route.request().url());if(!u.searchParams.has('cutoff'))return reply(route,{total:25,cutoff:new Date().toISOString()});pageReads++;const offset=Number(u.searchParams.get('cursor')??0);return reply(route,{cases:items.slice(offset,offset+20),next_cursor:offset===0?'20':null});});
  await page.route('**/api/admin/cases/batch-approve',route=>{const body=route.request().postDataJSON();posts.push(body.cases);return reply(route,{results:body.cases.map(r=>({ok:true,case_id:r.case_id,status:'approved',version:1}))});});
- await ready(page);const before=state.calls.filter(c=>c.path==='/api/admin/cases').length;await page.locator('#admin-approve-all').click();
+ await ready(page);const before=state.calls.filter(c=>c.path==='/api/admin/cases').length;await page.locator('#admin-approve-all').click();await expect(page.locator('#admin-approve-all')).toHaveAttribute('aria-pressed','true');expect(posts).toHaveLength(0);await page.locator('#admin-batch-approve').click();
  await expect(page.locator('.batch-review-results')).toContainText('已處理 25／25');await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
  expect(posts.map(p=>p.length)).toEqual([4,4,4,4,4,4,1]);expect(new Set(posts.flat().map(r=>r.case_id)).size).toBe(25);expect(pageReads).toBe(2);
  expect(state.calls.filter(c=>c.path==='/api/admin/cases')).toHaveLength(before+1);expect(state.calls.some(c=>c.path==='/api/admin/overview')).toBe(true);
@@ -36,7 +36,7 @@ test('safe stop waits for the in-flight batch, preserves actual success and unlo
  await adminFixture(page);let release,posts=0;const pending=new Promise(resolve=>{release=resolve;});
  await page.route('**/api/admin/cases/initial-review*',route=>reply(route,new URL(route.request().url()).searchParams.has('cutoff')?{cases:Array.from({length:20},(_,i)=>({case_id:'VP-STOP-'+i,expected_version:0})),next_cursor:'20'}:{total:100,cutoff:new Date().toISOString()}));
  await page.route('**/api/admin/cases/batch-approve',async route=>{posts++;const cases=route.request().postDataJSON().cases;await pending;await reply(route,{results:cases.map(r=>({...r,ok:true,status:'approved'}))});});
- await ready(page);await page.locator('#admin-approve-all').click();await expect.poll(()=>posts).toBe(1);
+ await ready(page);await page.locator('#admin-approve-all').click();await expect(page.locator('#admin-approve-all')).toHaveAttribute('aria-pressed','true');expect(posts).toBe(0);await page.locator('#admin-batch-approve').click();await expect.poll(()=>posts).toBe(1);
  await expect(page.locator('#admin-tabs')).toHaveAttribute('inert','');await expect(page.getByRole('progressbar',{name:'審核進度',exact:true})).toHaveAttribute('value','0');
  await page.getByRole('button',{name:'停止後續批次'}).click();release();
  await expect(page.locator('.batch-review-results')).toContainText('已處理 4／100');await expect(page.locator('.batch-review-results')).toContainText('已停止');expect(posts).toBe(1);await expect(page.locator('#admin-tabs')).not.toHaveAttribute('inert');
@@ -45,7 +45,7 @@ test('uncertain batch reconciles via read-only audit status, never blindly retri
  const state=await adminFixture(page);let posts=0,statusReads=0;
  await page.route('**/api/admin/cases/batch-approve',route=>{posts++;return route.abort();});
  await page.route('**/api/admin/cases/batch-status*',route=>{statusReads++;return reply(route,{results:[{ok:false,case_id:state.caseId,code:'REVIEW_RESULT_UNCONFIRMED'}]});});
- await ready(page);await page.getByRole('button',{name:'選取已載入初審案件'}).click();await page.locator('#admin-batch-approve').click();
+ await ready(page);await page.getByRole('button',{name:'選取前20張初審案件'}).click();await page.locator('#admin-batch-approve').click();
  await expect(page.locator('.batch-review-results')).toContainText(state.caseId);await expect(page.locator('.batch-review-results')).toContainText('結果尚未確認');expect(posts).toBe(1);expect(statusReads).toBe(1);
 });
 test('the final reload preserves the current review filters and retained summary',async({page})=>{
@@ -53,7 +53,7 @@ test('the final reload preserves the current review filters and retained summary
  await page.route('**/api/admin/cases/batch-approve',route=>{const cases=route.request().postDataJSON().cases;state.cases[0].status='approved';return reply(route,{results:cases.map(c=>({...c,ok:true,status:'approved'}))});});
  await ready(page);await page.getByText('篩選案件：活動 / 類型 / 搜尋',{exact:true}).click();
  await page.locator('#admin-field-filter-campaign').fill('LOCAL');await page.locator('#admin-field-filter-vote').selectOption('Solo');await page.locator('.admin-filter button[type=submit]').click();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
- await page.getByRole('button',{name:'選取已載入初審案件',exact:true}).click();await page.locator('#admin-batch-approve').click();await expect(page.locator('.batch-review-results')).toContainText('成功 1');
+ await page.getByRole('button',{name:'選取前20張初審案件',exact:true}).click();await page.locator('#admin-batch-approve').click();await expect(page.locator('.batch-review-results')).toContainText('成功 1');
  await expect(page.locator('#admin-field-filter-campaign')).toHaveValue('LOCAL');await expect(page.locator('#admin-field-filter-vote')).toHaveValue('Solo');expect(reads.at(-1).searchParams.get('campaign_id')).toBe('LOCAL');expect(reads.at(-1).searchParams.get('vote_type')).toBe('Solo');
 });
 test('export defaults use inclusive Taipei minute and only-undownloaded, shared history remains available',async({page})=>{

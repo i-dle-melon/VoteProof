@@ -67,7 +67,20 @@ test('actual frontend uses protected Admin proof path automatically; API failure
  const fixture=await adminFixture(page);await page.goto('/admin#admin');
  await page.locator('.case-preview').click({position:{x:12,y:12}});await expect(page.locator('.inline-review img')).toBeVisible();
  expect(fixture.calls.some(c=>c.path.includes('/files/'))).toBe(true);
- fixture.failAdmin=true;await page.locator('[data-preview-review] button[type=submit]').click();await expect(page.locator('.inline-review')).toBeVisible();
+ // Fail only the review POST, not /api/admin/me or other identity/authorization reads.
+ let failedPosts=0;
+ await page.route('**/api/admin/cases/*/review',route=>{
+  if(route.request().method()!=='POST')return route.fallback();
+  failedPosts++;
+  return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'ADMIN_SERVICE_UNAVAILABLE',message:'Review temporarily unavailable'}})});
+ });
+ const failedResponse=page.waitForResponse(r=>r.request().method()==='POST'&&/\/api\/admin\/cases\/[^/]+\/review$/.test(new URL(r.url()).pathname)&&r.status()===503);
+ await page.locator('[data-preview-review] button[type=submit]').click();
+ await failedResponse;
+ expect(failedPosts).toBe(1);
+ await expect(page.locator('.inline-review')).toBeVisible();
+ await expect(page.locator('[data-preview-review] button[type=submit]')).toBeEnabled();
+ expect(fixture.cases[0].status).toBe('pending');
 });
 test('actual member case modal uses owner-only endpoint with no query key',async({page})=>{
  const fixture=await memberFixture(page,{authenticated:true});await page.goto('/#member');await page.locator('#member-cases button').first().click();

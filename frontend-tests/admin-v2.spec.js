@@ -57,8 +57,18 @@ test('the final reload preserves the current review filters and retained summary
  await expect(page.locator('#admin-field-filter-campaign')).toHaveValue('LOCAL');await expect(page.locator('#admin-field-filter-vote')).toHaveValue('Solo');expect(reads.at(-1).searchParams.get('campaign_id')).toBe('LOCAL');expect(reads.at(-1).searchParams.get('vote_type')).toBe('Solo');
 });
 test('export defaults use inclusive Taipei minute and only-undownloaded, shared history remains available',async({page})=>{
+ // The test oracle is independent of the UI helper and spans a possible Taipei midnight.
+ const rangeAt=instant=>{
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(instant);
+  const yesterday=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+  return {from:yesterday+'T23:00',to:today+'T23:00'};
+ };
+ const before=rangeAt(new Date());
  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_identity=admin#admin');await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');await tab(page,'圖片批次匯出');
- const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei'}).format(new Date());await expect(page.locator('#export-from')).toHaveValue(today+'T00:00');await expect(page.locator('#export-to')).toHaveValue(today+'T23:59');await expect(page.locator('#export-only-undownloaded')).toBeChecked();
+ const after=rangeAt(new Date());
+ const observed={from:await page.locator('#export-from').inputValue(),to:await page.locator('#export-to').inputValue()};
+ expect([before,after]).toContainEqual(observed);
+ await expect(page.locator('#export-only-undownloaded')).toBeChecked();
  await expect(page.locator('.image-export')).toContainText('不保證檔案永久保存');await expect(page.locator('.export-summary')).toContainText('建立者');
  await page.locator('#export-only-undownloaded').uncheck();await expect(page.locator('.export-summary')).toHaveCount(0);await expect(page.locator('.export-history')).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

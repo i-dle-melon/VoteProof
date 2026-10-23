@@ -70,7 +70,13 @@ export async function adminFixture(page, options = {}) {
     if (path.startsWith("/api/admin/member-tiers/")) { const row = state.tiers.find(t => path.includes(t.tier_id)); Object.assign(row, body); row.version++; return reply(row); }
     if (path === "/api/admin/submissions") return reply(state.submissions);
     if (path === "/api/admin/submissions/update") { Object.assign(state.submissions, body); state.submissions.version++; return reply(state.submissions); }
-    if (path === "/api/admin/audit-logs") return reply({ logs: state.audit, next_cursor: null });
+    if (path === '/api/admin/audit-logs' || path.startsWith('/api/admin/audit-logs/')) {
+      const rows=state.audit.map(row=>{row.id??=randomUUID();return {...row,source:row.source??'admin',operator_fan_id:row.operator_fan_id??null,actor_kind:row.actor_kind??'admin'};});
+      if(path!=='/api/admin/audit-logs'){const row=rows.find(r=>r.id===path.split('/').at(-1)&&r.source===url.searchParams.get('source'));return row?reply({log:row}):error('AUDIT_NOT_FOUND',404);}
+      if(url.searchParams.get('view')!=='summary')return reply({logs:rows,next_cursor:null});
+      const limit=Number(url.searchParams.get('limit')??20),offset=Number(url.searchParams.get('cursor')??0),selected=rows.slice(offset,offset+limit);
+      return reply({logs:selected.map(({before,after,...row})=>row),next_cursor:offset+limit<rows.length?String(offset+limit):null});
+    }
     return error("NOT_FOUND", 404);
   });
   return state;

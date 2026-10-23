@@ -2775,3 +2775,26 @@ button.legacy-case-row:hover {
 .paginated-list-dialog .backup-missing-list { min-width:0; }
 .paginated-list-dialog .backup-pagination { position:sticky;bottom:0;padding:12px 0;background:var(--card); }
 .points-record-card details > button,.storage-panel details > button { margin:8px 0 4px; }
+.audit-titlebar,.audit-toolbar,.audit-pagination { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+.audit-titlebar h2 { margin:0; }
+.audit-toolbar { margin:20px 0 12px; }
+.audit-toolbar label,.audit-pagination label { display:flex;align-items:center;gap:8px; }
+.audit-pagination { justify-content:flex-end;margin-top:16px; }
+.audit-pagination input { width:5em;min-width:0; }
+.audit-table-wrap { max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:16px; }
+.audit-table { width:100%;border-collapse:collapse;text-align:left; }
+.audit-table th,.audit-table td { padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere; }
+.audit-table th { background:var(--card);white-space:nowrap; }
+.audit-table td:last-child { white-space:nowrap; }
+.audit-table td:first-child { white-space:nowrap;min-width:11em; }
+.audit-detail-dialog { width:min(880px,calc(100vw - 24px));max-height:85dvh;overflow:auto;box-sizing:border-box;overflow-wrap:anywhere; }
+.audit-detail-dialog .audit-titlebar { position:sticky;top:0;z-index:1;background:var(--card);padding-bottom:12px; }
+.audit-payload { white-space:pre-wrap;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;font:inherit; }
+@media(max-width:700px) { .audit-table thead { position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%); }
+ .audit-table tr { display:block;padding:12px;border-bottom:1px solid var(--line); }
+ .audit-table td { display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:8px;padding:8px 0;border:0; }
+ .audit-table td::before { content:attr(data-label);font-weight:600; }
+ .audit-table td:first-child { white-space:normal;min-width:0; }
+ .audit-table td:last-child { display:block; }.audit-table td:last-child::before { display:none; }
+ .audit-pagination { justify-content:flex-start; }.audit-detail-dialog .case-details { grid-template-columns:1fr; }
+}

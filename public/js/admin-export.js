@@ -1,5 +1,16 @@
 import { EXPORT_LIMITS, packageFilename } from "./export-format.js";
-import { adminMessage, taipeiInput } from "./admin-api.js";
+import { adminMessage } from "./admin-api.js";
+export function imageExportDefaultRange(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const calendar = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const today = `${calendar.year}-${calendar.month}-${calendar.day}`;
+  // UTC is only used for calendar subtraction, never the browser's local date.
+  const yesterday = new Date(today + "T00:00:00.000Z");
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  return { from: yesterday.toISOString().slice(0, 10) + "T23:00", to: today + "T23:00" };
+}
 const element = (tag, text = "", cls = "") => {
   const e = document.createElement(tag);
   e.textContent = text;
@@ -45,13 +56,13 @@ export async function renderImageExports({ container, request, session, signal }
     form.append(wrap);
     return input;
   };
-  const today = taipeiInput(new Date()).slice(0, 10);
-  const from = field("from", "開始（Asia/Taipei）", "datetime-local", today + "T00:00"),
+  const defaults = imageExportDefaultRange();
+  const from = field("from", "開始（Asia/Taipei）", "datetime-local", defaults.from),
     to = field(
       "to",
       "結束（包含此分鐘，Asia/Taipei）",
       "datetime-local",
-      today + "T23:59",
+      defaults.to,
     );
   from.required = to.required = true;
   const campaign = field("campaign", "活動", "select");

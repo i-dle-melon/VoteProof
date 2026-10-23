@@ -414,11 +414,12 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       submissions_message: "UI PREVIEW・展示設定，不會保存",
       version: 1,
     });
+  if(p.startsWith('/api/admin/audit-logs/'))return reply({log:{id:'00000000-0000-4000-8000-000000000001',source:'admin',actor_kind:'admin',operator_fan_id:'preview_admin',action:'leaderboard_update',created_at:'2026-10-14T03:00:00.000Z',target:'PREVIEW-custom-one',reason:'展示操作紀錄・假資料',before:{is_public:false},after:{is_public:true}}});
   if (p === "/api/admin/audit-logs")
     return reply(
       paged("logs", [
         {
-          id: "PREVIEW-AUDIT",
+          id: "00000000-0000-4000-8000-000000000001",source:'admin',actor_kind:'admin',operator_fan_id:'preview_admin',
           action: "leaderboard_update",
           created_at: "2026-10-14T03:00:00Z",
           admin_member_id: "PREVIEW-ADMIN",

@@ -24,8 +24,11 @@ export function encodeCursor(value) {
 export function adminPage(url, audit = false) {
   const allowed = audit ? ["action", "target_type", "target_id", "admin_member_id"] : ["status", "campaign_id", "vote_type", "duplicate_flag", "review_stage"];
   allowed.push("created_from", "created_to", "cursor", "limit");
+  if(audit)allowed.push('view');
+  const summary=audit&&url.searchParams.get('view')==='summary';
+  if(audit&&url.searchParams.has('view')&&!summary)invalid();
   for (const key of url.searchParams.keys()) if (!allowed.includes(key) || url.searchParams.getAll(key).length !== 1) invalid();
-  const f = Object.fromEntries(allowed.filter(k => !["cursor", "limit"].includes(k)).map(k => [k, url.searchParams.get(k)]));
+  const f = Object.fromEntries(allowed.filter(k => !["cursor", "limit", "view"].includes(k)).map(k => [k, url.searchParams.get(k)]));
   if(f.review_stage!==undefined && f.review_stage!==null && !["initial","detailed"].includes(f.review_stage))invalid();
   if (f.status !== undefined && f.status !== null && !CASE_STATUSES.includes(f.status)) invalid();
   if (f.campaign_id !== undefined && f.campaign_id !== null && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(f.campaign_id)) invalid();
@@ -42,19 +45,19 @@ export function adminPage(url, audit = false) {
   if (f.created_from && f.created_to && f.created_from >= f.created_to) invalid();
   const raw = url.searchParams.get("limit"), limit = raw === null ? REVIEW_LIMITS.defaultPage : Number(raw);
   if (raw !== null && !/^[1-9]\d?$/.test(raw) || limit > REVIEW_LIMITS.maxPage) invalid();
-  const scope = JSON.stringify([audit ? "audit" : "cases", f]);
+  const scope = JSON.stringify([summary?'audit-summary':audit ? "audit" : "cases", f]);
   const encoded = url.searchParams.get("cursor");
   let cursor = null;
   if (encoded !== null) {
     try {
       if (encoded.length > REVIEW_LIMITS.maxCursor || !/^[A-Za-z0-9_-]+$/.test(encoded)) invalid();
       const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(encoded.replaceAll("-", "+").replaceAll("_", "/")), c => c.charCodeAt(0))));
-      if (!Array.isArray(parsed) || parsed.length !== 4 || parsed[0] !== scope || ![0, 1].includes(parsed[1]) ||
+      if (!Array.isArray(parsed) || parsed.length !== (summary?5:4) || (summary&&!['admin','content','member_status','member_contact','mail_pending'].includes(parsed[4])) || parsed[0] !== scope || ![0, 1].includes(parsed[1]) ||
           (audit && parsed[1] !== 0) || !timestamp(parsed[2]) || !UUID_PATTERN.test(parsed[3])) invalid();
       cursor = parsed.slice(1);
     } catch { invalid(); }
   }
-  return { filters: f, limit, cursor, scope };
+  return { filters: f, limit, cursor, scope, summary };
 }
 
 export function filterSql(page, alias) {

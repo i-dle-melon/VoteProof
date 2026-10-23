@@ -141,6 +141,7 @@ export function adminPath(path) {
     const params=new URLSearchParams(query??'');return [...params.keys()].every(k=>allowed.includes(k)&&params.getAll(k).length===1);
   }
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
+  if(/^\/api\/admin\/audit-logs\/[a-f0-9-]{36}$/.test(pathname)){const p=new URLSearchParams(query??'');return p.getAll('source').length===1&&[...p.keys()].every(k=>k==='source')&&['admin','content','member_status','member_contact','mail_pending'].includes(p.get('source'));}
   if(pathname==='/api/admin/image-exports'&&query!==undefined){const p=new URLSearchParams(query);return p.getAll('page').length===1&&[...p.keys()].every(k=>k==='page')&&/^[1-9]\d*$/.test(p.get('page'))&&Number.isSafeInteger(Number(p.get('page'))*10);}
   if (pathname.includes("/files/") && query !== undefined) return false;
   if (pathname === '/api/admin/backups/missing' || pathname === '/api/admin/storage/history') {

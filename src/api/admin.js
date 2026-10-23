@@ -9,6 +9,7 @@ import { adminPage, readReviewJson, UUID_PATTERN } from "./admin-validation.js";
 import { adminCases, adminCase, adminFiles, applyReview, auditLogs } from "../lib/admin-store.js";
 import { allowedMime, UPLOAD_LIMITS } from "./upload-validation.js";
 import { adminExactEvidence } from '../lib/proof-exact-hash.js';
+import { auditSummary, auditDetail } from '../lib/admin-audit.js';
 
 const pathCaseId = url => {
   const id = url.pathname.split("/")[4];
@@ -83,7 +84,12 @@ export async function privateProofResponse(env,file) {
 }
 export const listAdminAudit = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env, ELEVATED_ROLES);
-  return jsonSuccess(await auditLogs(authDatabase(env), adminPage(url, true)));
+  const page=adminPage(url,true);
+  return jsonSuccess(await (page.summary?auditSummary:auditLogs)(authDatabase(env),page));
+});
+const getAdminAuditDetail=adminHandler(async(env,url,request)=>{
+  await adminIdentity(request,env,ELEVATED_ROLES);
+  return jsonSuccess(await auditDetail(authDatabase(env),url));
 });
 
 export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);const items=batchReviewInput(await readReviewJson(request));return jsonSuccess(await batchApprove(authDatabase(env),actor,items));});
@@ -107,6 +113,7 @@ const exactRoutes = new Map([
 ]);
 export function adminRoute(path) {
   if (exactRoutes.has(path)) return exactRoutes.get(path);
+  if(/^\/api\/admin\/audit-logs\/[^/]+$/.test(path))return {method:'GET',handler:getAdminAuditDetail};
   if (/^\/api\/admin\/cases\/[^/]+$/.test(path)) return { method: "GET", handler: getAdminCase };
   if (/^\/api\/admin\/cases\/[^/]+\/review$/.test(path)) return { method: "POST", handler: reviewAdminCase };
   if (/^\/api\/admin\/cases\/[^/]+\/files\/[^/]+$/.test(path)) return { method: "GET", handler: getAdminProof };

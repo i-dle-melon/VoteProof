@@ -291,7 +291,7 @@ test("audit pagination is stable and API supplies no mutation/delete route", asy
   const b = (await (await get(base + "&cursor=" + a.next_cursor, admin)).json()).data; assert.equal(b.logs.length, 1);
   assert.notEqual(a.logs[0].id, b.logs[0].id); assert.equal(b.next_cursor, null);
   for (const method of ["POST", "PATCH", "DELETE"]) await error(await local.fetch("/api/admin/audit-logs", method, {}, admin.headers), 405, "METHOD_NOT_ALLOWED");
-  await error(await local.fetch("/api/admin/audit-logs/" + a.logs[0].id, "DELETE", undefined, admin.headers), 404, "NOT_FOUND");
+  await error(await local.fetch("/api/admin/audit-logs/" + a.logs[0].id, "DELETE", undefined, admin.headers), 405, "METHOD_NOT_ALLOWED");
   await assert.rejects(local.db.prepare("UPDATE admin_audit_logs SET reason = 'changed' WHERE id = ?").bind(a.logs[0].id).run());
   await assert.rejects(local.db.prepare("DELETE FROM admin_audit_logs WHERE id = ?").bind(a.logs[0].id).run());
 });

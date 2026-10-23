@@ -560,11 +560,10 @@ export function adminUI(session) {
     });
   }
   async function audit() {
-    heading(copy("admin-copy-022"), copy("admin-copy-130"));
-    await paged("audit-logs", "logs", row => {
-      const labels = { member_lookup:'會員查詢',member_mail_send:'寄信給會員',member_block:'封鎖會員',member_restore:'恢復會員',bootstrap_membership:'授予管理權限',announcement_create:'建立公告',announcement_update:'更新公告',announcement_enable:'開放公告',announcement_disable:'關閉公告',submission_note_update:'更新投稿說明',example_image_upload:'上傳範例圖片',example_image_replace:'替換範例圖片',example_image_delete:'移除範例圖片', approve: copy("admin-copy-131"), reject: copy("admin-copy-132"), mark_duplicate: copy("admin-copy-014"), complete: copy("admin-copy-015"), revoke: copy("admin-copy-016"), case_approve: copy("admin-copy-131"), case_reject: copy("admin-copy-132"), case_mark_duplicate: copy("admin-copy-014"), case_complete: copy("admin-copy-015"), case_revoke: copy("admin-copy-016"), campaign_create: copy("admin-copy-060"), campaign_update: copy("admin-copy-133"), leaderboard_create: copy("admin-copy-085"), leaderboard_update: copy("admin-copy-134"), leaderboard_rebuild: copy("admin-copy-135"), leaderboard_archive: copy("admin-copy-136"), member_tier_update: copy("admin-copy-137"), admin_bootstrap: copy("admin-copy-138"), flag_detailed:"轉詳細審核", manual_adjustment: copy("admin-copy-139") };
-      const c = node("article", "", "member-case"); c.append(node("h3", labels[row.action] ?? copy("admin-copy-140")), node("p", stamp(row.created_at)), detailFields(row, [[copy("admin-copy-141"), row.admin_member_id], [copy("admin-copy-142"), row.target_id], [copy("admin-copy-143"), row.reason]])); return c;
-    });
+    const born=sequence,signal=controller.signal;
+    const {renderAdminAudit}=await import('./admin-audit.js');
+    if(born!==sequence||signal.aborted||!visible)return;
+    await renderAdminAudit({container:$('admin-panel'),request,signal,message:adminMessage});
   }
   async function overview(){
     heading('工作總覽','全站案件統計：已通過包含已完成，未通過包含重複投稿，撤銷獨立計算。會員包含停權會員。');

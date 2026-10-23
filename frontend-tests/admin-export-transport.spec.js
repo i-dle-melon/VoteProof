@@ -4,7 +4,7 @@ import { png } from "./member-fixture.mjs";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { unzipSync } from "fflate";
-async function fixture(page, { direct = false, packages = 1 } = {}) {
+async function fixture(page, { direct = false, packages = 1, shared = false } = {}) {
   const auth = await adminFixture(page);
   await page.addInitScript(
     ({ direct }) => {
@@ -51,6 +51,7 @@ async function fixture(page, { direct = false, packages = 1 } = {}) {
     failQuery: false,
     jobs: [],
     calls: [],
+    claims: new Map(),
   };
   const reply = (route, data, status = 200) =>
     route.fulfill({
@@ -64,7 +65,7 @@ async function fixture(page, { direct = false, packages = 1 } = {}) {
     const req = route.request(),
       path = new URL(req.url()).pathname,
       b = req.postData() ? req.postDataJSON() : null;
-    state.calls.push({ path, method: req.method() });
+    state.calls.push({ path, method: req.method(), body: b });
     if (path.endsWith("/query"))
       return state.failQuery
         ? reply(route, "ADMIN_SERVICE_UNAVAILABLE", 503)
@@ -95,8 +96,9 @@ async function fixture(page, { direct = false, packages = 1 } = {}) {
     const number=Number(path.match(/\/packages\/(\d+)/)?.[1]??1),p=job.packages[number-1];
     if (path.endsWith("/start")) {
       const readOnly=p.status==='completed';
+      if(shared&&readOnly)state.claims.set(p.number,b.attempt_id);
       if(!readOnly){p.status = "in_progress";p.attempt_id = b.attempt_id;}
-      return reply(route, { package: p, items: files,read_only:readOnly });
+      return reply(route, { package: p, items: files,read_only:readOnly,...(shared?{download_attempt_id:b.attempt_id}:{}) });
     }
     if (path.includes("/files/")) {
       state.proofs++;
@@ -109,8 +111,13 @@ async function fixture(page, { direct = false, packages = 1 } = {}) {
       });
     }
     if (path.endsWith("/state")) {
+      if(b.status==='completed'&&b.confirmed!==true)return reply(route,'INVALID_EXPORT_QUERY',400);
       if (b.status === "completed" && state.ackFailures-- > 0)
         return reply(route, "ADMIN_SERVICE_UNAVAILABLE", 503);
+      if(shared&&p.status==='completed'){
+        if(state.claims.get(p.number)!==b.attempt_id)return reply(route,'EXPORT_PACKAGE_CONFLICT',409);
+        state.claims.delete(p.number);return reply(route,p);
+      }
       p.status = b.status;
       return reply(route, p);
     }
@@ -262,4 +269,21 @@ test('actual Blob batch-all produces separate sequential ZIPs with one real Work
  for(const file of downloads){expect(await file.failure()).toBe(null);const zip=unzipSync(new Uint8Array(await readFile(await file.path())));expect(Object.keys(zip)).toHaveLength(4);}
  expect(new Set(downloads.map(d=>d.suggestedFilename())).size).toBe(3);expect(state.proofs).toBe(9);expect(state.jobs[0].packages[1]).toEqual(completedBefore);expect(state.calls.filter(c=>c.path.endsWith('/state')).map(c=>Number(c.path.match(/\/packages\/(\d+)/)[1]))).toEqual([1,3]);expect(await page.evaluate(()=>window.__zipWorkers)).toEqual({active:0,max:1});
  expect(state.calls.filter(c=>c.path.endsWith('/start')).map(c=>Number(c.path.match(/\/packages\/(\d+)/)[1]))).toEqual([1,2,3]);await expect(page.locator('.image-export')).toContainText('瀏覽器可能要求允許多個檔案下載');expect(state.calls.every(c=>!c.path.includes('combined'))).toBe(true);
+});
+
+// The legacy fixtures above intentionally omit download_attempt_id. Shared V2
+// leases require ACKs, but these must never mutate the original completed row.
+test('shared V2 re-download failure, cancel, success and lost ACK preserve completed package',async({page})=>{
+ const state=await fixture(page,{shared:true});await actualZIP(page,()=>download(page).click());await expect(page.locator('[data-export-state]')).toHaveAttribute('data-export-state','completed');
+ const before=structuredClone(state.jobs[0].packages[0]);
+ state.failProof=true;await page.getByRole('button',{name:'再次下載',exact:true}).click();await expect(page.locator('.image-export')).toContainText('再次下載未完成');expect(state.claims.size).toBe(0);expect(state.jobs[0].packages[0]).toEqual(before);
+ state.failProof=false;state.slow=true;await page.getByRole('button',{name:'再次下載',exact:true}).click();await expect(page.locator('#export-progress')).toContainText('下載圖片');await page.getByRole('button',{name:'取消',exact:true}).click();await expect(page.locator('.image-export')).toContainText('再次下載已取消');expect(state.claims.size).toBe(0);expect(state.jobs[0].packages[0]).toEqual(before);
+ state.slow=false;state.ackFailures=1;await actualZIP(page,()=>page.getByRole('button',{name:'再次下載',exact:true}).click());await expect(page.getByRole('button',{name:'重送完成確認'})).toBeVisible();expect(state.jobs[0].packages[0]).toEqual(before);const reads=state.proofs;await page.getByRole('button',{name:'重送完成確認'}).click();await expect(page.getByRole('button',{name:'重送完成確認'})).toHaveCount(0);expect(state.proofs).toBe(reads);expect(state.claims.size).toBe(0);expect(state.jobs[0].packages[0]).toEqual(before);
+ const reports=state.calls.filter(c=>c.path.endsWith('/state'));expect(reports.map(c=>c.body.status)).toEqual(['completed','failed','failed','completed','completed']);expect(reports.filter(c=>c.body.status==='completed').every(c=>c.body.confirmed===true)).toBe(true);expect(reports.slice(1).every(c=>c.body.attempt_id!==before.attempt_id)).toBe(true);
+});
+
+test('shared V2 batch-all releases redownload leases and reports every package exactly once',async({page})=>{
+ const state=await fixture(page,{packages:3,shared:true});state.jobs[0].packages[1].status='completed';state.jobs[0].packages[1].attempt_id=randomUUID();const before=structuredClone(state.jobs[0].packages[1]);
+ await page.getByRole('button',{name:'批次全下載',exact:true}).click();await expect(page.locator('.image-export')).toContainText('全部套件已依序產生');expect(state.jobs[0].packages.every(p=>p.status==='completed')).toBe(true);expect(state.jobs[0].packages[1]).toEqual(before);expect(state.claims.size).toBe(0);
+ expect(state.calls.filter(c=>c.path.endsWith('/state')).map(c=>Number(c.path.match(/packages\/(\d+)/)[1]))).toEqual([1,2,3]);expect(state.calls.filter(c=>c.path.endsWith('/state')).every(c=>c.body.confirmed===true)).toBe(true);
 });

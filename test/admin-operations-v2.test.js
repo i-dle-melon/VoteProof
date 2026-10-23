@@ -140,6 +140,13 @@ test('0027 compatibility, additive migration preserves rows and backfills only c
  try{
   const actor=await old.identity({role:'admin'});const before=(await old.local.db.prepare('SELECT * FROM members').all()).results;
   const r=await old.local.fetch('/api/admin/image-exports','GET',undefined,actor.headers);assert.equal(r.status,503);assert.equal((await r.json()).error.code,'EXPORT_SCHEMA_NOT_READY');
+  const exportJobs=(await old.local.db.prepare('SELECT * FROM export_jobs').all()).results;
+  const blocked=await old.local.fetch('/api/admin/image-exports/jobs','POST',{job_id:randomUUID(),filters:filters()},actor.headers);
+  assert.equal(blocked.status,503);assert.equal((await blocked.json()).error.code,'EXPORT_SCHEMA_NOT_READY');
+  assert.deepEqual((await old.local.db.prepare('SELECT * FROM export_jobs').all()).results,exportJobs);
+  // Only shared export is unavailable before 0028; essential Admin reads remain
+  // available. A migration readiness failure is never a successful empty export.
+  for(const path of ['me','overview','cases'])assert.equal((await old.local.fetch('/api/admin/'+path,'GET',undefined,actor.headers)).status,200);
   await old.makeCase();const oldActor={member:{member_id:actor.memberId,tokenHash:actor.hash},role:'admin'},scope=await exportScope(old.local.db,exportFilters(filters()));
   const completeId=randomUUID(),failedId=randomUUID();
   for(const id of [completeId,failedId])await snapshotExport(old.local.db,oldActor,id,scope);

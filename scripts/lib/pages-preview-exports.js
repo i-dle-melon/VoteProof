@@ -66,6 +66,7 @@ export async function exportFixture(path, options, state, picture, reply) {
   const pack = job.packages.find((x) => x.number === Number(p[3]));
   if (!pack) return reply("EXPORT_NOT_FOUND", 404);
   if (p[4] === "state") {
+    if(b.status==='completed'&&b.confirmed!==true)return reply('INVALID_EXPORT_QUERY',400);
     if(pack.status==='completed'&&redownloads.get(pack)===b.attempt_id){redownloads.delete(pack);return reply(pack);}
     if (pack.attempt_id !== b.attempt_id) return reply("EXPORT_PACKAGE_CONFLICT", 409);
     if(pack.status==='completed' && b.status!=='completed')return reply('EXPORT_PACKAGE_CONFLICT',409);
@@ -82,6 +83,7 @@ export async function exportFixture(path, options, state, picture, reply) {
     return reply({
       package: pack,
       read_only: readOnly,
+      download_attempt_id: b.attempt_id,
       items: Array.from({ length: 3 }, (_, i) => ({
         ordinal: i + 1,
         file_id: "00000000-0000-4000-8000-" + String(i + 10).padStart(12, "0"),

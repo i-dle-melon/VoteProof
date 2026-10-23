@@ -200,7 +200,7 @@ export async function renderImageExports({ container, request, session, signal }
       element("span", `總容量：${bytes(job.total_bytes)}`),
       element("span", `${job.packages.length} 個下載包`),
       element("span", "建立者："+(job.creator_name??job.creator_fan_id??"管理員")+" · "+new Date(job.created_at).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"})),
-      element("p", "範圍："+(job.filters.entire_campaign?job.campaign_name:job.filters.from+" ～ "+job.filters.to)+" · 狀態："+job.filters.statuses.join(" / ")+" · "+(job.filters.only_undownloaded?"只選未下載":"含已完成圖片")),
+      element("p", "範圍："+(job.filters?.entire_campaign?job.campaign_name:(job.filters?.from??"未提供")+" ～ "+(job.filters?.to??"未提供"))+" · 狀態："+(Array.isArray(job.filters?.statuses)?job.filters.statuses.join(" / "):"未提供")+" · "+(job.filters?.only_undownloaded?"只選未下載":"含已完成圖片")),
     );
     results.append(summary);
     if(job.expired){results.append(element('p','快照已到期；完成紀錄仍保留。請重新查詢建立可用快照。','notice info'));for(const p of job.packages)results.append(element('p','套件 '+p.number+' · '+states[p.status]));return;}
@@ -271,7 +271,7 @@ export async function renderImageExports({ container, request, session, signal }
     let handle = null,
       sink = null;
     try {
-      if (!job.preview_sample && job.filters.package_bytes > EXPORT_LIMITS.blobMaxBytes) {
+      if (!job.preview_sample && job.filters?.package_bytes > EXPORT_LIMITS.blobMaxBytes) {
         if (typeof window.showSaveFilePicker !== "function") throw Error("EXPORT_DISK_REQUIRED");
         handle = await window.showSaveFilePicker({
           suggestedName: filename,
@@ -317,11 +317,15 @@ export async function renderImageExports({ container, request, session, signal }
       started = false,
       saved = false,
       readOnly = p.status === 'completed',
-      succeeded = false;
-    const state = (status) =>
+      succeeded = false,
+      redownloadLease = false;
+    // Legacy starts are read-only for completed packages. V2 explicitly returns
+    // a new download_attempt_id whose ACK releases claims, not package status.
+    const state = (status) => readOnly && !redownloadLease ? Promise.resolve(p) :
       post(`jobs/${downloadJob.id}/packages/${p.number}/state`, {
         attempt_id: attempt,
         status,
+        ...(status === "completed" ? { confirmed: true } : {}),
         ...(status === "failed"
           ? { error_code: abort.signal.aborted ? "EXPORT_CANCELLED" : "EXPORT_DOWNLOAD_FAILED" }
           : {}),
@@ -333,6 +337,7 @@ export async function renderImageExports({ container, request, session, signal }
       });
       started = true;
       readOnly=readOnly||data.read_only===true;
+      redownloadLease=readOnly&&data.download_attempt_id===attempt;
       p.attempt_id = data.package.attempt_id;
       if(!readOnly)p.status = "in_progress";
       if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");

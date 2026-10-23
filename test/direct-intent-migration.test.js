@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { randomUUID, createHash } from "node:crypto";
 import { unstable_splitSqlQuery } from "wrangler";
 import { localAdminRuntime } from "../scripts/lib/local-admin-runtime.mjs";
@@ -173,6 +173,16 @@ test("0018 preserves populated V1/V2 data, indexes, trigger policies and private
       200,
     );
     assert.equal((await db.prepare("SELECT sum(points) n FROM point_transactions").first()).n, 10);
+    // The current shared export API requires 0028. Intermediate schemas fail
+    // closed explicitly; the legacy reader/review assertions above still run at 0018.
+    const unavailable=await l.fetch('/api/admin/image-exports','GET',undefined,admin.headers);
+    assert.equal(unavailable.status,503);assert.equal((await unavailable.json()).error.code,'EXPORT_SCHEMA_NOT_READY');
+    const exportRows=(await db.prepare('SELECT * FROM export_jobs').all()).results;
+    for(const name of (await readdir(new URL('../migrations/',import.meta.url))).filter(n=>/^\d+_.+\.sql$/.test(n)&&n>'0018_direct_intent_cases.sql').sort()){
+      const next=await readFile(new URL('../migrations/'+name,import.meta.url),'utf8');
+      await db.batch(unstable_splitSqlQuery(next).map(s=>db.prepare(s)));
+    }
+    assert.deepEqual((await db.prepare('SELECT * FROM export_jobs').all()).results,exportRows);
     const exported = await l.fetch(
       "/api/admin/image-exports/jobs",
       "POST",

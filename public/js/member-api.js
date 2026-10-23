@@ -127,15 +127,21 @@ export class MemberSession {
 // fragment or proof path carrying credentials in query parameters.
 export function adminPath(path) {
   if (/^\/api\/admin\/storage(?:\/(?:inventory|dry-run))?$/.test(path)) return true;
-  if (typeof path !== "string" || /[.#\\]/.test(path)) return false;
+  if (typeof path !== "string" || /[#\\]/.test(path)) return false;
   const [pathname, query, extra] = path.split("?");
+  if(pathname.includes('.'))return false;
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
   if(pathname==='/api/admin/staff' && query===undefined)return true;
   if(pathname==='/api/admin/member-blocks')return true;
   if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(pathname)&&query===undefined)return true;
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
+  if(['/api/admin/cases/initial-review','/api/admin/cases/batch-status','/api/admin/backups/jobs'].includes(pathname)){
+    const allowed=pathname.endsWith('initial-review')?['cutoff','cursor']:pathname.endsWith('batch-status')?['items']:['status','page'];
+    const params=new URLSearchParams(query??'');return [...params.keys()].every(k=>allowed.includes(k)&&params.getAll(k).length===1);
+  }
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
+  if(pathname==='/api/admin/image-exports'&&query!==undefined){const p=new URLSearchParams(query);return p.getAll('page').length===1&&[...p.keys()].every(k=>k==='page')&&/^[1-9]\d*$/.test(p.get('page'))&&Number.isSafeInteger(Number(p.get('page'))*10);}
   if (pathname.includes("/files/") && query !== undefined) return false;
   if (pathname === '/api/admin/backups/missing' || pathname === '/api/admin/storage/history') {
     const params = new URLSearchParams(query ?? '');

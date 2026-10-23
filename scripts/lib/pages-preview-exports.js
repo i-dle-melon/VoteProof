@@ -1,9 +1,12 @@
 // BUILD-ONLY export adapter. Synthetic package metadata; sample ZIPs only.
 let jobs = [];
+const redownloads=new WeakMap();
 const fixtureId = "00000000-0000-4000-8000-000000000001";
 const defaultFilters = {
   from: "2026-10-14T00:00",
-  to: "2026-10-15T00:00",
+  to: "2026-10-14T23:59",
+  only_undownloaded:true,
+  end_inclusive:true,
   campaign_id: null,
   entire_campaign: false,
   statuses: ["pending", "approved"],
@@ -43,7 +46,7 @@ export async function exportFixture(path, options, state, picture, reply) {
     jobs.push(makeJob(fixtureId, { ...defaultFilters }, scene));
   const p = path.split("/").slice(4),
     b = typeof options.body === "string" ? JSON.parse(options.body) : options.body;
-  if (!p[0]) return reply({ jobs: jobs.map(({ packages, ...job }) => job) });
+  if (!p[0]) return reply({version:2, jobs: jobs.map(({ packages, ...job }) => job) });
   if (p[0] === "query")
     return scene === "error"
       ? reply("ADMIN_SERVICE_UNAVAILABLE", 503)
@@ -63,6 +66,7 @@ export async function exportFixture(path, options, state, picture, reply) {
   const pack = job.packages.find((x) => x.number === Number(p[3]));
   if (!pack) return reply("EXPORT_NOT_FOUND", 404);
   if (p[4] === "state") {
+    if(pack.status==='completed'&&redownloads.get(pack)===b.attempt_id){redownloads.delete(pack);return reply(pack);}
     if (pack.attempt_id !== b.attempt_id) return reply("EXPORT_PACKAGE_CONFLICT", 409);
     if(pack.status==='completed' && b.status!=='completed')return reply('EXPORT_PACKAGE_CONFLICT',409);
     pack.status = b.status;
@@ -71,6 +75,7 @@ export async function exportFixture(path, options, state, picture, reply) {
   }
   if (p[4] === "start") {
     const readOnly=pack.status==='completed';
+    if(readOnly)redownloads.set(pack,b.attempt_id);
     if(readOnly&&pack.attempt_id!==b.expected_attempt_id)return reply('EXPORT_PACKAGE_CONFLICT',409);
     if(!readOnly){pack.status = "in_progress";pack.attempt_id = b.attempt_id;}
     const sample = await picture();

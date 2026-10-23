@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { unzipSync, strFromU8 } from "fflate";
 import { readFile } from "node:fs/promises";
 const base = "http://127.0.0.1:4174/VoteProof/?preview_identity=admin";
+test.beforeEach(async({page})=>{page.on('dialog',d=>d.message().startsWith('ZIP 已產生')?d.accept():d.dismiss());});
 async function enter(page, scene = "normal", theme = "dark") {
   await page.goto(`${base}&preview_exports=${scene}&preview_theme=${theme}#admin`);
   await expect(page.locator("html")).toHaveAttribute("data-preview-ready", "true");

@@ -1,4 +1,4 @@
-import {batchReviewInput,batchApprove} from "../lib/review-batch.js";
+import {batchReviewInput,batchApprove,initialReviewPage,reviewBatchStatus} from "../lib/review-batch.js";
 import { jsonSuccess } from "./response.js";
 import { adminHandler } from "./admin-response.js";
 import { authDatabase, csrfToken } from "../lib/auth-session.js";
@@ -32,8 +32,14 @@ export const listAdminCases = adminHandler(async (env, url, request) => {
 export const getAdminOverview = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   if (url.search) throw new AdminError(400, "INVALID_ADMIN_QUERY", "Unexpected overview query");
-  const { member_count } = await authDatabase(env).prepare("SELECT COUNT(*) AS member_count FROM members").first();
-  return jsonSuccess({ member_count });
+  const [members, cases] = await authDatabase(env).batch([
+    authDatabase(env).prepare("SELECT COUNT(*) AS member_count FROM members"),
+    authDatabase(env).prepare("SELECT status,COUNT(*) AS count FROM cases GROUP BY status"),
+  ]);
+  const counts = Object.fromEntries(['pending','approved','completed','rejected','duplicate','revoked'].map(k=>[k,0]));
+  for (const row of cases.results) counts[row.status] = row.count;
+  return jsonSuccess({member_count:members.results[0].member_count,case_counts:counts,
+    case_totals:{pending:counts.pending,approved:counts.approved+counts.completed,rejected:counts.rejected+counts.duplicate,revoked:counts.revoked}});
 });
 export const getAdminCase = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
@@ -81,7 +87,18 @@ export const listAdminAudit = adminHandler(async (env, url, request) => {
 });
 
 export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);const items=batchReviewInput(await readReviewJson(request));return jsonSuccess(await batchApprove(authDatabase(env),actor,items));});
+const initialReview = adminHandler(async(env,url,request)=>{
+  await adminIdentity(request,env);return jsonSuccess(await initialReviewPage(authDatabase(env),url));
+});
+const batchStatus = adminHandler(async(env,url,request)=>{
+  await adminIdentity(request,env);
+  if([...url.searchParams.keys()].some(k=>k!=='items')||url.searchParams.getAll('items').length!==1)throw new AdminError(400,'INVALID_REVIEW_BATCH','Invalid batch');
+  let parsed;try{parsed=JSON.parse(url.searchParams.get('items'));}catch{throw new AdminError(400,'INVALID_REVIEW_BATCH','Invalid batch');}
+  return jsonSuccess(await reviewBatchStatus(authDatabase(env),batchReviewInput({cases:parsed})));
+});
 const exactRoutes = new Map([
+  ["/api/admin/cases/initial-review",{method:"GET",handler:initialReview}],
+  ["/api/admin/cases/batch-status",{method:"GET",handler:batchStatus}],
   ["/api/admin/cases/batch-approve",{method:"POST",handler:approveAdminBatch}],
   ["/api/admin/me", { method: "GET", handler: currentAdmin }],
   ["/api/admin/overview", { method: "GET", handler: getAdminOverview }],

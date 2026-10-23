@@ -1,4 +1,4 @@
-import test, { before, after } from "node:test";
+import test, { before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { localAdminRuntime } from "../scripts/lib/local-admin-runtime.mjs";
@@ -36,7 +36,7 @@ const filters = (extra = {}) => ({
   ...extra,
 });
 const call = (path = "", method = "GET", body, actor = admin) =>
-  local.fetch("/api/admin/image-exports" + path, method, body, actor?.headers ?? {});
+  local.fetch("/api/admin/image-exports" + path, method, body?.status==="completed"?{...body,confirmed:true}:body, actor?.headers ?? {});
 const data = async (response) => {
   assert.equal(response.status, 200, await response.clone().text());
   return (await response.json()).data;
@@ -123,6 +123,11 @@ before(async () => {
     local.db.prepare(policy.sql),
   ]);
 });
+// Each legacy scenario expects a fresh scope; V2 reuse/claim concurrency is
+// separately exercised against untouched shared state in admin-operations-v2.
+beforeEach(async()=>{if(!local)return;await local.db.batch([
+ local.db.prepare('DELETE FROM export_scope_locks'),local.db.prepare('DELETE FROM export_file_claims'),
+ local.db.prepare("UPDATE export_packages SET status='failed',lease_until=0 WHERE status='in_progress'")]);});
 after(async () => {
   await local?.runtime.dispose();
 });
@@ -298,10 +303,10 @@ test("concurrent job creation produces one snapshot", async () => {
     6,
   );
 });
-test("owned history survives reload and other Admin cannot claim job", async () => {
+test("global history survives reload and other authorized Admin can read shared snapshot", async () => {
   const j = await create();
   assert.ok((await data(await call())).jobs.some((x) => x.id === j.id));
-  await error(await call("/jobs/" + j.id, "GET", undefined, otherAdmin), 404, "EXPORT_NOT_FOUND");
+  assert.equal((await data(await call("/jobs/" + j.id, "GET", undefined, otherAdmin))).id,j.id);
   await error(await call("/jobs/" + randomUUID()), 404, "EXPORT_NOT_FOUND");
 });
 test("package completion callback idempotent; failed cannot downgrade completed", async () => {
@@ -467,7 +472,8 @@ test("expiry fails closed and revocation prevents snapshot write", async () => {
       "1999-01-02T00:00:00.000Z",
     )
     .run();
-  await error(await call("/jobs/" + expiredId), 404, "EXPORT_NOT_FOUND");
+  assert.equal((await data(await call("/jobs/"+expiredId))).expired,true);
+  await error(await call("/jobs/"+expiredId+"/packages/1/start","POST",{attempt_id:randomUUID(),expected_attempt_id:null}),410,"EXPORT_SNAPSHOT_EXPIRED");
   const revoked = await h.identity({ role: "admin" });
   await local.db
     .prepare("UPDATE auth_sessions SET revoked_at=? WHERE token_hash=?")

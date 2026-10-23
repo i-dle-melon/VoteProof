@@ -27,7 +27,7 @@ export async function renderImageExports({ container, request, session, signal }
     element("h3", "圖片批次匯出"),
     element(
       "p",
-      "以台灣時間篩選投稿；結束時間不包含在查詢區間。每包獨立下載，圖片不經伺服器壓縮。",
+      "以台灣時間篩選投稿；包含所選結束分鐘。已下載指已確認完成匯出，不保證檔案永久保存；ZIP 由瀏覽器產生。",
       "muted",
     ),
   );
@@ -49,9 +49,9 @@ export async function renderImageExports({ container, request, session, signal }
   const from = field("from", "開始（Asia/Taipei）", "datetime-local", today + "T00:00"),
     to = field(
       "to",
-      "結束（不包含，Asia/Taipei）",
+      "結束（包含此分鐘，Asia/Taipei）",
       "datetime-local",
-      taipeiInput(new Date(Date.now() + 86400000)).slice(0, 10) + "T00:00",
+      today + "T23:59",
     );
   from.required = to.required = true;
   const campaign = field("campaign", "活動", "select");
@@ -62,6 +62,8 @@ export async function renderImageExports({ container, request, session, signal }
   entire.name = "entire";
   entireWrap.prepend(entire);
   form.append(entireWrap);
+  const undownloadedWrap=element('label','只選未下載','export-check'),undownloaded=element('input');
+  undownloaded.type='checkbox';undownloaded.name='only_undownloaded';undownloaded.checked=true;undownloaded.id='export-only-undownloaded';undownloadedWrap.prepend(undownloaded);form.append(undownloadedWrap);
   const syncDates = () => {
     if (!campaign.value) entire.checked = false;
     entire.disabled = !campaign.value;
@@ -147,6 +149,8 @@ export async function renderImageExports({ container, request, session, signal }
     preparing = false,
     querying = false,
     pendingJob = null;
+  let historyPage=1;
+  undownloaded.addEventListener('change',()=>{if(active||batch||preparing)return;job=null;pendingJob=null;results.replaceChildren();message.textContent='篩選已變更，請重新查詢；只有經確認完成的圖片才會排除。';});
   const post = (path, body) => request("image-exports/" + path, { method: "POST", body });
   const notice = (error) =>
     error?.code === "EXPORT_SCOPE_TOO_LARGE"
@@ -159,21 +163,24 @@ export async function renderImageExports({ container, request, session, signal }
     const data = await request("image-exports");
     if (!current()) return;
     history.replaceChildren();
+    const pager=element('div','','tabs');
+    const previous=button('較新紀錄',()=>void refreshHistory(historyPage-1)),next=button('較早紀錄',()=>void refreshHistory(historyPage+1));previous.disabled=historyPage<=1;next.disabled=!data.has_more;pager.append(previous,element('span','第 '+historyPage+' 頁'),next);history.append(pager);
     if (data.jobs.length) {
-      const label = element("label", "最近匯出工作（保留 7 天）"),
+      const label = element("label", "全站共用匯出工作（快照可下載 7 天）"),
         select = element("select");
       select.id = "export-history";
       select.append(new Option("選擇既有工作", ""));
       for (const row of data.jobs)
         select.append(
           new Option(
-            `${new Date(row.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })} · ${row.image_count} 張`,
+            `${row.creator_name??row.creator_fan_id??"管理員"} · ${row.expired?"快照已到期 · ":""}${new Date(row.created_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })} · ${row.image_count} 張`,
             row.id,
           ),
         );
       label.append(select);
       history.append(label);
       select.addEventListener("change", () => {
+
         if (select.value && !active && !batch && !preparing)
           void loadJob(select.value).catch((e) => (message.textContent = notice(e)));
       });
@@ -192,8 +199,11 @@ export async function renderImageExports({ container, request, session, signal }
       element("strong", `符合條件：${job.image_count.toLocaleString()} 張圖片`),
       element("span", `總容量：${bytes(job.total_bytes)}`),
       element("span", `${job.packages.length} 個下載包`),
+      element("span", "建立者："+(job.creator_name??job.creator_fan_id??"管理員")+" · "+new Date(job.created_at).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"})),
+      element("p", "範圍："+(job.filters.entire_campaign?job.campaign_name:job.filters.from+" ～ "+job.filters.to)+" · 狀態："+job.filters.statuses.join(" / ")+" · "+(job.filters.only_undownloaded?"只選未下載":"含已完成圖片")),
     );
     results.append(summary);
+    if(job.expired){results.append(element('p','快照已到期；完成紀錄仍保留。請重新查詢建立可用快照。','notice info'));for(const p of job.packages)results.append(element('p','套件 '+p.number+' · '+states[p.status]));return;}
     if (!job.packages.length) {
       results.append(element("p", "目前沒有符合條件的圖片。", "empty-state"));
       return;
@@ -206,6 +216,7 @@ export async function renderImageExports({ container, request, session, signal }
           "notice info",
         ),
       );
+    results.append(button('重新讀取共用工作',()=>{if(!active&&!batch&&!preparing)void loadJob(job.id).catch(e=>{message.textContent=notice(e);});}));
     const list = element("div", "", "export-packages");
     results.append(list);
     for (const p of job.packages) {
@@ -228,7 +239,9 @@ export async function renderImageExports({ container, request, session, signal }
         () => void downloadPackage(p),
         "btn btn-primary",
       );
-      download.disabled = Boolean(active || batch || preparing);
+      const locked=Number(p.active_lease_until??p.lease_until)>Date.now()/1000;
+      download.disabled = Boolean(active || batch || preparing || locked);
+      if(locked)info.append(element('p','其他管理員／瀏覽器正在處理，鎖定至 '+new Date((p.active_lease_until??p.lease_until)*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'}),'notice warn'));
       row.append(info, status, download);
       list.append(row);
     }
@@ -385,14 +398,20 @@ export async function renderImageExports({ container, request, session, signal }
       if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       saved = true;
       cancel.disabled = true;
-      if(!readOnly)await state("completed");
+      if(!readOnly){
+        if(!window.confirm('ZIP 已產生。請檢查下載結果後確認完成匯出；這不保證檔案永久保存。')){
+          await state('failed');p.status='failed';message.textContent='尚未確認完成；圖片仍可列入下次匯出。';return false;
+        }
+        await state("completed");
+      }else await state('completed');
       p.status = "completed";
       succeeded=true;
       message.textContent = readOnly ? "ZIP 已再次產生；原本已完成狀態保持不變。" : "ZIP 已產生，完成狀態已保存。";
     } catch (error) {
       await sink?.abort().catch(() => {});
       sink = null;
-      if(readOnly){
+      if(readOnly&&!saved){
+        if(started&&!saved)await state('failed').catch(()=>{});
         p.status='completed';message.textContent=abort.signal.aborted?'再次下載已取消；原本已完成狀態保持不變。':'再次下載未完成；原本已完成狀態保持不變。'+notice(error);
       } else if (saved) {
         message.textContent = "ZIP 已產生，但完成回覆未確認。可單獨重送確認，不需要重新下載。";
@@ -454,6 +473,8 @@ export async function renderImageExports({ container, request, session, signal }
             vote_types: checked("vote_types"),
             sources: checked("sources"),
             package_bytes: Number(mode.value),
+            only_undownloaded:undownloaded.checked,
+            end_inclusive:true,
           };
         const count = await post("query", filters);
         message.textContent = `查詢結果：${count.image_count.toLocaleString()} 張 · ${bytes(count.total_bytes)}，正在固定下載包…`;
@@ -463,7 +484,7 @@ export async function renderImageExports({ container, request, session, signal }
         pendingJob = null;
         if (current()) {
           render();
-          message.textContent = "下載包已固定。每次點擊只下載一包。";
+          message.textContent = job.reused?"已重用既有快照；後續新增圖片不在此快照，完成後可再查詢。":"下載包已固定。每次點擊只下載一包。";
           await refreshHistory();
         }
       } catch (e) {

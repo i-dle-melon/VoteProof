@@ -10,7 +10,7 @@ test('overview exposes only authoritative total to MFA-elevated staff, never pub
  const admin=await h.identity('super_admin'),reviewer=await h.identity('reviewer'),member=await h.identity(),suspended=await h.identity();
  await h.db.prepare("UPDATE members SET status='suspended' WHERE member_id=?").bind(suspended.memberId).run();
  const expected=(await h.db.prepare('SELECT COUNT(*) n FROM members').first()).n;
- for(const actor of [admin,reviewer]){const r=await h.fetch('/api/admin/overview','GET',undefined,actor.headers);assert.equal(r.status,200);assert.deepEqual((await r.json()).data,{member_count:expected});}
+ for(const actor of [admin,reviewer]){const r=await h.fetch('/api/admin/overview','GET',undefined,actor.headers);assert.equal(r.status,200);const overview=(await r.json()).data;assert.equal(overview.member_count,expected);assert.deepEqual(overview.case_totals,{pending:0,approved:0,rejected:0,revoked:0});}
  for(const [actor,status] of [[null,401],[member,403],[suspended,403]])assert.equal((await h.fetch('/api/admin/overview','GET',undefined,actor?.headers)).status,status);
  assert.equal((await h.fetch('/api/admin/overview?email=x','GET',undefined,admin.headers)).status,400);
  assert.equal((await h.fetch('/api/admin/overview','POST',{},admin.headers)).status,405);

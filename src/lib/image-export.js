@@ -1,5 +1,6 @@
 import { AdminError, REVIEW_AUTH_GUARD, actorBindings } from "./admin-identity.js";
 import { EXPORT_LIMITS } from "../../public/js/export-format.js";
+import {exportAudit} from './shared-export.js';
 const invalid = () => {
   throw new AdminError(400, "INVALID_EXPORT_QUERY", "Invalid export filters");
 };
@@ -32,6 +33,8 @@ export function exportFilters(raw) {
           "vote_types",
           "sources",
           "package_bytes",
+          "only_undownloaded",
+          "end_inclusive",
         ].includes(k),
     )
   )
@@ -63,12 +66,16 @@ export function exportFilters(raw) {
     vote_types: list(raw.vote_types, ["Solo", "團體"]),
     sources: list(raw.sources, ["member", "guest"]),
     package_bytes: raw.package_bytes ?? EXPORT_LIMITS.maxBytes,
+    only_undownloaded: raw.only_undownloaded ?? false,
+    end_inclusive: raw.end_inclusive ?? false,
   };
   if (![EXPORT_LIMITS.maxBytes, EXPORT_LIMITS.blobMaxBytes].includes(filters.package_bytes))
     invalid();
-  if (!filters.entire_campaign && taipeiUTC(filters.from) >= taipeiUTC(filters.to)) invalid();
+  if(typeof filters.only_undownloaded!=='boolean'||typeof filters.end_inclusive!=='boolean')invalid();
+  if (!filters.entire_campaign && taipeiUTC(filters.from) >= inclusiveEnd(filters)) invalid();
   return filters;
 }
+const inclusiveEnd=f=>new Date(Date.parse(taipeiUTC(f.to))+(f.end_inclusive?60000:0)).toISOString();
 export async function exportScope(db, filters) {
   let campaign = null;
   if (filters.campaign_id) {
@@ -82,7 +89,7 @@ export async function exportScope(db, filters) {
     filters,
     campaign_name: campaign?.name ?? null,
     from_utc: filters.entire_campaign ? campaign.start_at : taipeiUTC(filters.from),
-    to_utc: filters.entire_campaign ? campaign.end_at : taipeiUTC(filters.to),
+    to_utc: filters.entire_campaign ? campaign.end_at : inclusiveEnd(filters),
   };
 }
 export function exportWhere(scope) {
@@ -101,6 +108,8 @@ export function exportWhere(scope) {
   }
   if (f.sources.length === 1)
     clauses.push(f.sources[0] === "member" ? "c.member_id IS NOT NULL" : "c.member_id IS NULL");
+  if(f.only_undownloaded)clauses.push(`NOT EXISTS(SELECT 1 FROM export_completed_files d
+    WHERE d.file_id=f.id AND d.etag=f.etag AND d.file_size=f.size AND d.content_type=f.content_type)`);
   return { sql: clauses.join(" AND "), values };
 }
 export async function countExport(db, scope) {
@@ -113,7 +122,7 @@ export async function countExport(db, scope) {
     .first();
 }
 // INSERT SELECT + SQL recursion: one transactional D1 batch, never one trip/image.
-export async function snapshotExport(db, actor, id, scope) {
+export async function snapshotExport(db, actor, id, scope, scopeKey=null) {
   const packageBytes = scope.filters.package_bytes;
   if (![EXPORT_LIMITS.maxBytes, EXPORT_LIMITS.blobMaxBytes].includes(packageBytes)) invalid();
   const where = exportWhere(scope),
@@ -143,6 +152,12 @@ export async function snapshotExport(db, actor, id, scope) {
         ...actorBindings(actor),
         ...campaignBindings,
       ),
+    ...(scopeKey?[db.prepare(`INSERT INTO export_scope_locks(scope_key,job_id,expires_at) VALUES(?,?,?)
+      ON CONFLICT(scope_key) DO UPDATE SET job_id=excluded.job_id,expires_at=excluded.expires_at
+      WHERE export_scope_locks.expires_at<=? OR NOT EXISTS(SELECT 1 FROM export_packages p WHERE p.job_id=export_scope_locks.job_id AND p.status!='completed')`)
+      .bind(scopeKey,id,expiry,now),
+      db.prepare(`INSERT INTO auth_atomic_guards(id,valid) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM export_scope_locks WHERE scope_key=? AND job_id=?) THEN 1 ELSE 0 END`).bind(id,scopeKey,id),
+      db.prepare('DELETE FROM auth_atomic_guards WHERE id=?').bind(id)]:[]),
     db
       .prepare(
         `WITH RECURSIVE ordered AS MATERIALIZED (
@@ -171,5 +186,6 @@ export async function snapshotExport(db, actor, id, scope) {
         `UPDATE export_jobs SET image_count=(SELECT COUNT(*) FROM export_job_items WHERE job_id=?),total_bytes=(SELECT COALESCE(SUM(file_size),0) FROM export_job_items WHERE job_id=?),sealed=1 WHERE id=?`,
       )
       .bind(id, id, id),
+    ...(scopeKey?[exportAudit(db,actor,{id},null,'snapshot')]:[]),
   ]);
 }

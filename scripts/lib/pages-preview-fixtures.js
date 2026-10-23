@@ -258,7 +258,10 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
           member: identity,
           elevated_until: isStaff ? 4102444800 : undefined,
         });
-  if (p === "/api/admin/overview") return isStaff ? reply({member_count:state.data==='empty'?0:1284}) : reply("ADMIN_FORBIDDEN",403);
+  if (p === '/api/admin/overview'){
+    if(!isStaff)return reply('ADMIN_FORBIDDEN',403);const counts=Object.fromEntries(['pending','approved','completed','rejected','duplicate','revoked'].map(k=>[k,state.data==='empty'?0:adminCases.filter(c=>c.status===k).length]));
+    return reply({member_count:state.data==='empty'?0:1284,case_counts:counts,case_totals:{pending:counts.pending,approved:counts.approved+counts.completed,rejected:counts.rejected+counts.duplicate,revoked:counts.revoked}});
+  }
   if (p === "/api/admin/me")
     return isStaff
       ? reply({ member_id: identity.member_id, role: state.identity })
@@ -343,6 +346,16 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     const row = cases.find((c) => p.endsWith("/" + c.case_id));
     return row && state.data !== "empty" ? reply(row) : reply("CASE_NOT_FOUND", 404);
   }
+  if(p==='/api/admin/cases/initial-review'){
+    const list=state.data==='empty'?[]:adminCases.filter(c=>c.status==='pending'&&c.review_stage==='initial'&&!c.review_risk_reason).sort((a,b)=>a.case_id.localeCompare(b.case_id));
+    if(!url.searchParams.has('cutoff'))return reply({total:list.length,cutoff:new Date().toISOString(),cases:[],next_cursor:null});
+    const cursor=url.searchParams.get('cursor')??'',rows=list.filter(c=>c.case_id>cursor).slice(0,21);
+    return reply({cases:rows.slice(0,20).map(c=>({case_id:c.case_id,expected_version:c.version})),next_cursor:rows.length>20?rows[19].case_id:null});
+  }
+  if(p==='/api/admin/cases/batch-status'){
+    const items=JSON.parse(url.searchParams.get('items')??'[]');return reply({results:items.map(i=>{const c=adminCases.find(c=>c.case_id===i.case_id);return c&&c.status==='approved'&&c.version===i.expected_version+1?{ok:true,...c}:{ok:false,case_id:i.case_id,code:'REVIEW_RESULT_UNCONFIRMED'};})});
+  }
+  if(p==='/api/admin/backups/jobs')return reply({files:[],page:Number(url.searchParams.get('page')??1),page_size:10,total:0,total_pages:1});
   if (p === "/api/admin/cases")
     return reply(
       paged(

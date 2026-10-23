@@ -101,7 +101,7 @@ for(const missing of [0,2])test(`missing backup disclosure also hides history at
   await expect(summary).toHaveText('尚未排入備份：'+missing);
   await expect(history).toHaveCount(1);await expect(history).toBeHidden();
   await expect(page.getByRole('button',{name:'查看未排入備份清單'})).toBeHidden();
-  await summary.click();await expect(history).toBeVisible();
+  await summary.click();await expect(history).toBeHidden();await details.getByText('排入／重試操作歷史（不代表目前待執行）',{exact:true}).click();await expect(history).toBeVisible();
   await expect(page.getByRole('button',{name:'查看未排入備份清單'})).toBeVisible();
   if(missing)await expect(page.getByRole('button',{name:'檢查未備份證明'})).toBeVisible();
   await summary.click();await expect(history).toBeHidden();

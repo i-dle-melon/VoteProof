@@ -28,11 +28,13 @@ test('album exact IDs batch approve supports partial failure and retries only fa
  await page.getByRole('button',{name:'選取已載入初審案件',exact:true}).click();
  await expect(page.locator('[data-review-select]:checked')).toHaveCount(3);
  await page.locator('#admin-batch-approve').click();
- await expect(page.locator('.batch-review-results')).toContainText('VP-PREVIEW-001 · 已通過');
+ await expect(page.locator('.batch-review-results')).toContainText('成功 2 · 失敗 1');
  await expect(page.locator('.batch-review-results')).toContainText('VP-PREVIEW-004');
+ await expect(page.locator('[data-review-select]:checked')).toHaveCount(0);
+ await page.getByRole('button',{name:'選取已載入初審案件',exact:true}).click();
  await expect(page.locator('[data-review-select]:checked')).toHaveCount(1);
  await page.locator('#admin-batch-approve').click();
- await expect(page.locator('.batch-review-results')).toContainText('VP-PREVIEW-004 · 已通過');
+ await expect(page.locator('.batch-review-results')).toContainText('成功 1 · 失敗 0');
  await expect(page.locator('#admin-batch-approve')).toBeDisabled();
  const states=await page.evaluate(async()=>{const m=await import('./js/preview-fixtures.js');return m.adminCases.filter(c=>['VP-PREVIEW-001','VP-PREVIEW-004','VP-PREVIEW-006'].includes(c.case_id)).map(c=>({id:c.case_id,status:c.status,version:c.version,points:c.points_awarded}));});
  expect(states.every(s=>s.status==='approved'&&s.version===2)).toBe(true);

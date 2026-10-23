@@ -48,7 +48,7 @@ export async function applyReview(db, actor, row, input) {
     db.prepare(`UPDATE cases SET status = ?, version = version + 1, updated_at = ?, status_reason = ?,
       status_updated_at = ?, status_updated_by = ?, reviewed_at = ?, reviewer_id = ?,
       duplicate_flag = ?, duplicate_of_case_id = ?, last_review_id = ?,review_stage=CASE WHEN ?='flag_detailed' THEN 'detailed' ELSE review_stage END,review_risk_reason=CASE WHEN ?='flag_detailed' THEN ? ELSE review_risk_reason END
-      WHERE id = ? AND status = ? AND version = ? AND (?=0 OR review_stage='initial') AND ${REVIEW_AUTH_GUARD}
+      WHERE id = ? AND status = ? AND version = ? AND (?=0 OR (review_stage='initial' AND review_risk_reason IS NULL)) AND ${REVIEW_AUTH_GUARD}
       AND (? IS NULL OR EXISTS (SELECT 1 FROM cases t WHERE t.id = ? AND t.id != cases.id AND t.status IN ('approved', 'completed')))
       AND (? IS NULL OR EXISTS (SELECT 1 FROM campaigns p WHERE p.campaign_id = cases.campaign_id AND p.version = ?
         AND p.status IN ('active', 'closed') AND cases.vote_date BETWEEN p.vote_start_date AND p.vote_end_date))`)

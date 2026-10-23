@@ -22,7 +22,7 @@ export async function adminFixture(page, options = {}) {
     if (!state.role) return error("ADMIN_FORBIDDEN", 403);
     if (state.elevationUntil <= Date.now() / 1000) return error("ADMIN_STEP_UP_REQUIRED", 403);
     if (state.failAdmin) return error("ADMIN_SERVICE_UNAVAILABLE", 503);
-    if (path === '/api/admin/overview') return reply({member_count:1284});
+    if (path === '/api/admin/overview') return reply({member_count:1284,case_totals:{pending:20,approved:134,rejected:8,revoked:2}});
     if (path === "/api/admin/me") return reply({ member_id: state.member.member_id, role: state.role, csrf_token: state.csrf });
     if (path === '/api/admin/solo-targets') return reply({targets:state.soloTargets});
     if(path==='/api/admin/staff'){
@@ -40,6 +40,10 @@ export async function adminFixture(page, options = {}) {
       state.audit.push({ id: randomUUID(), action: path.includes("campaigns") ? "campaign_update" : "approve", target_id: "LOCAL", admin_member_id: state.member.member_id, created_at: new Date().toISOString() });
     }
     if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
+    if(path==='/api/admin/backups/jobs'){
+      const page=Number(url.searchParams.get('page')??1),status=url.searchParams.get('status')??'pending';const rows=state.backups.filter(r=>r.status===status);
+      return reply({files:rows.slice((page-1)*10,page*10).map(r=>({...r,case_id:r.case_id??state.caseId,created_at:r.created_at??1790000000,attempts:r.attempts??0})),page,page_size:10,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/10))});
+    }
     if (path === '/api/admin/backups/missing') {
       const current = Number(url.searchParams.get('page') ?? 1), total = state.backupMissing;
       return reply({ files: Array.from({length:Math.max(0,Math.min(10,total-(current-1)*10))}, (_,i) => ({ file_id:'local-proof-'+((current-1)*10+i+1), case_id:state.caseId, created_at:'2026-10-21T02:00:00.000Z', size:1024, content_type:'image/png' })), page:current, page_size:10, total, total_pages:Math.max(1,Math.ceil(total/10)) });

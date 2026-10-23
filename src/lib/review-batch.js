@@ -30,7 +30,7 @@ export async function batchApprove(db,actor,items){
    if(row.status==='approved'||row.status==='completed'){
     const prior=await acknowledgedApproval(db,item);if(prior){results.push({ok:true,...prior});continue;}
    }
-   if(row.review_stage!=='initial')throw new AdminError(409,'DETAILED_REVIEW_REQUIRED','案件需要詳細審核。');
+   if(row.review_stage!=='initial'||row.review_risk_reason!==null)throw new AdminError(409,'DETAILED_REVIEW_REQUIRED','案件需要詳細審核。');
    const input={...reviewInput({action:'approve',expected_version:item.expected_version},actor.role),initialOnly:true};
    const result=await applyReview(db,actor,row,input);
    results.push({ok:true,...result,outcome:'approved'});
@@ -40,6 +40,37 @@ export async function batchApprove(db,actor,items){
    try{const prior=await acknowledgedApproval(db,item);if(prior){results.push({ok:true,...prior});continue;}}catch{}
    results.push({ok:false,case_id:item.case_id,code:error instanceof AdminError?error.code:'ADMIN_SERVICE_UNAVAILABLE',status:error instanceof AdminError?error.status:503});
   }
+ }
+ return {results,succeeded:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length};
+}
+// Stateless, bounded keyset pages. The confirmation cutoff excludes new cases
+// and cases changed after the administrator saw the count. Every POST still
+// carries exact IDs/versions and revalidates the existing review transaction.
+export async function initialReviewPage(db,url){
+ const p=url.searchParams,invalid=()=>{throw new AdminError(400,'INVALID_REVIEW_BATCH','Invalid review page');};
+ if([...p.keys()].some(k=>!['cutoff','cursor'].includes(k))||['cutoff','cursor'].some(k=>p.getAll(k).length>1))invalid();
+ const cutoff=p.get('cutoff')??new Date().toISOString();
+ if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(cutoff)||!Number.isFinite(Date.parse(cutoff))||Date.parse(cutoff)>Date.now()+1000)invalid();
+ let cursor=null;
+ if(p.has('cursor')){try{cursor=JSON.parse(atob(p.get('cursor')));}catch{invalid();}
+   if(!Array.isArray(cursor)||cursor.length!==2||typeof cursor[0]!=='string'||!Number.isFinite(Date.parse(cursor[0]))||typeof cursor[1]!=='string'||cursor[1].length>100)invalid();}
+ const scope="status='pending' AND review_stage='initial' AND review_risk_reason IS NULL AND created_at<=? AND updated_at<=?";
+ if(!p.has('cutoff')){
+   const row=await db.prepare(`SELECT COUNT(*) total FROM cases WHERE ${scope}`).bind(cutoff,cutoff).first();
+   return {total:row.total,cutoff,cases:[],next_cursor:null};
+ }
+ const rows=(await db.prepare(`SELECT case_id,version,created_at,id FROM cases WHERE ${scope}
+   ${cursor?'AND (created_at>? OR (created_at=? AND id>?))':''} ORDER BY created_at,id LIMIT 21`)
+   .bind(cutoff,cutoff,...(cursor?[cursor[0],cursor[0],cursor[1]]:[])).all()).results;
+ const selected=rows.slice(0,20),last=selected.at(-1);
+ return {cutoff,cases:selected.map(r=>({case_id:r.case_id,expected_version:r.version})),
+   next_cursor:rows.length>20?btoa(JSON.stringify([last.created_at,last.id])):null};
+}
+export async function reviewBatchStatus(db,items){
+ const results=[];
+ for(const item of items){
+   const prior=await acknowledgedApproval(db,item);
+   results.push(prior?{ok:true,...prior}:{ok:false,case_id:item.case_id,code:'REVIEW_RESULT_UNCONFIRMED',status:409});
  }
  return {results,succeeded:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length};
 }

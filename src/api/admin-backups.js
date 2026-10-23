@@ -35,6 +35,21 @@ const missingList = adminHandler(async (env, url, request) => {
   const total = count.results[0].total;
   return jsonSuccess({ files: rows.results, page, page_size: 10, total, total_pages: Math.max(1, Math.ceil(total / 10)) });
 });
+const jobsList = adminHandler(async(env,url,request)=>{
+  await adminIdentity(request,env,ELEVATED_ROLES);
+  const p=url.searchParams,raw=p.get('page')??'1',page=Number(raw),status=p.get('status')??'pending';
+  if([...p.keys()].some(k=>!['status','page'].includes(k))||['status','page'].some(k=>p.getAll(k).length>1)||
+    !['pending','processing','confirmed','failed'].includes(status)||!/^[1-9]\d*$/.test(raw)||!Number.isSafeInteger(page*10))invalid();
+  const [count,rows]=await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) total FROM proof_backups WHERE provider='google_drive' AND status=?").bind(status),
+    env.DB.prepare(`SELECT b.file_id,c.case_id,b.status,b.created_at,b.started_at,b.completed_at,b.next_attempt_at,b.attempts,b.last_error_code,
+      CASE WHEN b.lease_until>? THEN 1 ELSE 0 END lease_active FROM proof_backups b
+      JOIN case_files f ON f.id=b.file_id JOIN cases c ON c.id=f.case_id
+      WHERE b.provider='google_drive' AND b.status=? ORDER BY b.created_at,b.id LIMIT 10 OFFSET ?`).bind(seconds(),status,(page-1)*10),
+  ]);
+  const total=count.results[0].total;
+  return jsonSuccess({files:rows.results,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
+});
 const caseBackups = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const id = url.pathname.split('/')[4]; if (!CASE_ID_PATTERN.test(id)) invalid();
@@ -93,6 +108,7 @@ const processOne = adminHandler(async (env, url, request) => {
 const routes = new Map([
   ['/api/admin/backups', { method: 'GET', handler: summary }],
   ['/api/admin/backups/missing', { method: 'GET', handler: missingList }],
+  ['/api/admin/backups/jobs', { method: 'GET', handler: jobsList }],
   ['/api/admin/backups/backfill', { method: 'POST', handler: backfill }],
 ]);
 export function backupAdminRoute(path) {

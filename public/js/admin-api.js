@@ -51,6 +51,8 @@ export function reviewActions(status, role) {
   return status === "approved" ? ["complete", "revoke"] : status === "completed" ? ["revoke"] : [];
 }
 export const adminMessage = error => {
+  if(error?.code==='EXPORT_SCHEMA_NOT_READY')return '共用匯出尚未完成資料庫更新，請聯絡管理員。';
+  if(error?.code==='EXPORT_PACKAGE_CONFLICT')return '工作已變更或其他管理員正在處理，請重新讀取；未重複下載。';
   if(error?.code==='INVALID_MEMBER_BLOCK')return '請填寫粉絲 ID 與 1～500 字原因，並確認操作。';
   if(error?.code==='MEMBER_NOT_FOUND')return '找不到此粉絲 ID 的會員。';
   if(error?.code==='MEMBER_BLOCK_PROTECTED')return '不能封鎖自己、主管理員或管理員帳號。';

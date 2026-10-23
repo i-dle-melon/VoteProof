@@ -7,10 +7,10 @@ export function backupText(copy) {
 }
 export const backupLink = id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(id) ? 'https://drive.google.com/file/d/' + id + '/view' : null;
 
-export function missingBackupDialog({ request, node, button, opener, message, onClose }) {
+export function missingBackupDialog({ request, node, button, opener, message, onClose, jobStatus=null }) {
   const dialog = node('dialog', '', 'case-dialog backup-missing-dialog');
   dialog.setAttribute('aria-labelledby', 'backup-missing-title');
-  const header = node('div', '', 'contact-titlebar'), title = node('h2', '尚未排入備份');
+  const header = node('div', '', 'contact-titlebar'), title = node('h2', jobStatus?({pending:'已排入等待執行',processing:'備份中',confirmed:'成功備份',failed:'備份失敗'}[jobStatus]):'尚未排入備份');
   title.id = 'backup-missing-title';
   const close = button('關閉', () => dialog.close());header.append(title, close);
   const status = node('p'), error = node('p', '', 'notice warn'), list = node('div', '', 'backup-missing-list');
@@ -28,7 +28,7 @@ export function missingBackupDialog({ request, node, button, opener, message, on
     if (loading || !dialog.open) return;
     loading = true;sync();status.textContent = '載入中…';error.textContent = '';retry.hidden = true;
     try {
-      const data = await request('backups/missing?page=' + target);
+      const data = await request(jobStatus?'backups/jobs?status='+jobStatus+'&page='+target:'backups/missing?page=' + target);
       if (!dialog.open || !dialog.isConnected) return;
       if (!Array.isArray(data.files) || data.files.length > 10 || data.page_size !== 10 || data.page !== target ||
           !Number.isSafeInteger(data.total) || data.total < 0 || data.total_pages !== Math.max(1, Math.ceil(data.total / 10))) throw {code:'SERVICE_UNAVAILABLE'};
@@ -42,11 +42,17 @@ export function missingBackupDialog({ request, node, button, opener, message, on
       for (const file of data.files) {
         const row = node('article', '', 'member-case');
         row.append(node('h3', file.case_id), node('p', '檔案編號：' + file.file_id),
-          node('p', '投稿時間：' + new Date(file.created_at).toLocaleString('zh-TW', {timeZone:'Asia/Taipei', hour12:false})),
-          node('p', '檔案格式：' + file.content_type + ' · 大小：' + Number(file.size).toLocaleString('zh-TW') + ' bytes'));
+          node('p', (jobStatus?'工作建立時間：':'投稿時間：') + new Date(jobStatus?file.created_at*1000:file.created_at).toLocaleString('zh-TW', {timeZone:'Asia/Taipei', hour12:false})),
+          node('p', jobStatus?'狀態：'+({pending:'已排入等待執行',processing:'備份中',confirmed:'成功',failed:'失敗'}[file.status])+' · 嘗試次數：'+file.attempts:
+            '檔案格式：' + file.content_type + ' · 大小：' + Number(file.size).toLocaleString('zh-TW') + ' bytes'));
+        if(jobStatus){
+          if(file.started_at)row.append(node('p','最近執行：'+new Date(file.started_at*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})));
+          if(file.next_attempt_at)row.append(node('p','下次可重試：'+new Date(file.next_attempt_at*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})));
+          if(file.last_error_code)row.append(node('p','錯誤代碼：'+file.last_error_code));
+        }
         list.append(row);
       }
-      if (!data.files.length) list.append(node('p', '目前沒有尚未排入備份的圖片。'));
+      if (!data.files.length) list.append(node('p', jobStatus?'目前沒有此狀態的備份工作。':'目前沒有尚未排入備份的圖片。'));
       status.textContent = '共 ' + data.total + ' 筆 · 第 ' + page + '／' + pages + ' 頁 · 每頁 10 筆';
     } catch (cause) {
       if (!dialog.open || !dialog.isConnected) return;

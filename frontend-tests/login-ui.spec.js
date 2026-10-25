@@ -63,8 +63,12 @@ test("login stays hidden while the initial session probe is pending", async ({ p
   });
   try {
     await page.goto("/#login"); await expect(page.locator("#login-session-status")).toBeVisible();
-    await expect(page.locator("#login-content")).toBeHidden(); release();
-    await expect(page).toHaveURL(/#member$/); await expect(page.locator("#member-content")).toBeVisible();
+    await expect(page.locator("#login-content")).toBeHidden();
+    const methods = page.waitForResponse("**/api/auth/login-security", { timeout: 5000 });
+    // The successful boot probe and subsequent member requests share one server session.
+    state.authenticated = true; release();
+    await expect(page).toHaveURL(/#member$/); expect((await methods).status()).toBe(200);
+    await expect(page.locator("#member-content")).toBeVisible();
   } finally { release(); }
 });
 

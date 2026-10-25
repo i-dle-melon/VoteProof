@@ -85,7 +85,10 @@ export function proofThumbnails({ session, signal, isCurrent, onAuthError }) {
         )
       )
         onAuthError();
-      else button.textContent = "圖片暫時無法載入，展開重試";
+      else if(e.code==='PROOF_ARCHIVED_IN_DRIVE'){
+        button.textContent='已封存至 Google Drive';
+        button.title='保留案件與審核紀錄；此圖片不再提供網站預覽或下載。';
+      }else button.textContent = "圖片暫時無法載入，展開重試";
     }
   }
   function observe(button, row) {

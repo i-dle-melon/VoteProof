@@ -9,9 +9,22 @@ import {
   nowSeconds,
   evaluateCapacity,
 } from "../lib/storage-capacity.js";
-import { cleanupArchive } from "../lib/storage-archive.js";
+import { cleanupArchive,reconcileArchiveDispatch } from "../lib/storage-archive.js";
 import { processStorageAlerts } from "../lib/storage-alerts.js";
 import { scanInventoryPage,finalizeInventory } from "../lib/storage-inventory.js";
+import {archiveControlStatus,changeArchiveControl} from '../lib/archive-fencing.js';
+import {ELEVATED_AUTH_GUARD,actorBindings} from '../lib/admin-identity.js';
+const archiveControl=adminHandler(async(env,url,request)=>{
+  const actor=await adminIdentity(request,env,['super_admin']);
+  if(url.search)throw new AdminError(400,'INVALID_STORAGE_REQUEST','參數無效。');
+  if(request.method==='GET')return jsonSuccess(await archiveControlStatus(env.DB));
+  await adminCsrf(request,env,actor);const v=await readReviewJson(request);
+  if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!['action','expected_epoch','confirmed','writer_evidence','token','invocation_finished','invocation_evidence_hash'].includes(k)))throw new AdminError(400,'INVALID_STORAGE_REQUEST','參數無效。');
+  const operator={member_id:actor.member.member_id,role:actor.role};
+  if(v.action==='reconcile')return jsonSuccess(await reconcileArchiveDispatch(env,v,{authGuards:[{sql:ELEVATED_AUTH_GUARD,args:actorBindings(actor)}],actor:operator}));
+  if(v.action==='resume'&&env.R2_EXCLUSIVE_WRITER_CONFIRMED!=='true')throw new AdminError(409,'STORAGE_WRITER_UNVERIFIED','尚未確認寫入來源。');
+  return jsonSuccess(await changeArchiveControl(env.DB,v,[{sql:ELEVATED_AUTH_GUARD,args:actorBindings(actor)}],operator));
+});
 const validObject = (v) => v && typeof v === "object" && !Array.isArray(v);
 export async function quotaSnapshot(env, v) {
   if (
@@ -82,8 +95,23 @@ const internal = async (env, url, request) => {
     }
     const inventoryOnly = url.pathname.endsWith("/tick") && validObject(v) &&
       Object.keys(v).length === 1 && v.inventory_only === true;
+    if(url.pathname.endsWith('/archive')&&validObject(v)&&v.canary===true){
+      // Separate opt-in and positive origin restriction: the isolated executor
+      // cannot become a Production cleanup controller just by changing its URL.
+      if(env.STORAGE_ARCHIVE_CANARY_ENABLED!=='true'||env.STORAGE_ARCHIVE_CANARY_ENVIRONMENT!=='isolated'||
+        url.origin!==env.STORAGE_ARCHIVE_CANARY_ORIGIN||
+        !/^https:\/\/voteproof-archive-canary-test-[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/.test(url.origin))
+        throw new AdminError(403,'ISOLATED_CANARY_ONLY','僅允許隔離清理驗證。');
+      const keys=Object.keys(v),hasHandoff=Object.hasOwn(v,'handoff');
+      if(keys.length!==(hasHandoff?2:1)||keys.some(k=>!['canary','handoff'].includes(k))||
+        hasHandoff&&(typeof v.handoff!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(v.handoff)))
+        throw new AdminError(400,'INVALID_STORAGE_REQUEST','清理交接參數無效。');
+      return jsonSuccess({cleanup:await cleanupArchive(env,{verifyOnly:!hasHandoff,handoff:hasHandoff?v.handoff:null})});
+    }
     if (!validObject(v) || (Object.keys(v).length && !inventoryOnly)) throw Error();
-    if (url.pathname.endsWith("/archive")) return jsonSuccess({cleanup:await cleanupArchive(env)});
+    // Retire the unbound legacy public continuation. It cannot bypass a held
+    // Canary journal, select another proof, or reclaim an expired deleting pin.
+    if (url.pathname.endsWith("/archive")) return jsonSuccess({cleanup:{state:'legacy_disabled',deleted:0,retention_days:7,mode:'dry-run'}});
     if (!inventoryOnly) await evaluateCapacity(env.DB);
     const inventory = inventoryOnly?await scanInventoryPage(env):await inventoryPage(env);
     let cleanup = null;
@@ -102,7 +130,8 @@ const internal = async (env, url, request) => {
     );
   }
 };
-export function storageRoute(path) {
+export function storageRoute(path,method='GET') {
+  if(path==='/api/admin/storage/archive-control')return{method:method==='POST'?'POST':'GET',handler:archiveControl};
   if (path === "/api/admin/storage") return { method: "GET", handler: admin };
   if (path === "/api/admin/storage/history") return { method: "GET", handler: historyList };
   if (["/api/admin/storage/inventory", "/api/admin/storage/dry-run"].includes(path))

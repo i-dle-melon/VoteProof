@@ -1,4 +1,23 @@
-# 第三階段：A 單頁原子 CAS 優化（2026-10-20，本輪）
+# 2026-10-24：R2 Archive 隔離 Canary 審查候選
+
+基準 `ad528e81e755de315d80d1a07fc297a917ebcc48`。本輪只在獨立本機工作樹整合，
+沒有 Commit／Push／任何雲端部署、正式 D1/R2 操作、Google 授權或 Trigger。
+Operator 已決定維持禁止部署，**本候選 Cloudflare CPU 及 10ms readiness = UNKNOWN**；
+不得沿用下方歷史 inventory 或 archive 量測判定新候選 PASS。
+
+本機 Native Workerd＋D1/R2 與原 `Code.gs` VM 合成 Drive 完成1／3／5 MiB驗證及刪除；
+Google Drive 真實端對端仍 PENDING。新增 Canary A verify-only、B proof-PK＋持久lease交接，
+防止重播改刪另一張圖片。執行器先寫 durable journal；lost ACK／不明結果停止後續排程，
+不自動清除 D1 pin、回覆遺失不假報刪除0張。正向隔離 origin／owner／Trigger 防重保護，
+正式環境不能直接啟用此隔離執行器。原7天、90／95／85%門檻、600秒容量期限及HMAC／SHA保留。
+
+不需要新 Migration／索引；復用0025／0026既有欄位。正式Schema仍需另授權唯讀預檢。
+詳細協定、測試範圍、資源成本、正式 NO-GO 及回復限制見
+[R2-CLEANUP-NEXT-STAGE.md](R2-CLEANUP-NEXT-STAGE.md)。以下歷史紀錄保留，不代表本輪授權或最新正式狀態。
+
+---
+
+# 第三階段：A 單頁原子 CAS 優化（2026-10-20，歷史紀錄）
 
 **本機／安全 90 PASS；單輪隔離 Workers Free CPU PASS；Production 未修改。**
 完整證據：[A page-CAS 原始量測](evidence/storage-inventory-page-cas/results.json)。

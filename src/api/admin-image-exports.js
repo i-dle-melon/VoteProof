@@ -108,7 +108,7 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
     try {
       await snapshotExport(db, actor, body.job_id, scope,scopeKey);
     } catch (error) {
-      if(String(error?.message??"").includes("EXPORT_ARCHIVED_PROOF"))throw new AdminError(409,"EXPORT_ARCHIVED_PROOF","範圍包含已封存至 Google Drive 的圖片，請先手動還原。");
+      if(String(error?.message??"").includes("EXPORT_ARCHIVED_PROOF"))throw new AdminError(409,"EXPORT_ARCHIVED_PROOF","範圍包含已封存至 Google Drive 的圖片，不提供 ZIP 匯出；請調整範圍。");
       const raced = await db
         .prepare("SELECT * FROM export_jobs WHERE id=?")
         .bind(body.job_id)

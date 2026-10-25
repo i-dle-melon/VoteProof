@@ -53,6 +53,12 @@ export async function putUpload(env, url, request) {
     let object;
     try { object = await capacityPut(env,grant.key,request.body,{sha256:grant.sha256,httpMetadata:{contentType:grant.type}},grant.size); }
     catch(error) { if(error instanceof StorageCapacityError)throw error; throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload'); }
+    // An ACK-lost retry cannot overwrite the existing object. Only the already
+    // stored bytes matching this server-issued grant may satisfy the retry.
+    if(!object){
+      object=await env.PROOFS_BUCKET.head(grant.key);
+      await request.body.cancel().catch(()=>{});
+    }
     if (!object || object.size!==grant.size || r2VerifiedSha256(object)!==grant.sha256 || !validUploadedObject(grant.key,object))
       throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload');
     return jsonSuccess({uploaded:true});

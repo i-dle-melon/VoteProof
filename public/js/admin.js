@@ -354,7 +354,7 @@ export function adminUI(session) {
         if (!backups.backups.length) backupBox.append(node('p', copy('backup-missing')));
         for (const item of backups.backups) {
           backupBox.append(node('p', backupLabels[item.status] ?? copy('backup-unknown')));
-           if(item.archive_state==='cold')backupBox.append(node('p','R2 圖片已清理，原檔保存在 Google Drive；請由下方連結手動查看。','notice'));
+           if(item.archive_state==='cold')backupBox.append(node('p','已封存至 Google Drive；此圖片不再提供網站預覽或下載。','notice'));
           if (item.status === 'confirmed') {
             backupBox.append(node('p', stamp(item.completed_at * 1000)));
             const href = backupLink(item.drive_file_id);
@@ -392,7 +392,8 @@ export function adminUI(session) {
           const url=URL.createObjectURL(blob),img=node("img");urls.push(url);img.src=url;img.alt=copy("admin-copy-053")+(index+1);imageCard.replaceChildren(img);
         } catch(error) {
           if(["ADMIN_FORBIDDEN","ADMIN_STEP_UP_REQUIRED","AUTH_REQUIRED","MEMBER_SUSPENDED"].includes(error.code))throw error;
-          imageCard.replaceChildren(node("p",adminMessage(error)),button("重試載入案件",()=>{collapseReview();void caseDetail(id);}));
+          if(error.code==='PROOF_ARCHIVED_IN_DRIVE')imageCard.replaceChildren(node('p',adminMessage(error),'notice'));
+          else imageCard.replaceChildren(node("p",adminMessage(error)),button("重試載入案件",()=>{collapseReview();void caseDetail(id);}));
         }
       }
       const choices = reviewActions(data.status, access.actor.role);if(data.status==="pending" && (data.review_stage??"initial")==="initial")choices.push("flag_detailed"); if (!choices.length) { panel.append(node("p", copy("admin-copy-054"))); return; }

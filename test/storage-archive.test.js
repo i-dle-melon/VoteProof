@@ -1,3 +1,4 @@
+import {activateLocalArchive} from './helpers/archive-fence-fixture.mjs';
 import {storageRoute} from '../src/api/storage.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -79,6 +80,7 @@ test('only reviewed and 7-day-old, Drive-confirmed proofs archive; no browser co
     ]);
     await db.prepare("UPDATE storage_capacity SET used_bytes=?,cleanup_requested=1 WHERE id=1")
       .bind(STORAGE.cleanupStart).run();
+    await activateLocalArchive(db);
     let reads=0;
     const read=async(_env,row,sha)=>{reads++;assert.match(sha,/^[a-f0-9]{64}$/);return{sha256:sha};};
     assert.equal((await cleanupArchive(env(true),{read})).state,'no_eligible_proofs');

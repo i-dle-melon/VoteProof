@@ -39,7 +39,9 @@ export async function reserveStorage(env, key, size) {
 export async function capacityPut(env, key, body, options, size) {
   const id = await reserveStorage(env, key, size);
   // Never expire ambiguous reservations: a timed-out native PUT may still finish.
-  const object = await env.PROOFS_BUCKET.put(key, body, options);
+  // All application writers are create-only at the storage boundary, including
+  // legacy uploads and private copies. Never accept a caller's overwrite option.
+  const object = await env.PROOFS_BUCKET.put(key, body, {...options,onlyIf:new Headers({'If-None-Match':'*'})});
   if (!object) {
     await env.DB.prepare(
       "UPDATE storage_reservations SET state='cancelled' WHERE id=? AND state='reserved' RETURNING id",

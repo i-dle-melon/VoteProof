@@ -106,7 +106,7 @@ export async function routeApi(request, env, url) {
     (/^\/api\/auth\/trusted-devices\/[^/]+\/revoke$/.test(url.pathname)
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??
-    storageRoute(url.pathname) ??
+    storageRoute(url.pathname,request.method) ??
     internalBackupRoute(url.pathname) ??
     internalDuplicateRoute(url.pathname) ??
     backupAdminRoute(url.pathname) ??

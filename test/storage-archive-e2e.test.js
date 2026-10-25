@@ -5,6 +5,9 @@ import {unstable_splitSqlQuery} from 'wrangler';
 import {localCaseRuntime} from '../scripts/lib/local-case-runtime.mjs';
 import worker from '../scripts/lib/archive-isolated-worker.mjs';
 import {fixtures,fixtureSQL,fixtureSchema,image,digest,quote} from '../scripts/lib/archive-isolated-fixtures.mjs';
+import {changeArchiveControl,archiveControlStatus} from '../src/lib/archive-fencing.js';
+import {reconcileArchiveDispatch} from '../src/lib/storage-archive.js';
+import {localWriterEvidence} from './helpers/archive-fence-fixture.mjs';
 import {scenarios,runScenario,archiveFlow} from '../scripts/lib/archive-acceptance.mjs';
 let local,db,adapter,mainEnv;
 const proof=image(1048576),sha=digest(proof),pool=fixtures([...scenarios.map(([name])=>[name,1]),['pure-profile',1],['seed-retry',1]]);
@@ -36,7 +39,8 @@ before(async()=>{
     assert.equal(r.status,expected,await r.clone().text());return r.status===200?r.json():{};
   };
   adapter={sql,
-    seed:f=>call('/seed/'+f.label,'PUT',proof),
+    seed:async f=>{const v=await call('/seed/'+f.label,'PUT',proof);let c=await archiveControlStatus(db);if(c.mode==='draining')c=await changeArchiveControl(db,{action:'settle',expected_epoch:c.epoch,confirmed:true});if(c.mode==='paused')await changeArchiveControl(db,{action:'resume',expected_epoch:c.epoch,confirmed:true,writer_evidence:localWriterEvidence()});return v;},
+    reconcile:async(f,mode='normal')=>{const c=await archiveControlStatus(db),op=await db.prepare('SELECT token FROM storage_archive_dispatches WHERE file_id=? ORDER BY created_at DESC LIMIT 1').bind(f.file).first();const r=await reconcileArchiveDispatch(mainEnv,{token:op.token,expected_epoch:c.epoch,confirmed:true,invocation_finished:true,invocation_evidence_hash:'b'.repeat(64),writer_evidence:localWriterEvidence()},{read:async(_e,_r,sha)=>({sha256:mode==='sha-mismatch'?'0'.repeat(64):sha,verified_at:Math.floor(Date.now()/1000)})});return r;},
     call:(mode,expected)=>archiveFlow((m,e)=>call('/archive','POST',undefined,m,e),mode,expected),stage:(mode='normal',expected=200)=>call('/archive','POST',undefined,mode,expected),
     putProbe:()=>call('/capacity-put'),
     snapshot:async f=>({exists:!!await local.bucket.head(f.key),archive:(await sql('SELECT * FROM cold_proofs WHERE file_id=?',[f.file]))[0]??null,

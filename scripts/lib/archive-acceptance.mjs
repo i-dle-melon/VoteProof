@@ -11,7 +11,7 @@ export const scenarios=[
   ['handoff-capacity',async h=>{await h.stage();await h.sql('UPDATE storage_capacity SET used_bytes=8500000000 WHERE id=1');await h.noDelete('normal','target_reached');}],
   ['handoff-version',async h=>{await h.stage();await h.noDelete('replace-version','blocked');}],
   ['handoff-source',async h=>{await h.stage();await h.sql("UPDATE drive_backup_folders SET folder_key='date:changed' WHERE drive_folder_id=?",[h.f.day]);await h.noDelete('normal','blocked');}],
-  ['handoff-gate',async h=>{await h.stage();await h.noDelete('dry-run','delete_pending');}],
+  ['handoff-gate',async h=>{await h.stage();await h.noDelete('dry-run','dry_run');}],
   ['handoff-upload',async h=>{await h.stage();const id=randomUUID();await h.sql("INSERT INTO storage_reservations(id,object_key,bytes,state,created_at) VALUES(?,'other/handoff',1,'reserved',?)",[id,now()]);try{await h.noDelete('normal','unavailable');}finally{await h.sql("UPDATE storage_reservations SET state='cancelled' WHERE id=?",[id]);}await h.cold('normal');}],
   ['verify-response-lost',async h=>{await h.stage('verify-response-lost',503);assert.equal((await h.snapshot()).exists,true);const b=await h.stage();assert.equal(b.result.state,'cold');assert.equal(b.counters.relay,0);await h.isCold();}],
   ['unconfirmed',async h=>{await h.sql("UPDATE proof_backups SET status='pending' WHERE file_id=?",[h.f.file]);await h.noDelete('normal','no_eligible_proofs');}],
@@ -37,12 +37,12 @@ export const scenarios=[
   ['export-race',async h=>{const r=await h.cold('export-race');assert.equal(r.assertions.export_blocked,true);}],
   ['export-existing',async h=>{await addExport(h);await h.noDelete('normal','blocked');}],
   ['cleanup-concurrent',async h=>{const r=await Promise.all([h.call('normal'),h.call('normal')]);assert.equal(r.reduce((n,x)=>n+x.counters.r2.delete,0),1);await h.isCold();}],
-  ['delete-failure',async h=>{const r=await h.call('delete-failure');assert.equal(r.result.state,'delete_ambiguous');assert.equal(r.counters.r2.delete,0);assert.equal((await h.snapshot()).exists,true);await h.expire();await h.cold('normal');}],
+  ['delete-failure',async h=>{const r=await h.call('delete-failure');assert.equal(r.result.state,'delete_ambiguous');assert.equal(r.counters.r2.delete,0);assert.equal((await h.snapshot()).exists,true);await h.expire();await h.noDelete('normal','paused');assert.equal((await h.reconcile()).state,'dispatch_abandoned');assert.equal((await h.snapshot()).exists,true);}],
   ['delete-ack-lost',async h=>{const r=await h.call('delete-ack-lost');assert.equal(r.result.state,'delete_ambiguous');assert.equal(r.counters.r2.delete,1);assert.equal((await h.snapshot()).exists,false);
     await assert.rejects(h.sql('UPDATE cases SET updated_at=? WHERE id=?',[date(now()),h.f.id]));await assert.rejects(addExport(h));
-    await h.expire();await h.noDelete('sha-mismatch','blocked',false,true);assert.equal((await h.snapshot()).archive.state,'deleting');await h.expire();
-    const recovered=await h.call('normal');assert.equal(recovered.result.state,'cold_reconciled');assert.equal(recovered.counters.r2.delete,0);await h.isCold();}],
-  ['commit-failure',async h=>{const r=await h.call('commit-failure');assert.equal(r.result.state,'delete_ambiguous');assert.equal((await h.snapshot()).archive.state,'deleting');await h.expire();const recovered=await h.call('normal');assert.equal(recovered.result.state,'cold_reconciled');assert.equal(recovered.counters.r2.delete,0);await h.isCold();}],
+    await h.expire();await h.noDelete('normal','paused',false,true);await assert.rejects(h.reconcile('sha-mismatch'));assert.equal((await h.snapshot()).archive.state,'deleting');
+    const recovered=await h.reconcile();assert.equal(recovered.state,'cold_reconciled');assert.equal(recovered.deleted,0);await h.isCold();}],
+  ['commit-failure',async h=>{const r=await h.call('commit-failure');assert.equal(r.result.state,'delete_ambiguous');assert.equal((await h.snapshot()).archive.state,'deleting');await h.expire();await h.noDelete('normal','paused',false,true);const recovered=await h.reconcile();assert.equal(recovered.state,'cold_reconciled');assert.equal(recovered.deleted,0);await h.isCold();}],
   ['commit-ack-lost',async h=>{const r=await h.call('commit-ack-lost');assert.equal(r.result.state,'delete_ambiguous');await h.isCold();const again=await h.call('normal');assert.equal(again.counters.r2.delete,0);await h.isCold();}],
   ['response-lost',async h=>{await h.call('response-lost',503);await h.isCold();const again=await h.call('normal');assert.equal(again.counters.r2.delete,0);await h.isCold();}],
   ['upload-stop',async h=>{await h.sql('UPDATE storage_capacity SET used_bytes=9500000000,blocked=1 WHERE id=1');const r=await h.putProbe();assert.equal(r.error,'R2_STORAGE_CAPACITY_EXCEEDED');assert.equal(r.puts,0);assert.equal((await h.snapshot()).exists,true);}],
@@ -55,6 +55,7 @@ async function addExport(h){
 export async function runScenario(adapter,f,name,run){
   await adapter.seed(f);
   const h={...adapter,f,call:(mode,expected)=>adapter.call(mode,expected),snapshot:()=>adapter.snapshot(f),
+    reconcile:mode=>adapter.reconcile(f,mode),
     expire:()=>adapter.sql('UPDATE cold_proofs SET lease_until=0,verified_at=0 WHERE file_id=?',[f.file])};
   h.isCold=async()=>{const s=await h.snapshot();assert.equal(s.exists,false);assert.equal(s.archive.state,'cold');assert.equal(s.backup.status,'confirmed');assert.equal(s.audit,1);};
   h.noDelete=async(mode,state,exists=true,recovery=false)=>{const r=await h.call(mode);assert.equal(r.result.state,state);assert.equal(r.counters.r2.delete,0);assert.equal((await h.snapshot()).exists,exists);if(!recovery)assert.notEqual((await h.snapshot()).archive?.state,'cold');return r;};

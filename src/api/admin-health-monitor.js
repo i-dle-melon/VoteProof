@@ -12,33 +12,50 @@ const allowedType=['all','backup','capacity','cleanup','operation'];
 const allowedStatus=['all','pending','manual','resolved'];
 function args(url){
   const p=url.searchParams;
-  if([...p.keys()].some(k=>!['type','status','cursor'].includes(k)||p.getAll(k).length!==1))throw invalid();
+  if([...p.keys()].some(k=>!['type','status','from','to','cursor'].includes(k)||p.getAll(k).length!==1))throw invalid();
   const type=p.get('type')??'all',status=p.get('status')??'all';
   if(!allowedType.includes(type)||!allowedStatus.includes(status))throw invalid();
+  const from=p.get('from')??'',to=p.get('to')??'';
+  const dateStamp=d=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d))throw invalid();
+    const ms=Date.parse(d+'T00:00:00+08:00');
+    if(!Number.isFinite(ms)||new Date(ms+8*3600000).toISOString().slice(0,10)!==d)throw invalid();
+    return Math.floor(ms/1000);
+  };
+  const since=from?dateStamp(from):null,before=to?dateStamp(to)+86400:null;
+  if(since!==null&&before!==null&&since>=before)throw invalid();
+  const scope=JSON.stringify([type,status,from,to]);
   let after=null;const raw=p.get('cursor');
   if(raw!==null){
     try{
       if(raw.length>500||!/^[A-Za-z0-9_-]+$/.test(raw))throw Error();
       const v=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(
         Uint8Array.from(atob(raw.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0))));
-      if(!Array.isArray(v)||v.length!==4||v[0]!==type||v[1]!==status||
-        !Number.isSafeInteger(v[2])||v[2]<0||typeof v[3]!=='string'||v[3].length>140)throw Error();
-      after=[v[2],v[3]];
+      if(!Array.isArray(v)||v.length!==3||v[0]!==scope||
+        !Number.isSafeInteger(v[1])||v[1]<0||typeof v[2]!=='string'||v[2].length>140)throw Error();
+      after=[v[1],v[2]];
     }catch{throw invalid();}
   }
-  return {type,status,after};
+  return {type,status,after,since,before,scope};
 }
 const normalizeStatus=s=>s==='unknown'||s==='ambiguous'?'manual':s==='pending'||s==='claimed'||s==='active'||s==='failed'?'pending':'resolved';
 const event=(type,id,created_at,code,state)=>({type,id,created_at,code,status:normalizeStatus(state)});
 // Per-source bounded indexed reads: never UNION ALL entire historical tables.
-async function fetchEvents(db,{type,status,after}) {
+async function fetchEvents(db,{type,status,after,since,before}) {
   const sources=[];
   const source=async(name,sql,params,format)=>{
     const r=(await db.prepare(sql).bind(...params,LIMIT+1).all()).results;
     sources.push(...r.map(format));
   };
-  const filter=(prefix,column='created_at')=>after?`AND (${column}<? OR (${column}=? AND ('${prefix}'||id)<?))`:'';
-  const argsAfter=()=>after?[after[0],after[0],after[1]]:[];
+  const filter=(prefix,column='created_at')=>{
+    const parts=[];
+    if(since!==null)parts.push('AND '+column+'>=?');
+    if(before!==null)parts.push('AND '+column+'<?');
+    if(after)parts.push("AND ("+column+"<? OR ("+column+"=? AND ('"+prefix+"'||id)<?))");
+    return parts.join(' ');
+  };
+  const argsAfter=()=>[...(since!==null?[since]:[]),...(before!==null?[before]:[]),
+    ...(after?[after[0],after[0],after[1]]:[])];
   if(type==='all'||type==='backup'){
     // Current failed backup rows. State is not a count of all historic failures.
     if(status==='all'||status==='pending'){
@@ -109,7 +126,7 @@ const events=adminHandler(async(env,url,request)=>{
   const options=args(url),rows=await fetchEvents(authDatabase(env),options);
   const selected=rows.slice(0,LIMIT),last=selected.at(-1);
   return jsonSuccess({events:selected,next_cursor:rows.length>LIMIT?
-    encodeCursor([options.type,options.status,last.created_at,last.id]):null,page_size:LIMIT,
+    encodeCursor([options.scope,last.created_at,last.id]):null,page_size:LIMIT,
     coverage:'Existing recorded events only; unknown historical failures may not appear.'});
 });
 export function adminHealthMonitorRoute(path){

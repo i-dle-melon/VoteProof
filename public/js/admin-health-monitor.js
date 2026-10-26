@@ -10,8 +10,10 @@ export async function renderHealthMonitor({container,request,signal}){
  for(const [v,n] of [['all','全部類型'],['backup','備份'],['capacity','容量'],['cleanup','清理'],['operation','未完成作業']])type.add(new Option(n,v));
  for(const [v,n] of [['all','全部狀態'],['pending','待處理'],['manual','人工確認'],['resolved','已處理']])status.add(new Option(n,v));
  const autoLabel=el('label','每 60 秒更新');autoLabel.prepend(auto);
+ const from=el('input'),to=el('input');from.type=to.type='date';from.setAttribute('aria-label','開始日期（台灣時間）');
+ to.setAttribute('aria-label','結束日期（台灣時間）');
  const refresh=btn('立即更新',()=>void reload()),more=btn('載入更多',()=>void history(false));more.hidden=true;
- bar.append(type,status,refresh,autoLabel);container.append(title,tip,cards,storage,bar,info,events,more);
+ bar.append(type,status,from,to,btn('篩選',()=>void history(true)),refresh,autoLabel);container.append(title,tip,cards,storage,bar,info,events,more);
  let disposed=false,busy=false,cursor=null,epoch=0,timer=null;
  const ok=n=>!disposed&&!signal?.aborted&&epoch===n&&container.isConnected;
  const stat=(k,v,t)=>{const x=el('article','','activity-card');x.append(el('span',k,'tiny'),el('strong',fmt(v)),el('p',t,'tiny'));return x;};
@@ -29,7 +31,7 @@ export async function renderHealthMonitor({container,request,signal}){
   if(busy||disposed||document.hidden)return;busy=true;
   if(reset){epoch++;cursor=null;events.replaceChildren();}
   const n=epoch;
-  try{const q=new URLSearchParams({type:type.value,status:status.value});if(cursor)q.set('cursor',cursor);
+  try{const q=new URLSearchParams({type:type.value,status:status.value});if(from.value)q.set('from',from.value);if(to.value)q.set('to',to.value);if(cursor)q.set('cursor',cursor);
    const d=await request('health-monitor/events?'+q);if(!ok(n))return;
    for(const item of d.events??[]){const c=el('article','','member-case');c.append(el('h3',item.type),el('p','時間：'+when(item.created_at)),el('p','類型：'+item.code),el('p','狀態：'+({pending:'待處理',manual:'人工確認',resolved:'已處理'}[item.status]??item.status)));events.append(c);}
    if(!events.children.length)events.append(el('p','無符合條件的已記錄異常；不表示全部操作均有日誌。'));

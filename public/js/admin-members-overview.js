@@ -22,7 +22,7 @@ export async function renderMemberOverview({container,request,signal}){
    const n=epoch;loading=true;more.disabled=true;msg.textContent='讀取會員列表…';
    try{const d=await request('members-overview?'+query());if(!current(n))return;
      msg.textContent=d.search_mode==='nickname_prefix_case_sensitive'?'暱稱搜尋採區分大小寫的開頭比對。':d.members.length?'點選詳細資料查看會員。':'無符合會員。';
-     for(const m of d.members){const c=el('article','','member-case');c.append(el('h3',m.nickname),line('粉絲 ID',m.fan_id),line('會員 ID',m.member_id),line('狀態',m.status==='suspended'?'已封鎖':'正常'),line('等級',m.tier?.name),line('積分',m.total_points),el('p',counts(m.proof_counts),'tiny'),btn('詳細資料',()=>void open(m.member_id)));list.append(c);}
+     for(const m of d.members){const c=el('article','','member-case');c.append(el('h3',m.nickname),line('粉絲 ID',m.fan_id),line('會員 ID',m.member_id),line('註冊時間',date(m.created_at)),line('狀態',m.status==='suspended'?'已封鎖':'正常'),line('等級',m.tier?.name),line('積分',m.total_points),el('p',counts(m.proof_counts),'tiny'),btn('詳細資料',()=>void open(m.member_id)));list.append(c);}
      next=d.next_cursor;more.hidden=!next;
    }catch(e){if(current(n))msg.textContent=e.message??'會員查詢失敗。';}
    finally{loading=false;more.disabled=false;}

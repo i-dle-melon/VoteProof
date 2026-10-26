@@ -22,7 +22,7 @@ export async function renderHealthMonitor({container,request,signal}){
   try{const d=await request('health-monitor/summary');if(!ok(n))return;
    cards.replaceChildren(stat('上傳失敗',d.upload_failures?.count,'尚無完整失敗紀錄'),stat('備份異常',d.backup_failures?.count,'目前失敗備份'),stat('清理失敗',d.cleanup_failures?.count,'最近 24 小時告警'),stat('待處理作業',d.pending_operations?.count,'含未知 ACK、Write Pin'));
    const s=d.storage??{},mb=v=>v===null||v===undefined?'未知':(v/1e6).toFixed(1)+' MB';
-   storage.replaceChildren(el('h3','R2 容量狀態'),el('p','使用量：'+mb(s.used_bytes)+'／'+mb(s.budget_bytes)),el('p','最近盤點：'+when(s.observed_at)),el('p','可信期限：'+when(s.trusted_until)),el('p','清理：'+(s.cleanup_mode==='live'?'啟用':'關閉')),el('p','警戒：'+(s.blocked?'停止寫入或快照失效':'正常')),el('p','異常：'+(s.anomaly??'無已記錄異常')));
+   storage.replaceChildren(el('h3','R2 容量狀態'),el('p','使用量：'+mb(s.used_bytes)+'／'+mb(s.budget_bytes)),el('p','最近盤點：'+when(s.observed_at)),el('p','可信期限：'+when(s.trusted_until)),el('p','清理：'+(s.cleanup_mode==='live'?'啟用':'關閉')),el('p','警戒：'+(s.blocked?'停止寫入或快照失效':'正常')),el('p','異常：'+(s.anomaly??'無已記錄異常')),el('p','歷史 DELETE／ACK：'+(d.pending_operations?.legacy_ack_unverified?'尚未驗證（不能視為 0）':'已留存狀態')));
    if(s.trusted_until&&s.trusted_until<Date.now()/1000)storage.append(el('p','快照已過期，不代表即時容量。','notice warn'));
    info.textContent='更新時間：'+new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false});
   }catch(e){if(ok(n))info.textContent=e.message??'監控摘要載入失敗。';}finally{busy=false;}

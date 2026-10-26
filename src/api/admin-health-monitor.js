@@ -113,7 +113,7 @@ const summary=adminHandler(async(env,url,request)=>{
     upload_failures:{count:null,coverage:'incomplete',message:'目前無法完整統計所有上傳失敗，不能視為 0。'},
     backup_failures:{count:backup.results[0].n,scope:'current_failed'},
     cleanup_failures:{count:cleanup.results[0].n,scope:'last_24_hours',mode:cap.cleanup_mode},
-    pending_operations:{count:pending.results[0].n+unknown.results[0].n+reservations.results[0].n+pins.results[0].n+dispatches.results[0].n,
+    pending_operations:{count:pending.results[0].n+unknown.results[0].n+reservations.results[0].n+pins.results[0].n+dispatches.results[0].n+(legacy.results[0]?.legacy_status==='unknown'?1:0),
       active:pending.results[0].n,unknown:unknown.results[0].n,reservations:reservations.results[0].n,
       write_pins:pins.results[0].n,archive_dispatches:dispatches.results[0].n,
       legacy_ack_unverified:legacy.results[0]?.legacy_status==='unknown'},

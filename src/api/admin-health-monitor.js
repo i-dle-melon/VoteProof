@@ -50,17 +50,29 @@ async function fetchEvents(db,{type,status,after}) {
   }
   if(type==='all'||type==='capacity'||type==='cleanup'){
     const kind=type==='cleanup'?"AND kind='cleanup_failed'":type==='capacity'?"AND kind!='cleanup_failed'":'';
-    await source('capacity',`SELECT id,created_at,kind,state FROM storage_alerts WHERE 1=1 ${kind}
+    const stateFilter=status==='pending'?"AND state IN ('pending','claimed')":
+      status==='manual'?"AND state='ambiguous'":status==='resolved'?"AND state IN ('sent','disabled')":'';
+    await source('capacity',`SELECT id,created_at,kind,state FROM storage_alerts WHERE 1=1 ${kind} ${stateFilter}
       ${filter('alert:')} ORDER BY created_at DESC,id DESC LIMIT ?`,argsAfter(),
       r=>event(r.kind==='cleanup_failed'?'cleanup':'capacity','alert:'+r.id,r.created_at,r.kind,r.state));
   }
   if(type==='all'||type==='operation'){
     const kindFilter=status==='resolved'?"AND state NOT IN ('active','unknown')":
-      status==='manual'?"AND state='unknown'":status==='pending'?"AND state IN ('active','unknown')":'';
+      status==='manual'?"AND state='unknown'":status==='pending'?"AND state='active'":'';
     await source('operation',`SELECT id,created_at,kind,state FROM image_mutation_operations
       WHERE kind!='inventory' ${kindFilter} ${filter('operation:')}
       ORDER BY created_at DESC,id DESC LIMIT ?`,argsAfter(),
       r=>event('operation','operation:'+r.id,r.created_at,r.kind,r.state));
+  }
+  if(type==='all'||type==='capacity'){
+    const actionFilter=status==='resolved'?"AND 0":status==='manual'?
+      "AND action='alert_ambiguous'":status==='pending'?
+      "AND action IN ('alert_rejected','alert_recipient_unavailable')":
+      "AND action IN ('alert_ambiguous','alert_rejected','alert_recipient_unavailable')";
+    await source('audit',`SELECT id,created_at,action FROM storage_audit WHERE 1=1 ${actionFilter}
+      ${filter('audit:')} ORDER BY created_at DESC,id DESC LIMIT ?`,argsAfter(),
+      r=>event('capacity','audit:'+r.id,r.created_at,r.action,
+        r.action==='alert_ambiguous'?'unknown':'pending'));
   }
   return sources.filter(x=>status==='all'||x.status===status)
     .sort((a,b)=>b.created_at-a.created_at||b.id.localeCompare(a.id));
@@ -69,7 +81,7 @@ const summary=adminHandler(async(env,url,request)=>{
   await adminIdentity(request,env,ELEVATED_ROLES);
   if(url.search)throw invalid();
   const db=authDatabase(env);
-  const [backup,cleanup,pending,unknown,reservations,pins,dispatches]=await db.batch([
+  const [backup,cleanup,pending,unknown,reservations,pins,dispatches,legacy]=await db.batch([
     db.prepare("SELECT count(*) n FROM proof_backups WHERE provider='google_drive' AND status='failed'"),
     db.prepare("SELECT count(*) n FROM storage_alerts WHERE kind='cleanup_failed' AND created_at>=?").bind(Math.floor(Date.now()/1000)-86400),
     db.prepare("SELECT count(*) n FROM image_mutation_operations WHERE state='active' AND kind!='inventory'"),
@@ -77,6 +89,7 @@ const summary=adminHandler(async(env,url,request)=>{
     db.prepare("SELECT count(*) n FROM storage_reservations WHERE state='reserved'"),
     db.prepare("SELECT count(*) n FROM proof_upload_intents WHERE write_token IS NOT NULL"),
     db.prepare("SELECT count(*) n FROM storage_archive_dispatches WHERE state!='completed'"),
+    db.prepare('SELECT legacy_status FROM image_maintenance_control WHERE id=1'),
   ]);
   const [cap]=await Promise.all([storageSummary(db,{live:env.STORAGE_CLEANUP_LIVE_ENABLED==='true'})]);
   return jsonSuccess({checked_at:Math.floor(Date.now()/1000),
@@ -85,7 +98,8 @@ const summary=adminHandler(async(env,url,request)=>{
     cleanup_failures:{count:cleanup.results[0].n,scope:'last_24_hours',mode:cap.cleanup_mode},
     pending_operations:{count:pending.results[0].n+unknown.results[0].n+reservations.results[0].n+pins.results[0].n+dispatches.results[0].n,
       active:pending.results[0].n,unknown:unknown.results[0].n,reservations:reservations.results[0].n,
-      write_pins:pins.results[0].n,archive_dispatches:dispatches.results[0].n},
+      write_pins:pins.results[0].n,archive_dispatches:dispatches.results[0].n,
+      legacy_ack_unverified:legacy.results[0]?.legacy_status==='unknown'},
     storage:{used_bytes:cap.used_bytes,budget_bytes:cap.budget.budget,blocked:cap.blocked,
       observed_at:cap.observed_at,trusted_until:cap.trusted_until,anomaly:cap.anomaly,cleanup_mode:cap.cleanup_mode},
     coverage:{upload:'partial',backup:'current_failed',cleanup:'recorded_alerts',operation:'recorded_operations'}});

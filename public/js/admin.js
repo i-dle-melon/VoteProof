@@ -655,7 +655,7 @@ export function adminUI(session) {
   const loaders = { overview,
     members:async()=>{adminInsightsStop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});},
     healthMonitor:async()=>{adminInsightsStop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});},
-    cases: backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
+    cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;
     await run(async current => {

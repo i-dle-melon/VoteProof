@@ -1,4 +1,5 @@
 import {capacityPut} from '../lib/storage-capacity.js';
+import {adminImageOperation,deleteImage} from '../lib/image-maintenance.js';
 import { adminHandler } from './admin-response.js';
 import { jsonSuccess } from './response.js';
 import { authDatabase } from '../lib/auth-session.js';
@@ -48,6 +49,8 @@ const handler=adminHandler(async(env,url,request)=>{
  const ascii=(start,end)=>new TextDecoder().decode(bytes.subarray(start,end));
  const raster=size>=12&&(mime==='image/png'&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v)||mime==='image/jpeg'&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255||mime==='image/webp'&&ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP');
  if(!raster)throw new AdminError(400,'INVALID_IMAGE_TYPE','圖片內容與格式不符。');
+ const uploaded=await adminImageOperation(env,actor,'admin_upload',async scoped=>{
+ env=scoped;
  const asset_id=crypto.randomUUID(),key='campaign-assets/'+id+'/example/'+asset_id+'.'+MIME_EXTENSIONS[mime],now=new Date().toISOString();
  const object=await capacityPut(env,key,bytes,{httpMetadata:{contentType:mime},onlyIf:new Headers({'If-None-Match':'*'})},size);if(!object)throw new AdminError(409,'CONTENT_CONFLICT','圖片上傳衝突，請重試。');
  try{const results=await db.batch([
@@ -55,8 +58,10 @@ const handler=adminHandler(async(env,url,request)=>{
   db.prepare(`INSERT INTO admin_content_audit(id,created_at,admin_member_id,admin_role,action,target_type,target_id,before_json,after_json)
     SELECT ?,?,?,?,'example_image_upload','campaign_asset',asset_id,'{}',json_object('campaign_id',campaign_id,'asset_id',asset_id,'size',size,'content_type',content_type) FROM campaign_example_assets WHERE asset_id=?`).bind(crypto.randomUUID(),now,actor.member.member_id,actor.role,asset_id),
  ]);if(results[0].meta.changes!==1)throw new AdminError(403,'ADMIN_FORBIDDEN','圖片上傳權限已失效。');}
- catch(error){if(!await db.prepare('SELECT asset_id FROM campaign_example_assets WHERE asset_id=?').bind(asset_id).first())await env.PROOFS_BUCKET.delete(key);throw error;}
- return jsonSuccess({asset_id,content_type:mime,size},'no-store',201);
+ catch(error){if(!await db.prepare('SELECT asset_id FROM campaign_example_assets WHERE asset_id=?').bind(asset_id).first())await deleteImage(env,key);throw error;}
+ return {asset_id,content_type:mime,size};
+ });
+ return jsonSuccess(uploaded,'no-store',201);
 });
 export function siteContentRoute(path,method){
  if(path==='/api/announcements'||/^\/api\/campaigns\/[A-Za-z0-9_-]{1,100}\/(guidance|example)$/.test(path))return{method:'GET',handler};

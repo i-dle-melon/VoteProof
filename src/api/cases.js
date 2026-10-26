@@ -68,10 +68,10 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
     else await insertCase(db, input, record, files, completed.hash);
     committed = true;
     await ensureCaseBackups(env, id, files);
-    if(!direct && !completed.intent)await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
+    if(!direct && !completed.intent)await cleanPrivateCopies(env, completed.files.map(file => file.key));
     return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
   } catch (error) {
-    if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);
+    if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env, cleanupKeys);
     if(error instanceof StorageCapacityError)return jsonError(error.status,error.code,error.message);
     if (error instanceof AuthError) return errorResponse(error);
     // A competing atomic transaction may win after the initial replay lookup.

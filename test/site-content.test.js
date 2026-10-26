@@ -57,7 +57,9 @@ test('announcement Admin-only mutation, version CAS, server scheduling and immut
 test('failed content transactions roll back publication and remove only newly uncommitted image bytes',async()=>{
  const before=(await h.db.prepare('SELECT COUNT(*) n FROM site_announcements').first()).n,assets=(await h.db.prepare('SELECT COUNT(*) n FROM campaign_example_assets').first()).n;
  const original=h.db.batch.bind(h.db),put=h.bucket.put.bind(h.bucket);let key;
- h.db.batch=statements=>original([...statements,h.db.prepare('SELECT * FROM injected_content_failure')]);h.bucket.put=async(k,...args)=>{key=k;return put(k,...args);};
+ // Fail the intended content transaction, not the new admission/terminal audits.
+ h.db.batch=statements=>original(statements.some(s=>/^INSERT INTO (site_announcements|campaign_example_assets)\b/.test(s.sql))
+   ?[...statements,h.db.prepare('SELECT * FROM injected_content_failure')]:statements);h.bucket.put=async(k,...args)=>{key=k;return put(k,...args);};
  try{assert.equal((await post('/api/admin/announcements',announcement)).status,503);assert.equal((await raw()).status,503);}finally{h.db.batch=original;h.bucket.put=put;}
  assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM site_announcements').first()).n,before);assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM campaign_example_assets').first()).n,assets);assert.match(key,/^campaign-assets\/CONTENT_TEST\/example\//);assert.equal(await h.bucket.head(key),null);assert.ok(await h.bucket.head('proofs/unchanged'));
 });

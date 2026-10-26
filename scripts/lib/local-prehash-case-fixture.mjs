@@ -23,5 +23,8 @@ export async function localPrehashCase(local,{member,verified=false,metadata={}}
   local.db.prepare('UPDATE completed_uploads SET consumed_case_id=?,consumed_at=? WHERE session_id=?').bind(id,now,session),
   ...(verified?[local.db.prepare(`INSERT INTO proof_exact_hashes(file_id,sha256,verified_at,source_etag,source_size,case_created_at,case_internal_id) VALUES(?,?,?,?,3,?,?)`).bind(archiveId,createHash('sha256').update(bytes).digest('hex'),now,copy.etag,now,id)]:[]),
  ]);
- await cleanPrivateCopies(local.bucket,reference.keys);return {id,case_id};
+ // Historical fixture cleanup, not a Runtime fallback around maintenance guards.
+ if(local.migrationThrough&&local.migrationThrough<'0030_image_maintenance.sql')for(const key of reference.keys)await local.bucket.delete(key);
+ else await cleanPrivateCopies({...local.authConfig,DB:local.db,PROOFS_BUCKET:local.bucket},reference.keys);
+ return {id,case_id};
 }

@@ -1,4 +1,5 @@
 import {storageRoute} from './storage.js';
+import {imageMaintenanceRoute} from './image-maintenance.js';
 import { getHealth } from "./health.js";
 import { getCampaigns } from "./campaigns.js";
 import { getLeaderboards } from "./leaderboards.js";
@@ -106,6 +107,7 @@ export async function routeApi(request, env, url) {
     (/^\/api\/auth\/trusted-devices\/[^/]+\/revoke$/.test(url.pathname)
       ? { method: "POST", handler: revokeDevice }
       : undefined) ??
+    imageMaintenanceRoute(url.pathname,request.method) ??
     storageRoute(url.pathname,request.method) ??
     internalBackupRoute(url.pathname) ??
     internalDuplicateRoute(url.pathname) ??

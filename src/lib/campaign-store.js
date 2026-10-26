@@ -3,6 +3,7 @@ import { campaignConflict, campaignMissing, campaignUpdatePolicy, campaignClassi
 import { encodeCursor } from "../api/admin-validation.js";
 import { requireActiveSoloTarget } from './solo-targets.js';
 import { campaignContent } from './site-content.js';
+import {deleteImage} from './image-maintenance.js';
 
 export const PUBLIC_CAMPAIGN_COLUMNS = "campaign_id, name, category, start_at, end_at, campaign_timezone, vote_start_date, vote_end_date, points_per_proof, daily_limit, status";
 export const campaignRow = (db, id) => db.prepare("SELECT * FROM campaigns WHERE campaign_id = ?").bind(id).first();
@@ -20,7 +21,7 @@ export const campaignSummarySql = alias => `json_object('campaign_id', ${alias}.
   'daily_limit', ${alias}.daily_limit, 'status', ${alias}.status, 'version', ${alias}.version)`;
 const summary = row => Object.fromEntries(["campaign_id", "name", "category", "solo_target", "start_at", "end_at", "campaign_timezone", "points_per_proof", "daily_limit", "status", "version"].map(k => [k, row[k]]));
 const campaignResult = row => { const { last_mutation_id, ...safe } = row; return { ...safe, server_now: new Date().toISOString() }; };
-export async function saveCampaign(db, actor, input, existing = null, bucket = null) {
+export async function saveCampaign(db, actor, input, existing = null, env = null) {
   if (existing) campaignUpdatePolicy(existing, input);
   const now = new Date().toISOString();
   // Retired targets still permit historical edits after server-side expiry or
@@ -75,15 +76,16 @@ export async function saveCampaign(db, actor, input, existing = null, bucket = n
   } catch {
     // Resolve an acknowledged-lost batch without treating an older row as ours.
     const stored = await campaignRow(db, id);
-    if (stored?.last_mutation_id === marker) return campaignResult(stored);
+    if (stored?.last_mutation_id === marker) return {...campaignResult(stored),
+      ...(previousContent?.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id?{asset_cleanup_pending:true}:{})};
     if (!existing && stored) throw new AdminError(409, "CAMPAIGN_EXISTS", "Campaign already exists");
     throw new AdminError(503, "CAMPAIGN_SERVICE_UNAVAILABLE", "Campaign service is unavailable");
   }
   if (result[0].meta.changes !== 1) { if(!historicalClosure) await requireActiveSoloTarget(db,input); if (existing) throw campaignConflict(); throw adminDenied(); }
   let cleanupPending=false;
-  if(bucket&&previousContent?.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id){
+  if(env&&previousContent?.example_asset_id&&previousContent.example_asset_id!==input.content.example_asset_id){
     try{const asset=await db.prepare('SELECT object_key FROM campaign_example_assets WHERE asset_id=? AND campaign_id=?').bind(previousContent.example_asset_id,id).first();
-      if(asset?.object_key.startsWith('campaign-assets/'+id+'/example/'))await bucket.delete(asset.object_key);
+      if(asset?.object_key.startsWith('campaign-assets/'+id+'/example/'))await deleteImage(env,asset.object_key);
     }catch{cleanupPending=true;}
   }
   return {...campaignResult(result[2].results[0]),...(cleanupPending?{asset_cleanup_pending:true}:{})};

@@ -1,4 +1,5 @@
 import {capacityPut,StorageCapacityError} from '../lib/storage-capacity.js';
+import {deleteImage} from '../lib/image-maintenance.js';
 import { jsonSuccess, jsonError } from "./response.js";
 import { readUploadJson, validatePrepare, validateComplete, validUploadedObject, MIME_EXTENSIONS, UPLOAD_LIMITS, UploadError } from "./upload-validation.js";
 import { verifyTurnstile } from "./turnstile.js";
@@ -92,7 +93,7 @@ export async function completeUpload(env, _url, request) {
         const type = object.httpMetadata?.contentType;
         if (!validUploadedObject(key, object)) {
           invalid = true;
-          await env.PROOFS_BUCKET.delete(key);
+          await deleteImage(env,key);
           continue;
         }
         const sha256 = r2VerifiedSha256(object);

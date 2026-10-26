@@ -6,6 +6,7 @@ import { readReviewJson } from "./admin-validation.js";
 import { campaignInput, campaignMissing, CAMPAIGN_ID } from "../lib/campaign-policy.js";
 import { getAdminCampaign, saveCampaign, listCampaigns } from "../lib/campaign-store.js";
 import { listSoloTargets } from '../lib/solo-targets.js';
+import {adminImageOperation} from '../lib/image-maintenance.js';
 
 export const readAdminSoloTargets = adminHandler(async (env,_url,request)=>{
   await adminIdentity(request,env);return jsonSuccess({targets:await listSoloTargets(authDatabase(env))});
@@ -20,12 +21,14 @@ export const readAdminCampaign = adminHandler(async (env, url, request) => {
 });
 export const createAdminCampaign = adminHandler(async (env, _url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES); await adminCsrf(request, env, actor);
-  return jsonSuccess(await saveCampaign(authDatabase(env), actor, campaignInput(await readReviewJson(request)),null,env.PROOFS_BUCKET), "no-store", 201);
+  const input=campaignInput(await readReviewJson(request)),save=scoped=>saveCampaign(authDatabase(scoped),actor,input,null,scoped);
+  return jsonSuccess(await (input.content?adminImageOperation(env,actor,'admin_campaign',save):save(env)), "no-store", 201);
 });
 export const updateAdminCampaign = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES); await adminCsrf(request, env, actor);
   const db = authDatabase(env), existing = await getAdminCampaign(db, pathId(url));
-  return jsonSuccess(await saveCampaign(db, actor, campaignInput(await readReviewJson(request), true), existing,env.PROOFS_BUCKET));
+  const input=campaignInput(await readReviewJson(request),true),save=scoped=>saveCampaign(db,actor,input,existing,scoped);
+  return jsonSuccess(await (input.content?adminImageOperation(env,actor,'admin_campaign',save):save(env)));
 });
 export function campaignRoute(path, method) {
   if (path === '/api/admin/solo-targets') return {method:'GET',handler:readAdminSoloTargets};

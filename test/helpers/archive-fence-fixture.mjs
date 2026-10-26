@@ -3,6 +3,8 @@ import {changeArchiveControl} from '../../src/lib/archive-fencing.js';
 export const localWriterEvidence=()=>({sha256:'a'.repeat(64),verified_until:Math.floor(Date.now()/1000)+600,
   checks:{bindings:true,s3_credentials:true,multipart:true,presigned:true,inflight_puts:true,external_tools:true,other_workers:true}});
 export async function activateLocalArchive(db){
+  if(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='image_maintenance_control'").first())
+    await db.prepare("UPDATE image_maintenance_control SET legacy_status='operator_attested',legacy_evidence_hash=? WHERE id=1").bind('a'.repeat(64)).run();
   const c=await db.prepare('SELECT epoch,mode FROM storage_archive_control WHERE id=1').first();
   if(c.mode==='paused'&&c.epoch===1)await changeArchiveControl(db,{action:'resume',expected_epoch:c.epoch,confirmed:true,writer_evidence:localWriterEvidence()});
 }

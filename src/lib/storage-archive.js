@@ -1,6 +1,7 @@
 // Storage plan A: verified Drive archive, no synchronous Drive -> Worker image reads.
 // Production stays dry-run unless a separate, explicit server-only live flag is enabled.
 import { AdminError } from './admin-identity.js';
+import {deleteImage} from './image-maintenance.js';
 import { authAtomic } from './auth-store.js';
 import { boundedJson, scriptPost, coldContext, validColdSource, shaBytes } from './cold-storage.js';
 import { STORAGE, capacityRow, nowSeconds } from './storage-capacity.js';
@@ -177,7 +178,7 @@ async function archiveOne(env, {previewOnly = false, read = verifyDriveArchive, 
       sql:"EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND trusted_until>CAST(strftime('%s','now') AS INTEGER))",args:[]}],[
       dispatchStatement(db,row,token,epoch),audit(db,nowSeconds(),'archive_delete_dispatch',row,sha)
     ]);
-    stage='delete';destructive=true;await env.PROOFS_BUCKET.delete(row.object_key);
+    stage='delete';destructive=true;await deleteImage(env,row.object_key);
     stage='confirm';if(await env.PROOFS_BUCKET.head(row.object_key))throw fail();
     stage='commit';await markCold(db,row,token,sha,nowSeconds());
     return {state:'cold',deleted:1,size:row.size,file_id:row.file_id,phase};

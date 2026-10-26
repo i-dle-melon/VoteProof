@@ -8,7 +8,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, adminMailService, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, adminMailService, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false, imageLegacyAttested = true } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
   const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
@@ -60,6 +60,10 @@ export async function localCaseRuntime({ turnstileService, seedCampaign = true, 
     }
     // Disposable fixture only; Production migration remains unknown/blocked.
     if(!migrationThrough || migrationThrough>='0025_storage_cold_v1.sql')await db.prepare("UPDATE storage_capacity SET blocked=0,observed_at=0,trusted_until=CAST(strftime('%s','now') AS INTEGER)+86400 WHERE id=1").run();
+    // This disposable database has no predeployment cohort. Never run in Production.
+    // Tests of migration/default bootstrap explicitly opt out of this fixture evidence.
+    if(imageLegacyAttested&&(!migrationThrough||migrationThrough>='0030_image_maintenance.sql'))
+      await db.prepare("UPDATE image_maintenance_control SET legacy_status='operator_attested',legacy_evidence_hash=? WHERE id=1").bind('a'.repeat(64)).run();
     // Explicit fixture opt-in only. The migration/Production default stays OFF.
     if (submissionsEnabled) await db.prepare("UPDATE submission_settings SET submissions_enabled=1 WHERE id=1").run();
     // Explicit disposable fixture only. Migrations/Worker never seed Campaigns.

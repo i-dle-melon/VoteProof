@@ -1,4 +1,5 @@
 import {capacityPut,StorageCapacityError} from './storage-capacity.js';
+import {deleteImage} from './image-maintenance.js';
 import {UploadError,UPLOAD_LIMITS,validUploadedObject,MIME_EXTENSIONS} from '../api/upload-validation.js';
 import {memberSession,memberCsrf,requestOrigin} from './auth-session.js';
 import {newQueryKey,sha256,equalQueryHash} from './case-keys.js';
@@ -144,6 +145,6 @@ export async function cleanupFinalUploads(env,{limit=10,now=new Date().toISOStri
       AND NOT EXISTS(SELECT 1 FROM case_files f WHERE f.object_key=i.object_key) ORDER BY i.expires_at,i.session_id LIMIT ?)
     RETURNING session_id,object_key`).bind(now,limit).all()).results;
   let deleted=0;
-  for(const row of rows){await env.PROOFS_BUCKET.delete(row.object_key);await env.DB.prepare("UPDATE proof_upload_intents SET state='deleted' WHERE session_id=? AND state='deleting'").bind(row.session_id).run();deleted++;}
+  for(const row of rows){await deleteImage(env,row.object_key);await env.DB.prepare("UPDATE proof_upload_intents SET state='deleted' WHERE session_id=? AND state='deleting'").bind(row.session_id).run();deleted++;}
   return {claimed:rows.length,deleted};
 }

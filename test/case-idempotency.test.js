@@ -6,6 +6,7 @@ import { createCase } from "../src/api/cases.js";
 import { sha256 } from "../src/lib/case-keys.js";
 import { COMPLETED_UPLOAD_TTL_SECONDS } from "../src/lib/completed-uploads.js";
 import { cleanPrivateCopies } from "../src/lib/case-files.js";
+import {interceptBatch} from './helpers/archive-fence-fixture.mjs';
 
 let local;
 before(async () => { local = await localCaseRuntime(); });
@@ -257,20 +258,45 @@ test("unknown commit acknowledgement preserves proofs and normal retry recovers 
   assert.ok(await local.bucket.head(file.object_key));
 });
 
-test("D1 rejection with cleanup failures preserves the database error and logs no private metadata", async () => {
+test("D1 rejection with cleanup failures preserves the database error and logs no private metadata", async t => {
+  const local=await localCaseRuntime();t.after(()=>local.runtime.dispose());
+  const confirmed=await success(await local.fetch('/api/cases','POST',guestBody(await local.upload()),headers(key())));
   const reference = await local.upload({ count: 2 }), attempted = [], logs = [], privateError = randomBytes(32).toString("hex");
-  const db = { prepare: sql => local.db.prepare(sql), batch: async () => { throw new Error(privateError); } };
-  const bucket = { get: (...args) => local.bucket.get(...args), put: (...args) => local.bucket.put(...args),
-    delete: async objectKey => { attempted.push(objectKey); throw new Error(privateError + objectKey); } };
+  // Fail the Case transaction, not the earlier capacity reservation or the
+  // later DELETE admission/UNKNOWN receipt transactions introduced by 0030.
+  const db = interceptBatch(local.db,'INSERT INTO cases');
+  const copied=[],before=(await local.bucket.list({prefix:'proofs/cases/'})).objects.map(o=>o.key).sort();
+  assert.equal(before.length,1);
+  const usedBefore=(await local.db.prepare('SELECT used_bytes FROM storage_capacity WHERE id=1').first()).used_bytes;
+  const bucket = { get: (...args) => local.bucket.get(...args), put: async (...args) => {
+    const object=await local.bucket.put(...args);copied.push(args[0]);return object;
+  },
+    delete: async objectKey => { assert.ok(copied.includes(objectKey));assert.ok(await local.bucket.head(objectKey));attempted.push(objectKey); throw new Error(privateError + objectKey); } };
   const warn = console.warn; console.warn = (...args) => logs.push(args);
   let payload;
   try { payload = await failure(await createCase({ DB: db, PROOFS_BUCKET: bucket }, null,
     request(guestBody(reference))), 500, "DATABASE_ERROR"); }
   finally { console.warn = warn; }
   assert.equal(attempted.length, 2);
+  assert.equal(copied.length,2);assert.deepEqual([...attempted].sort(),[...copied].sort());
   assert.deepEqual(logs, [["VoteProof object cleanup incomplete", { failed_count: 2 }]]);
   const serialized = JSON.stringify([payload, logs]);
   for (const value of [privateError, ...attempted]) assert.equal(serialized.includes(value), false);
-  assert.equal(await count("cases", reference.session_id), 0);
-  for (const objectKey of attempted) await local.bucket.delete(objectKey);
+  assert.equal((await local.db.prepare('SELECT COUNT(*) n FROM cases WHERE upload_session_id=?').bind(reference.session_id).first()).n,0);
+  for (const objectKey of attempted){
+    assert.ok(await local.bucket.head(objectKey));
+    assert.deepEqual(await local.db.prepare("SELECT state,outcome FROM image_mutation_operations WHERE kind='delete' AND object_key=?").bind(objectKey).first(),
+      {state:'unknown',outcome:'native_delete_ack_unknown'});
+    assert.equal((await local.db.prepare("SELECT COUNT(*) n FROM case_files WHERE object_key=?").bind(objectKey).first()).n,0);
+  }
+  // Retained objects are accounted for and linked to durable UNKNOWN receipts;
+  // no test cleanup DELETE may pretend those outcomes have been reconciled.
+  assert.deepEqual((await local.bucket.list({prefix:'proofs/cases/'})).objects.map(o=>o.key).sort(),[...before,...copied].sort());
+  assert.equal((await local.db.prepare("SELECT COUNT(*) n FROM storage_reservations WHERE state='reserved'").first()).n,0);
+  const retained=await Promise.all(copied.map(k=>local.bucket.head(k)));
+  const used=(await local.db.prepare('SELECT used_bytes FROM storage_capacity WHERE id=1').first()).used_bytes;
+  assert.equal(used,usedBefore+retained.reduce((n,o)=>n+o.size,0));
+  assert.ok(used>=(await local.bucket.list()).objects.reduce((n,o)=>n+o.size,0));
+  for(const objectKey of before)assert.ok(await local.bucket.head(objectKey));
+  assert.equal((await local.db.prepare('SELECT status FROM cases WHERE case_id=?').bind(confirmed.data.case_id).first()).status,'pending');
 });

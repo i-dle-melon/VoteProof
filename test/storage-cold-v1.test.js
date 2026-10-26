@@ -1,4 +1,4 @@
-import test, { before, after } from "node:test";
+import test, { beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
 import { localAdminRuntime } from "../scripts/lib/local-admin-runtime.mjs";
@@ -28,6 +28,7 @@ import { encryptEmail, emailHash } from "../src/lib/auth-identity.js";
 import { countDatabase } from "../scripts/lib/drive-backup-fixture.mjs";
 import { errorMessage } from "../public/js/api.js";
 import { adminPath } from "../public/js/member-api.js";
+import {imageMaintenanceSnapshot} from './helpers/image-maintenance-snapshot.mjs';
 import { privateProofResponse } from "../src/api/admin.js";
 let h, db, actor;
 const secret = randomBytes(32).toString("hex");
@@ -40,12 +41,12 @@ const env = () => ({
   R2_EXCLUSIVE_WRITER_CONFIRMED: "true",
   DRIVE_COLD_RELAY_URL: "https://"+"script.google.com"+"/macros/s/fixture/exec",
 });
-before(async () => {
+beforeEach(async () => {
   h = await localAdminRuntime({ submissionsEnabled: false, directIntent:true });
   db = h.local.db;
   actor = await h.identity({ role: "admin" });
 });
-after(async () => {
+afterEach(async () => {
   await h.local.runtime.dispose();
 });
 async function normal(bytes = 0) {
@@ -587,6 +588,13 @@ test("verified active managers are added, normalized and deduplicated; reviewers
   ]);
 });
 test("alert quota defers unsent recipients durably rather than dropping or retrying prior sends", async () => {
+  // This test needs three recipients; never depend on the preceding test's
+  // verified-manager fixture surviving into this database.
+  const manager=await h.identity({role:'super_admin'}),subject=randomUUID();
+  const email='fixture-admin@example.invalid',encrypted=await encryptEmail(env(),email,subject);
+  await db.prepare("INSERT INTO auth_identities(provider,provider_subject,member_id,email_lookup_hash,email_ciphertext,email_iv,email_key_version,created_at) VALUES('supabase',?,?,?,?,?,?,?)")
+    .bind(subject,manager.memberId,await emailHash(env(),email),encrypted.email_ciphertext,encrypted.email_iv,encrypted.email_key_version,nowSeconds()).run();
+  assert.equal((await storageRecipients(env())).length,3);
   await db.prepare("UPDATE storage_alerts SET state='disabled'").run();
   const alertId = randomUUID();
   await db
@@ -642,6 +650,7 @@ test("normal PUT adds three D1 application trips and no SHA body hashing; schema
 
 test("two scanners racing the same final cursor commit one page/history only", async () => {
   await normal();
+  console.log(JSON.stringify({diagnostic:'cold-inventory-entry',...await imageMaintenanceSnapshot(db)}));
   let release;
   const gate = new Promise((r) => (release = r));
   let waiting = 0;

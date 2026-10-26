@@ -1,4 +1,4 @@
-import test,{before,after} from 'node:test';
+import test,{beforeEach,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {unstable_splitSqlQuery} from 'wrangler';
@@ -9,11 +9,20 @@ import {changeArchiveControl,archiveControlStatus} from '../src/lib/archive-fenc
 import {reconcileArchiveDispatch} from '../src/lib/storage-archive.js';
 import {localWriterEvidence} from './helpers/archive-fence-fixture.mjs';
 import {scenarios,runScenario,archiveFlow} from '../scripts/lib/archive-acceptance.mjs';
+import {imageMaintenanceSnapshot} from './helpers/image-maintenance-snapshot.mjs';
+import {inventoryPage} from '../src/lib/storage-capacity.js';
 let local,db,adapter,mainEnv;
-const proof=image(1048576),sha=digest(proof),pool=fixtures([...scenarios.map(([name])=>[name,1]),['pure-profile',1],['seed-retry',1]]);
+const proof=image(1048576),sha=digest(proof),pool=fixtures([...scenarios.map(([name])=>[name,1]),['pure-profile',1],['seed-retry',1],['inventory-normal',1]]);
 const secret=randomBytes(32).toString('hex'),access=randomUUID(),relayAccess=randomUUID(),origin='https://archive-isolated.invalid',relayOrigin='https://archive-relay.invalid';
 const sql=async(text,args=[])=>{const r=await db.prepare(text).bind(...args).all();return r.results;};
-before(async()=>{
+beforeEach(async t=>{
+  local=undefined;
+  if(t.name.startsWith('controller accepts'))return;
+  // Each scenario owns a fresh LOCAL DB/bucket. Unknown DELETE receipts from
+  // another adversarial scenario must never be cleared to start an inventory.
+  const label=t.name.startsWith('archive isolated E2E: ')?t.name.slice('archive isolated E2E: '.length)
+    :t.name.startsWith('pure CPU')?'pure-profile':t.name.startsWith('synthetic seed')?'seed-retry':'inventory-normal';
+  const selected=pool.find(f=>f.label===label);assert.ok(selected);
   local=await localCaseRuntime({seedCampaign:false,submissionsEnabled:false});db=local.db;
   await db.batch(unstable_splitSqlQuery(fixtureSchema).map(s=>db.prepare(s)));
   const stamp=new Date().toISOString();
@@ -22,7 +31,7 @@ before(async()=>{
   await db.prepare("INSERT INTO drive_backup_folders VALUES('synthetic_root','campaign:synthetic','synthetic_campaign','synthetic_root','Synthetic',?)").bind(Math.floor(Date.now()/1000)).run();
   const triggers=await sql("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name IN('submissions_cases_insert','submissions_uploads_insert','submissions_upload_files_insert') ORDER BY name");
   for(const t of triggers)await db.prepare('DROP TRIGGER '+t.name).run();
-  for(const f of pool)await db.batch(unstable_splitSqlQuery(fixtureSQL(f,sha)).map(s=>db.prepare(s)));
+  await db.batch(unstable_splitSqlQuery(fixtureSQL(selected,sha)).map(s=>db.prepare(s)));
   for(const t of triggers)await db.prepare(t.sql).run();
   // Node-created Request streams lack workerd's fixed-length branding. Only the
   // local fixture PUT adapter buffers them; cloud uses the native request stream.
@@ -47,9 +56,19 @@ before(async()=>{
       backup:(await sql('SELECT * FROM proof_backups WHERE file_id=?',[f.file]))[0],audit:(await sql("SELECT count(*) n FROM storage_audit WHERE target=? AND action='archive_r2_deleted'",[f.file]))[0].n}),
     inventory:()=>call('/inventory'),pure:()=>call('/archive','POST',undefined,'normal',200,'pure')};
 });
-after(async()=>{await local?.runtime.dispose();});
+afterEach(async()=>{await local?.runtime.dispose();});
 for(const [name,run] of scenarios)test('archive isolated E2E: '+name,async()=>{
   const f=pool.find(f=>f.label===name);await runScenario(adapter,f,name,run);
+  if(['delete-failure','delete-ack-lost'].includes(name)){
+    // Archive Dispatch reconciliation does not attest the independent native
+    // DELETE ACK. It must not silently resolve an immutable UNKNOWN receipt.
+    const before=await imageMaintenanceSnapshot(db);
+    console.log(JSON.stringify({diagnostic:'archive-unknown-retained',scenario:name,...before}));
+    assert.deepEqual(before.operations,[{kind:'delete',state:'unknown',count:1}]);
+    assert.deepEqual(before.dispatches,[{state:'completed',count:1}]);assert.equal(before.deleting,0);
+    await assert.rejects(inventoryPage(mainEnv),/IMAGE_INVENTORY_BUSY/);
+    assert.deepEqual(await imageMaintenanceSnapshot(db),before);
+  }
 });
 test('pure CPU profile keeps real deletion and security path without pretending to count SDK operations',async()=>{
   const f=pool.find(f=>f.label==='pure-profile');await adapter.seed(f);assert.equal((await adapter.stage()).result.state,'verification_ready');const r=await adapter.pure();
@@ -65,6 +84,9 @@ test('synthetic seed retry preserves object version and cannot reset an archived
 });
 
 test('archive inventory reconciles actual bytes and preserves Drive rows, OFF and immutable audit',async()=>{
+  const f=pool.find(f=>f.label==='inventory-normal');await adapter.seed(f);
+  assert.equal((await adapter.call('normal')).result.state,'cold');
+  console.log(JSON.stringify({diagnostic:'archive-inventory-entry',...await imageMaintenanceSnapshot(db)}));
   const backups=(await sql('SELECT count(*) n FROM proof_backups'))[0].n;
   await sql('UPDATE storage_capacity SET blocked=1,reserved_bytes=0,used_bytes=9500000000,trusted_until=0,observed_at=? WHERE id=1',[Math.floor(Date.now()/1000)]);
   const r=await adapter.inventory();assert.equal(r.complete,true);

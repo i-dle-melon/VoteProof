@@ -1,4 +1,4 @@
-import test, {before, after, beforeEach} from 'node:test';
+import test, {afterEach, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {localAdminRuntime} from '../scripts/lib/local-admin-runtime.mjs';
@@ -9,13 +9,15 @@ import {countDatabase} from '../scripts/lib/drive-backup-fixture.mjs';
 let h,db;
 const secret=randomBytes(32).toString('hex');
 const path='/api/internal/drive-backup/storage/tick';
-before(async()=>{h=await localAdminRuntime({submissionsEnabled:false});db=h.local.db;});
-after(async()=>{await h?.local.runtime.dispose();});
-beforeEach(async()=>{
-  await db.batch(['DELETE FROM storage_reservations','DELETE FROM storage_alert_deliveries',
-    'DELETE FROM storage_alerts','DELETE FROM storage_history',
-    "UPDATE storage_capacity SET used_bytes=0,reserved_bytes=0,blocked=1,trusted_until=0,observed_at=NULL,inventory_id=NULL,inventory_phase=NULL,inventory_cursor=NULL,inventory_bytes=0,inventory_count=0,anomaly=NULL,cleanup_requested=0 WHERE id=1"].map(sql=>db.prepare(sql)));
-});
+async function freshFixture(){
+  // Dispose the entire LOCAL database. Never clear an active pin, immutable
+  // operation or Audit to recycle a fixture left by an interrupted scan.
+  await h?.local.runtime.dispose();h=undefined;
+  h=await localAdminRuntime({submissionsEnabled:false});db=h.local.db;
+  await db.prepare('UPDATE storage_capacity SET blocked=1,trusted_until=0,observed_at=NULL WHERE id=1').run();
+}
+beforeEach(freshFixture);
+afterEach(async()=>{await h?.local.runtime.dispose();h=undefined;});
 const bucket = objects => ({list:async()=>({objects,truncated:false}),
   get:()=>assert.fail('No image read'),put:()=>assert.fail('No PUT'),delete:()=>assert.fail('No DELETE')});
 function env(extra={}) {return {...h.local.authConfig,DB:db,PROOFS_BUCKET:bucket([]),
@@ -103,7 +105,9 @@ test('bounded scheduled pages still account for every object and expire trust un
   assert.equal(row.inventory_id,null);assert.equal(row.reserved_bytes,0);assert.equal(row.anomaly,null);assert.equal(row.blocked,0);
   assert.equal(row.trusted_until-row.observed_at,600);assert.deepEqual(cursors,[0,50,100]);
   assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_history').first()).n,1);
-  assert.equal((await db.prepare("SELECT COUNT(*) n FROM storage_audit WHERE target=?").bind(pin).first()).n,1);
+  for(const action of ['inventory','inventory_image_pin'])
+    assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_audit WHERE target=? AND action=?').bind(pin,action).first()).n,1);
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_audit WHERE target=?').bind(pin).first()).n,2);
 });
 
 test('legacy page bound stays 200 and scheduled inventory never bypasses the 95 percent guard',async()=>{
@@ -193,16 +197,19 @@ test('measure the complete authenticated tick in application statements and D1 r
   }
 });
 
-test('scan and finalize are separate requests; scan cannot publish capacity or audit',async()=>{
+test('scan and finalize are separate requests; scan audits its pin but cannot publish trusted capacity or final audit',async()=>{
   let lists=0;const e=env({PROOFS_BUCKET:{list:async()=>{lists++;return{objects:[{key:'synthetic',size:7}],truncated:false};}}});
   const ready=await step(e);assert.equal(ready.data.inventory.complete,false);assert.equal(ready.data.inventory.phase,'finalize');
   const row=await capacityRow(db);assert.equal(row.inventory_phase,'ready');assert.equal(row.used_bytes,0);assert.equal(row.trusted_until,0);
   assert.equal(row.inventory_bytes,7);assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_history').first()).n,0);
-  assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_audit WHERE target=?').bind(row.inventory_id).first()).n,0);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM storage_audit WHERE target=? AND action='inventory'").bind(row.inventory_id).first()).n,0);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM storage_audit WHERE target=? AND action='inventory_image_pin'").bind(row.inventory_id).first()).n,1);
   await assert.rejects(reserveStorage(e,'no-early-put',1));
   assert.deepEqual((await step(e)).data.inventory,ready.data.inventory);assert.equal(lists,1); // Lost scan ACK.
   const done=await step(e,readyBody(ready),{},finalPath);assert.equal(done.data.inventory.bytes,7);assert.equal(lists,1);
   assert.equal((await capacityRow(db)).trusted_until-(await capacityRow(db)).observed_at,600);
+  for(const action of ['inventory','inventory_image_pin'])
+    assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_audit WHERE target=? AND action=?').bind(row.inventory_id,action).first()).n,1);
 });
 
 test('duplicate finalization replays the atomic receipt without refreshing trust or touching another scan',async()=>{
@@ -274,13 +281,14 @@ test('recovery at 85 percent keeps threshold dedup and does not emit recovery fo
 });
 
 test('page CAS rejects each changed pin/version/phase/reservation without accumulating metadata',async()=>{
+  let first=true;
   for(const change of [
     "inventory_id='00000000-0000-4000-8000-000000000099'",
     'inventory_version=inventory_version+1',
     "inventory_phase='ready',inventory_cursor=NULL",
     'reserved_bytes=1',
   ]){
-    await db.prepare("UPDATE storage_capacity SET inventory_id=NULL,inventory_phase=NULL,inventory_cursor=NULL,reserved_bytes=0 WHERE id=1").run();
+    if(!first)await freshFixture();first=false;
     let changed;
     const e=env({PROOFS_BUCKET:{list:async()=>{
       await db.prepare('UPDATE storage_capacity SET '+change+' WHERE id=1').run();

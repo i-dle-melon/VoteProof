@@ -134,6 +134,12 @@ export function adminPath(path) {
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
   if(pathname==='/api/admin/staff' && query===undefined)return true;
   if(pathname==='/api/admin/member-blocks')return true;
+  const insights=pathname==='/api/admin/members-overview'?['status','fan_id','nickname','cursor']:
+    /^\/api\/admin\/members-overview\/M-[a-f0-9-]{36}\/(cases|transactions)$/.test(pathname)?['cursor']:
+    /^\/api\/admin\/members-overview\/M-[a-f0-9-]{36}$/.test(pathname)?[]:
+    pathname==='/api/admin/health-monitor/events'?['type','status','from','to','cursor']:
+    ['/api/admin/health-monitor/summary','/api/admin/points/adjustments'].includes(pathname)?[]:null;
+  if(insights){const p=new URLSearchParams(query??'');return [...p.keys()].every(k=>insights.includes(k)&&p.getAll(k).length===1);}
   if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(pathname)&&query===undefined)return true;
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
   if(['/api/admin/cases/initial-review','/api/admin/cases/batch-status','/api/admin/backups/jobs'].includes(pathname)){

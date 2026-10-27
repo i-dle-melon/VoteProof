@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { appendFile } from 'node:fs/promises';
 const shaPattern = /^[a-f0-9]{40}$/;
 const releaseRef = "codex/leaderboard-v1-release-20261022";
+const p1ReleaseRef = "codex/p1-0028-independent-release-20261027";
 export function trustedRun(run, repository = process.env.GITHUB_REPOSITORY) {
   return shaPattern.test(run.head_sha??'') && run.head_repository?.full_name === repository &&
     ['push','workflow_dispatch'].includes(run.event) && (run.head_branch === 'main' || run.head_branch?.startsWith('codex/'));
@@ -15,7 +16,7 @@ export function githubClient({ token=process.env.GITHUB_TOKEN, repository=proces
   };
 }
 export async function ensureValidation({api,sha,repository,ref='main',sleep=ms=>new Promise(r=>setTimeout(r,ms)),now=Date.now,timeout=45*60000}) {
-  if (!shaPattern.test(sha??'') || !['main',releaseRef].includes(ref)) throw Error('Exact approved SHA and allowed release ref required');
+  if (!shaPattern.test(sha??'') || !['main',releaseRef,p1ReleaseRef].includes(ref)) throw Error('Exact approved SHA and allowed release ref required');
   const started = now();
   const candidates = async () => (await api(`/actions/workflows/branch-validation.yml/runs?head_sha=${sha}&per_page=100`)).workflow_runs.filter(r=>trustedRun(r,repository)&&r.head_sha===sha&&(ref==='main'||r.head_branch===ref)).sort((a,b)=>b.id-a.id);
   let runs = await candidates(), run = runs[0];

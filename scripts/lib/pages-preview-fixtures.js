@@ -167,6 +167,18 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   }
   const content=await contentFixture(p,{method,body},state,previewPicture,reply);if(content)return content;
   if(state.identity==='reviewer'&&p.startsWith('/api/admin/')&&!['/api/admin/me','/api/admin/overview','/api/admin/campaigns','/api/admin/solo-targets'].includes(p)&&!p.startsWith('/api/admin/cases')&&!p.startsWith('/api/admin/image-exports'))return reply('ADMIN_FORBIDDEN',403);
+  if(p.startsWith('/api/admin/members-overview')||p.startsWith('/api/admin/health-monitor')){
+    if(!isManager||previewLoggedOut)return reply('ADMIN_FORBIDDEN',403);
+    if(method!=='GET')return reply('UI_PREVIEW_ONLY',403);
+    // P1 Preview never presents invented members or monitoring measurements.
+    if(p==='/api/admin/members-overview')return reply({members:[],next_cursor:null,page_size:20,search_mode:'all'});
+    if(p.endsWith('/transactions'))return reply({transactions:[],next_cursor:null,page_size:20});
+    if(p.endsWith('/cases'))return reply({cases:[],next_cursor:null,page_size:20});
+    if(p.startsWith('/api/admin/members-overview/'))return reply('NOT_FOUND',404);
+    if(p.endsWith('/summary'))return reply({schema_compatibility:'p1_legacy_0028_v1',checked_at:null,upload_failures:{count:null,coverage:'partial_coverage'},backup_failures:{count:null,coverage:'unsupported'},cleanup_failures:{count:null,coverage:'unsupported'},pending_operations:{count:null,legacy_ack_unverified:true},storage:{used_bytes:null,budget_bytes:null,observed_at:null,trusted_until:null,blocked:true,cleanup_mode:'dry-run'}});
+    if(p.endsWith('/events'))return reply({schema_compatibility:'p1_legacy_0028_v1',events:[],next_cursor:null,page_size:20,coverage:'unsupported',message:'UI PREVIEW：沒有正式監控資料，UNKNOWN。'});
+    return reply('NOT_FOUND',404);
+  }
   if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
   if(p==='/api/admin/staff'){
     if(state.identity!=='super_admin')return reply('ADMIN_FORBIDDEN',403);

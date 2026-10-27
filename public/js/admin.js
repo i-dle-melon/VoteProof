@@ -7,6 +7,8 @@ import { backupText, backupLink, missingBackupDialog } from "./admin-backup.js";
 import { renderDuplicateEvidence } from './admin-duplicate.js';
 import { renderImageExports } from './admin-export.js';
 import { memberContactUI } from './admin-member-contact.js';
+import { renderMemberOverview } from './admin-members-overview.js';
+import { renderHealthMonitor } from './admin-health-monitor.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -39,7 +41,7 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { overview: "工作總覽", cases: copy("admin-copy-017"), backups: 'Google Drive 備份', announcements:'彈窗公告', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), blocks:'會員封鎖', submissions: copy("admin-copy-021"), audit: copy("admin-copy-022"), staff:'管理員管理' };
+const tabs = { overview: "工作總覽", members:'會員管理', healthMonitor:'系統健康監控', cases: copy("admin-copy-017"), backups: 'Google Drive 備份', announcements:'彈窗公告', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), blocks:'會員封鎖', submissions: copy("admin-copy-021"), audit: copy("admin-copy-022"), staff:'管理員管理' };
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
@@ -55,10 +57,11 @@ export function adminUI(session) {
   let backupDialog=null;
   let memberContact=null;
   let campaignWatches=[];
+  let adminInsightsStop=null;
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
   let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
   function clearImages() { for (const url of urls) URL.revokeObjectURL(url); urls = []; }
-  function clearPanel() { for(const stop of campaignWatches)stop();campaignWatches=[];backupDialog?.close();backupDialog?.remove();backupDialog=null;memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
+  function clearPanel() { adminInsightsStop?.();adminInsightsStop=null;for(const stop of campaignWatches)stop();campaignWatches=[];backupDialog?.close();backupDialog?.remove();backupDialog=null;memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
   const access = new AdminAccess(session, actor => {
     $("admin-nav-group").hidden = $("member-admin-entry").hidden = !actor;
     $("admin-content").hidden = !actor; $("admin-gate").hidden = Boolean(actor);
@@ -90,7 +93,15 @@ export function adminUI(session) {
     }
   }
   const request = async (path, options = {}) => {
-    const born = sequence, data = await access.request("/api/admin/" + path, { ...options, signal: controller.signal });
+    const born = sequence;
+    let combined=controller.signal,unlink=()=>{};
+    // P1 reads can cancel when hidden; the page signal remains authoritative.
+    if(options.signal&&path.startsWith('health-monitor/')){
+      const local=new AbortController(),signals=[controller.signal,options.signal];
+      const cancel=()=>local.abort();for(const s of signals){if(s.aborted)cancel();else s.addEventListener('abort',cancel,{once:true});}
+      combined=local.signal;unlink=()=>signals.forEach(s=>s.removeEventListener('abort',cancel));
+    }
+    let data;try{data=await access.request("/api/admin/" + path, { ...options, signal: combined });}finally{unlink();}
     if (!visible || born !== sequence) throw new PublicError("REQUEST_CANCELLED");
     return data;
   };
@@ -648,7 +659,10 @@ export function adminUI(session) {
     d.append(status,cancel,confirm);d.addEventListener('close',()=>{d.remove();if(blockDialog===d)blockDialog=null;if(opener?.isConnected)opener.focus();});
     d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;if(busy){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===cancel){e.preventDefault();confirm.focus();}else if(!e.shiftKey&&document.activeElement===confirm){e.preventDefault();cancel.focus();}});document.body.append(d);d.showModal();cancel.focus();
   }
-  const loaders = { overview, cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
+  const loaders = { overview,
+    members:async()=>{const born=sequence,stop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
+    healthMonitor:async()=>{const born=sequence,stop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
+    cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;
     await run(async current => {

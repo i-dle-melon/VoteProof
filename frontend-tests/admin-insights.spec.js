@@ -1,12 +1,13 @@
 import {test,expect} from '@playwright/test';
 import {adminFixture} from './admin-fixture.mjs';
 const root=p=>p.locator('#admin-panel');
-const tab=async(p,name)=>p.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();
+const tab=async(p,name)=>{await p.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(root(p)).toHaveAttribute('aria-busy','false');};
 async function setup(page,options={}){
  const state=await adminFixture(page,{autoConfirm:false,...options});state.insights=[];state.writes=[];
  const members=Array.from({length:21},(_,i)=>({member_id:'M-00000000-0000-4000-8000-'+String(i+1).padStart(12,'0'),nickname:'合成會員 '+i,fan_id:'fan_'+i,status:'active',created_at:'2026-10-01T00:00:00.000Z',tier:{name:'普通'},total_points:10,proof_counts:{total:3,pending:1,approved:2,rejected:0},login_methods:['Google']}));state.members=members;
  await page.route('**/api/admin/**',async route=>{
   const req=route.request(),url=new URL(req.url()),path=url.pathname;
+  if(path==='/api/admin/me'&&state.holdAdminCheck){state.authCheckHeld=true;await state.holdAdminCheck;return route.fallback();}
   if(!/\/members-overview|\/health-monitor|\/points\/adjustments/.test(path))return route.fallback();
   state.insights.push(path+url.search);
   const reply=data=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data})});
@@ -57,7 +58,14 @@ test('health refresh is serialized and polling stops while hidden, after navigat
  await root(page).getByLabel('每 60 秒更新').check();await page.clock.runFor(5000);expect(summaries()).toBe(2);release();s.holdSummary=null;await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeEnabled();
  await page.evaluate(()=>{Object.defineProperties(document,{hidden:{configurable:true,value:true},visibilityState:{configurable:true,value:'hidden'}});document.dispatchEvent(new Event('visibilitychange'));});await page.clock.runFor(120000);expect(summaries()).toBe(2);
  await Promise.all([page.waitForResponse('**/api/admin/me'),page.evaluate(()=>{Object.defineProperties(document,{hidden:{configurable:true,value:false},visibilityState:{configurable:true,value:'visible'}});document.dispatchEvent(new Event('visibilitychange'));})]);await page.clock.runFor(60000);await expect.poll(summaries).toBe(3);
- await tab(page,'工作總覽');const before=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(before);
+ // A virtual 60-second jump must not expire a real, still-pending auth/overview
+ // request. Await both the poll completion and destination render first.
+ await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeEnabled();
+ let releaseAuth;s.holdAdminCheck=new Promise(r=>releaseAuth=r);
+ const moving=tab(page,'工作總覽');await expect.poll(()=>s.authCheckHeld).toBe(true);
+ await expect(root(page)).toHaveAttribute('aria-busy','true');
+ releaseAuth();s.holdAdminCheck=null;await moving;
+ const before=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(before);
  await tab(page,'系統健康監控');await expect(root(page)).toContainText('unknown_ack');await root(page).getByLabel('每 60 秒更新').check();s.elevationUntil=0;await page.clock.runFor(60000);await expect(page.locator('#admin-gate')).toBeVisible();const stopped=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(stopped);
 });
 test('reviewer cannot access either P1 tab',async({page})=>{

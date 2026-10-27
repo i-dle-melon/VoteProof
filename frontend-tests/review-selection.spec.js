@@ -54,7 +54,7 @@ test('fewer than20 and manual edits clear all; filter refresh and leaving clear 
  await page.locator('[data-review-select]').first().check();await expect(page.locator('[data-review-select]:checked')).toHaveCount(1);
  await page.getByText('篩選案件：活動 / 類型 / 搜尋',{exact:true}).click();await page.locator('.admin-filter button[type=submit]').click();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');await expect(approve(page)).toBeDisabled();
  await all(page).click();await expect(all(page)).toHaveAttribute('aria-pressed','true');await page.locator('#admin-field-filter-search').fill('VP');await expect(approve(page)).toBeDisabled();
- await first(page).click();await page.locator('#admin-tabs').getByRole('button',{name:'工作總覽',exact:true}).click();await page.locator('#admin-tabs button').nth(1).click();await expect(approve(page)).toBeDisabled();expect(posts(s)).toHaveLength(0);
+ await first(page).click();await page.locator('#admin-tabs').getByRole('button',{name:'工作總覽',exact:true}).click();await page.locator('#admin-tabs').getByRole('button',{name:'案件審核',exact:true}).click();await expect(approve(page)).toBeDisabled();expect(posts(s)).toHaveLength(0);
 });
 
 test('all selection counts once, never loads private unloaded images; only final confirmation posts',async({page})=>{

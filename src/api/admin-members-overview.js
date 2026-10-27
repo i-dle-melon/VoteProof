@@ -62,7 +62,7 @@ const list=adminHandler(async(env,url,request)=>{
   await adminIdentity(request,env,ELEVATED_ROLES);
   const p=params(url,['status','fan_id','nickname','cursor']);
   const status=p.get('status')??'all',fan=normalizeFanId(p.get('fan_id')??''),nick=(p.get('nickname')??'').trim();
-  if(!['all','active','suspended'].includes(status)||fan.length>100||nick.length>50||fan&&nick)throw invalid();
+  if(!['all','active','suspended'].includes(status)||fan.length>100||nick.length>50||!nick.isWellFormed()||fan&&nick)throw invalid();
   const scope=JSON.stringify([status,fan,nick]),prior=cursor(p.get('cursor'),scope,2);
   if(prior&&(!validId(prior[1])||nick&&prior[0].length>50||!nick&&prior[0]!==''))throw invalid();
   const where=[],bind=[],nicknameSort=Boolean(nick);
@@ -70,8 +70,8 @@ const list=adminHandler(async(env,url,request)=>{
   if(fan){where.push('lower(trim(m.player_id))=?');bind.push(fan);}
   if(nick){
     // Indexed, case-sensitive Unicode prefix range; no leading-wildcard scan.
-    const chars=Array.from(nick),last=chars.pop().codePointAt(0);
-    const upper=last<0x10ffff?chars.join('')+String.fromCodePoint(last+1):null;
+    const chars=Array.from(nick);let upper=null;
+    while(chars.length){const last=chars.pop().codePointAt(0);if(last<0x10ffff){upper=chars.join('')+String.fromCodePoint(last===0xd7ff?0xe000:last+1);break;}}
     where.push('m.nickname>=?');bind.push(nick);
     if(upper){where.push('m.nickname<?');bind.push(upper);}
   }
@@ -112,7 +112,7 @@ const page=adminHandler(async(env,url,request)=>{
   await findMember(db,id);
   const kind=url.pathname.endsWith('/transactions')?'transactions':'cases';
   const scope=JSON.stringify([kind,id]),prior=cursor(p.get('cursor'),scope,2);
-  if(prior&&(!/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(prior[0])||!UUID_PATTERN.test(prior[1])))throw invalid();
+  if(prior&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(prior[0])||!Number.isFinite(Date.parse(prior[0]))||!UUID_PATTERN.test(prior[1])))throw invalid();
   const date=prior?'AND (created_at<? OR (created_at=? AND '+(kind==='cases'?'id':'transaction_id')+'<?))':'';
   const sql=kind==='cases'
     ?`SELECT id,case_id,created_at,campaign_id,status,points_awarded,vote_type,vote_date

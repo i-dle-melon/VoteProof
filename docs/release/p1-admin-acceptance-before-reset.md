@@ -43,3 +43,25 @@ Operator 已授權將「會員管理總覽 V1」與「系統健康監控 V1」�
 不能把 0030 的 `legacy_status='unknown'` 強制當作 PASS。
 
 **禁止用本 Runbook 當作已取得「正式資料刪除」授權的依據。**
+
+## 2026-10-27 CI 修復與本機審查補充
+
+本輪接續指示只執行本機回歸、P1 分支 Commit／Push 與自動 CI；不操作 Production，不執行 Reset V1。下列修正不表示上述正式切換門檻已解除。
+
+- Preview 清單補齊兩個模組，並驗證產物相對 import 的依賴完整性。合成 Preview 新增兩頁的唯讀 DTO，不連接正式 API。
+- 正式 MemberSession 僅加入兩頁所需的明確管理路徑、參數與原有積分調整路徑；仍逐次確認身分、角色、MFA、CSRF。
+- 會員每頁替換為最多 20 位，可前後頁；未送出的搜尋文字不改變游標範圍。暱稱使用 SQLite BINARY 前綴索引，修正尾端 Unicode 最大碼位的範圍上界。
+- 寫入有單次確認、忙碌鎖及積分 Idempotency-Key。未確認成功的結果停止重送；未決標記保留於同文件記憶體，切換管理頁仍不能重送。不將會員資料或憑證寫入瀏覽器持久儲存。重新載入／關閉分頁會失去前端標記，不能當作伺服器已完成的證明：Operator 必須先以既有會員狀態、積分與 Audit 人工核對，不能憑總分改變推斷某筆調整成功。
+- 健康事件以相同時間與 BINARY ID 次序合併有限來源；sent／disabled 只代表告警送信狀態，不代表異常已解決。recovered 為已記錄的容量恢復事件；舊事件仍是歷史紀錄，沒有虛構逐案關閉狀態。
+- 備份事件時間為既有備份資料列建立時間，並非未知的實際失敗時刻；上傳失敗缺乏完整資料仍顯示未知。待確認訊號可能包含同一作業的多種證據，不宣稱是去重作業總數。
+- 更新採單一在途操作與完成後排程；隱藏、離頁、登出、權限撤銷或 Abort 均停止下一輪，不放寬權限。
+
+### 資源成本（本機不等同雲端）
+
+業務 SQL 不含原有身分／MFA 檢查：會員非空清單為 4 Statements／3 Trips（列表、同頁會員的 ledger/cases batch、等級），沒有逐人查詢；歷史明細為會員存在檢查加一筆游標查詢。聚合讀取量仍隨當頁會員的歷史交易／案件增加，不能將 LIMIT 20 誤稱只讀 20 列。
+
+健康摘要由原本 11 Statements／4 Trips 降為 9 Statements／2 Trips；刪掉沒有使用的容量歷史及 Drive quota 讀取。全類型事件最多 4 個來源查詢，各取 21 筆後合併為 20 筆。LIMIT 限制回傳筆數，不能保證掃描成本相同；篩選、索引與實際分布仍影響 D1 Rows Read。
+
+每個正式管理 request 沿用 AdminAccess 的 auth/me + admin/me 驗證，通常合計 3 次 HTTP。摘要加事件每次更新通常 6 次 HTTP（另有原有登入／頁面驗證）；只在勾選且可見時，完成後至少 60 秒才排下一次。沒有新增 R2／Drive 呼叫或正常投稿熱路徑處理。Cloudflare Native CPU 與正式 D1 Rows Read/Written 尚未量測，保持 UNKNOWN。
+
+Windows WebKit 建立原生 SELECT 時可產生 style-src-attr CSP 訊息，即使元素沒有作者設定的 style attribute；測試保存其來源與目標並限定此類告警，其餘 Console/Page/Network 錯誤仍失敗。未放寬 CSP，未宣稱所有瀏覽器均無告警。

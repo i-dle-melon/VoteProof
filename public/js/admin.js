@@ -653,8 +653,8 @@ export function adminUI(session) {
     d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;if(busy){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===cancel){e.preventDefault();confirm.focus();}else if(!e.shiftKey&&document.activeElement===confirm){e.preventDefault();cancel.focus();}});document.body.append(d);d.showModal();cancel.focus();
   }
   const loaders = { overview,
-    members:async()=>{adminInsightsStop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});},
-    healthMonitor:async()=>{adminInsightsStop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});},
+    members:async()=>{const born=sequence,stop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
+    healthMonitor:async()=>{const born=sequence,stop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
     cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
   async function load() {
     if (!visible) return; clearPanel(); const born = sequence;

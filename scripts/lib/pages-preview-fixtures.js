@@ -167,6 +167,18 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   }
   const content=await contentFixture(p,{method,body},state,previewPicture,reply);if(content)return content;
   if(state.identity==='reviewer'&&p.startsWith('/api/admin/')&&!['/api/admin/me','/api/admin/overview','/api/admin/campaigns','/api/admin/solo-targets'].includes(p)&&!p.startsWith('/api/admin/cases')&&!p.startsWith('/api/admin/image-exports'))return reply('ADMIN_FORBIDDEN',403);
+  if(p.startsWith('/api/admin/members-overview')||p.startsWith('/api/admin/health-monitor')){
+    if(!isManager||previewLoggedOut)return reply('ADMIN_FORBIDDEN',403);
+    if(method!=='GET')return reply('UI_PREVIEW_ONLY',403);
+    const member={member_id:'M-11111111-1111-4111-8111-111111111111',fan_id:'fan_yeh',nickname:'展示會員・假資料',status:'active',created_at:'2026-10-01T00:00:00.000Z',total_points:10,tier:{name:'普通'},proof_counts:{total:1,pending:0,approved:1,rejected:0},login_methods:['Google']};
+    if(p==='/api/admin/members-overview')return reply({members:state.data==='empty'?[]:[member],next_cursor:null,page_size:20,search_mode:'all'});
+    if(p.endsWith('/transactions'))return reply({transactions:[],next_cursor:null,page_size:20});
+    if(p.endsWith('/cases'))return reply({cases:[],next_cursor:null,page_size:20});
+    if(p.startsWith('/api/admin/members-overview/'))return reply({member});
+    if(p.endsWith('/summary'))return reply({upload_failures:{count:null},backup_failures:{count:1},cleanup_failures:{count:0},pending_operations:{count:1,legacy_ack_unverified:true},storage:{used_bytes:54000000,budget_bytes:10000000000,observed_at:1,trusted_until:1,blocked:true,cleanup_mode:'dry-run'}});
+    if(p.endsWith('/events'))return reply({events:state.data==='empty'?[]:[{id:'operation:preview',type:'operation',code:'preview_unknown_ack',status:'manual',created_at:1790812800}],next_cursor:null,page_size:20});
+    return reply('NOT_FOUND',404);
+  }
   if(p.startsWith('/api/admin/image-exports'))return exportFixture(p,{method,body},state,previewPicture,reply);
   if(p==='/api/admin/staff'){
     if(state.identity!=='super_admin')return reply('ADMIN_FORBIDDEN',403);

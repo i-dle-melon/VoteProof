@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import {
   buildPagesPreview,
   removeElement,
@@ -38,6 +38,7 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   for (const file of [
     "member.js",
     "admin.js", "admin-proof-thumbnails.js", "admin-member-contact.js",
+    "admin-members-overview.js", "admin-health-monitor.js",
     "admin-api.js",
     "ui-system.js",
     "leaderboard-ui.js", "vote-date.js",
@@ -58,6 +59,15 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
     ),
   );
   assert.ok((await readdir(resolve(out, "assets/tiers"))).length === 8);
+  for(const file of await readdir(resolve(out,'js'))){
+    if(!file.endsWith('.js'))continue;
+    const source=await readFile(resolve(out,'js',file),'utf8');
+    for(const match of source.matchAll(/(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["'](\.[^"']+)["']/g)){
+      const dependency=resolve(dirname(resolve(out,'js',file)),match[1]);
+      assert.ok(dependency.startsWith(out),file+' dependency stays in Preview');
+      await assert.doesNotReject(readFile(dependency),file+' imports '+match[1]);
+    }
+  }
   assert.match(await readFile(resolve(out, "js/member-api.js"), "utf8"), /Build-only transport/);
   assert.doesNotMatch(
     await readFile(resolve(out, "js/member-api.js"), "utf8"),

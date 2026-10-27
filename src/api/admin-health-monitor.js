@@ -3,7 +3,7 @@ import {adminHandler} from './admin-response.js';
 import {jsonSuccess} from './response.js';
 import {adminIdentity,ELEVATED_ROLES,AdminError} from '../lib/admin-identity.js';
 import {authDatabase} from '../lib/auth-session.js';
-import {storageSummary} from '../lib/storage-capacity.js';
+import {capacityRow,STORAGE} from '../lib/storage-capacity.js';
 import {encodeCursor} from './admin-validation.js';
 
 const invalid=()=>new AdminError(400,'INVALID_HEALTH_QUERY','監控篩選或分頁參數無效。');
@@ -38,7 +38,7 @@ function args(url){
   }
   return {type,status,after,since,before,scope};
 }
-const normalizeStatus=s=>s==='unknown'||s==='ambiguous'?'manual':s==='pending'||s==='claimed'||s==='active'||s==='failed'?'pending':'resolved';
+const normalizeStatus=s=>['completed','aborted','recovered'].includes(s)?'resolved':['pending','claimed','active','failed','sent','disabled'].includes(s)?'pending':'manual';
 const event=(type,id,created_at,code,state)=>({type,id,created_at,code,status:normalizeStatus(state)});
 // Per-source bounded indexed reads: never UNION ALL entire historical tables.
 async function fetchEvents(db,{type,status,after,since,before}) {
@@ -67,11 +67,12 @@ async function fetchEvents(db,{type,status,after,since,before}) {
   }
   if(type==='all'||type==='capacity'||type==='cleanup'){
     const kind=type==='cleanup'?"AND kind='cleanup_failed'":type==='capacity'?"AND kind!='cleanup_failed'":'';
-    const stateFilter=status==='pending'?"AND state IN ('pending','claimed')":
-      status==='manual'?"AND state='ambiguous'":status==='resolved'?"AND state IN ('sent','disabled')":'';
+    // Delivery success/disabled does not resolve the underlying storage incident.
+    const stateFilter=status==='pending'?"AND kind!='recovered' AND state IN ('pending','claimed','sent','disabled')":
+      status==='manual'?"AND state='ambiguous'":status==='resolved'?"AND kind='recovered' AND state!='ambiguous'":'';
     await source('capacity',`SELECT id,created_at,kind,state FROM storage_alerts WHERE 1=1 ${kind} ${stateFilter}
       ${filter('alert:')} ORDER BY created_at DESC,id DESC LIMIT ?`,argsAfter(),
-      r=>event(r.kind==='cleanup_failed'?'cleanup':'capacity','alert:'+r.id,r.created_at,r.kind,r.state));
+      r=>({...event(r.kind==='cleanup_failed'?'cleanup':'capacity','alert:'+r.id,r.created_at,r.kind,r.kind==='recovered'&&r.state!=='ambiguous'?'recovered':r.state),delivery_state:r.state}));
   }
   if(type==='all'||type==='operation'){
     const kindFilter=status==='resolved'?"AND state NOT IN ('active','unknown')":
@@ -92,7 +93,8 @@ async function fetchEvents(db,{type,status,after,since,before}) {
         r.action==='alert_ambiguous'?'unknown':'pending'));
   }
   return sources.filter(x=>status==='all'||x.status===status)
-    .sort((a,b)=>b.created_at-a.created_at||b.id.localeCompare(a.id));
+    // IDs are ASCII; match SQLite BINARY ordering, not the browser/Worker locale.
+    .sort((a,b)=>b.created_at-a.created_at||(a.id<b.id?1:a.id>b.id?-1:0));
 }
 const summary=adminHandler(async(env,url,request)=>{
   await adminIdentity(request,env,ELEVATED_ROLES);
@@ -108,15 +110,20 @@ const summary=adminHandler(async(env,url,request)=>{
     db.prepare("SELECT count(*) n FROM storage_archive_dispatches WHERE state!='completed'"),
     db.prepare('SELECT legacy_status FROM image_maintenance_control WHERE id=1'),
   ]);
-  const [cap]=await Promise.all([storageSummary(db,{live:env.STORAGE_CLEANUP_LIVE_ENABLED==='true'})]);
+  const row=await capacityRow(db);
+  if(!row)throw new AdminError(503,'ADMIN_SERVICE_UNAVAILABLE','容量狀態尚未取得。');
+  const cap={...row,budget:STORAGE,used_bytes:row.observed_at===null?null:row.used_bytes,
+    blocked:!!row.blocked||row.trusted_until<=Math.floor(Date.now()/1000)||!!row.anomaly||row.used_bytes+row.reserved_bytes>=STORAGE.stop,
+    cleanup_mode:env.STORAGE_CLEANUP_LIVE_ENABLED==='true'?'live':'dry-run'};
+  const legacyUnknown=legacy.results[0]?.legacy_status!=='operator_attested';
   return jsonSuccess({checked_at:Math.floor(Date.now()/1000),
     upload_failures:{count:null,coverage:'incomplete',message:'目前無法完整統計所有上傳失敗，不能視為 0。'},
     backup_failures:{count:backup.results[0].n,scope:'current_failed'},
     cleanup_failures:{count:cleanup.results[0].n,scope:'last_24_hours',mode:cap.cleanup_mode},
-    pending_operations:{count:pending.results[0].n+unknown.results[0].n+reservations.results[0].n+pins.results[0].n+dispatches.results[0].n+(legacy.results[0]?.legacy_status==='unknown'?1:0),
+    pending_operations:{count:pending.results[0].n+unknown.results[0].n+reservations.results[0].n+pins.results[0].n+dispatches.results[0].n+(legacyUnknown?1:0),scope:'signals_may_overlap',
       active:pending.results[0].n,unknown:unknown.results[0].n,reservations:reservations.results[0].n,
       write_pins:pins.results[0].n,archive_dispatches:dispatches.results[0].n,
-      legacy_ack_unverified:legacy.results[0]?.legacy_status==='unknown'},
+      legacy_ack_unverified:legacyUnknown},
     storage:{used_bytes:cap.used_bytes,budget_bytes:cap.budget.budget,blocked:cap.blocked,
       observed_at:cap.observed_at,trusted_until:cap.trusted_until,anomaly:cap.anomaly,cleanup_mode:cap.cleanup_mode},
     coverage:{upload:'partial',backup:'current_failed',cleanup:'recorded_alerts',operation:'recorded_operations'}});

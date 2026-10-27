@@ -27,7 +27,7 @@ function modal(title,cls,opener){
  d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const controls=[...d.querySelectorAll('button,input,textarea,select,[tabindex="0"]')].filter(n=>!n.disabled&&!n.hidden),first=controls[0],last=controls.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}});
  d.addEventListener('close',()=>{d.remove();if(opener?.isConnected)opener.focus();});document.body.append(d);return{d,close};
 }
-export function memberContactUI({request,opener}){
+export function memberContactUI({request,opener,initialFanId=''}){
  let lookup=null,compose=null,disposed=false,epoch=0;
  const cleanup=()=>{disposed=true;epoch++;compose?.close();lookup?.close();compose?.remove();lookup?.remove();};
  function openCompose(member,email,source){
@@ -64,7 +64,7 @@ export function memberContactUI({request,opener}){
  }
  function open(){
   if(disposed||lookup?.open)return;const{d}=modal('會員查詢','member-lookup',opener);lookup=d;
-  const f=node('form');f.dataset.memberLookupEditor='';const fan=field(f,'fan_id','粉絲 ID');fan.required=true;fan.maxLength=100;const search=node('button','查詢','btn btn-primary');search.type='submit';f.append(search);
+  const f=node('form');f.dataset.memberLookupEditor='';const fan=field(f,'fan_id','粉絲 ID');fan.value=initialFanId;fan.required=true;fan.maxLength=100;const search=node('button','查詢','btn btn-primary');search.type='submit';f.append(search);
   const status=node('p','','notice');status.setAttribute('role','status');const result=node('section','','member-lookup-result');d.append(f,status,result);let searching=false;
   f.addEventListener('submit',async e=>{
    e.preventDefault();if(searching||!f.reportValidity())return;searching=true;search.disabled=true;result.replaceChildren();status.textContent='查詢中…';const born=++epoch;

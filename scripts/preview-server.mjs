@@ -10,6 +10,8 @@ const server = createServer(async (request, response) => {
     // Exercise the Pages project subdirectory as well as the root URL.
     const path = pathname.replace(/^\/VoteProof(?=\/)/, "");
     if (request.method !== "GET" || path.startsWith("/api/")) { response.writeHead(403).end(); return; }
+    // Browsers request this optional icon outside the page module graph.
+    if(path === "/favicon.ico"){response.writeHead(204).end();return;}
     const file = resolve(root, "." + (path.endsWith("/") ? path + "index.html" : path));
     if (relative(root, file).startsWith("..") || !types[extname(file)]) { response.writeHead(404).end(); return; }
     const data = await readFile(file);

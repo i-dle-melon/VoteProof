@@ -2,6 +2,7 @@ import { CaseError } from '../api/case-validation.js';
 import { adminIdentity, adminCsrf, actorBindings, ELEVATED_AUTH_GUARD } from './admin-identity.js';
 import { RESET_V1_SQL_SHA256 } from './prelaunch-reset-schema.js';
 import {currentProofKey} from './proof-generation.js';
+import {isMaintenanceInventory,maintenanceInventory} from './inventory-maintenance-permit.js';
 const rawStatement=Symbol('reset-original-statement');
 const now=()=>new Date().toISOString();
 export const resetEnabled=env=>env.PRELAUNCH_RESET_FENCE_ENABLED==='true';
@@ -38,7 +39,10 @@ export async function fencedRequest(env,request,handler){
  const url=new URL(request.url);
  if(initial.epoch>0&&url.pathname.startsWith('/api/internal/')&&request.headers.get('X-VoteProof-Reset-Epoch')!==String(initial.epoch))throw denied('PRELAUNCH_RELAY_EPOCH_REQUIRED',403);
  const mutation=!['GET','HEAD','OPTIONS'].includes(request.method)||/^\/api\/auth\/google\/(callback|result)/.test(url.pathname);
- if(initial.mode!=='open'&&mutation)throw denied();
+ if(initial.mode!=='open'&&mutation){
+  if(initial.mode==='maintenance'&&isMaintenanceInventory(request,url))return maintenanceInventory(request,env,initial);
+  throw denied();
+ }
  let operation=null,admissionPromise=null,ioPending=0,ioWrites=0,writeBatches=0,uncertain=false;
  const assertOpen=async()=>{const c=await control(db);if(c?.mode!=='open'||c.epoch!==initial.epoch)throw denied('PRELAUNCH_EPOCH_CHANGED',409);};
  async function ensureOperation(){

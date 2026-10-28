@@ -16,6 +16,9 @@ export default {
 
     // API requests must never fall through to the static website.
     if (url.pathname.startsWith("/api/")) {
+      // Health is an exact, uncached liveness response. It performs no writes
+      // and must remain independent of bindings, secrets and maintenance D1.
+      if (url.pathname === '/api/health') return routeApi(request,env,url);
       try {
         const control=await resetControlRoute(request,env,url);
         if(control)return control;

@@ -1,3 +1,4 @@
+import {proofKeyEpoch} from '../lib/proof-generation.js';
 export const UPLOAD_LIMITS = Object.freeze({
   maxFiles: 5,
   maxFileBytes: 5 * 1024 * 1024,
@@ -14,7 +15,7 @@ export const MIME_EXTENSIONS = Object.freeze({
   "image/webp": "webp",
 });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const KEY_PATTERN = /^proofs\/staging\/(\d{4})\/(\d{2})\/(\d{2})\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/;
+const KEY_PATTERN = /^proofs\/staging\/(?:g(?:0|[1-9]\d{0,15})\/)?(\d{4})\/(\d{2})\/(\d{2})\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/;
 
 export class UploadError extends Error {
   constructor(status, code, message) {
@@ -117,7 +118,8 @@ export function validateComplete(body) {
   const sessionId = body.session_id.toLowerCase();
   if (new Set(body.keys).size !== body.keys.length) invalid("Duplicate object keys are not allowed");
   for (const key of body.keys) {
-    const final=typeof key==='string' && /^proofs\/final\/([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/.exec(key);
+    if(typeof key==='string'&&/^proofs\/(?:staging|final)\/g/.test(key)&&proofKeyEpoch(key)===null)invalid('Invalid proof generation');
+    const final=typeof key==='string' && /^proofs\/final\/(?:g(?:0|[1-9]\d{0,15})\/)?([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/.exec(key);
     if(final) {
       if(body.keys.length!==1 || final[1]!==sessionId || !UUID_PATTERN.test(final[2]) || Object.keys(body).some(k=>!['session_id','keys','capability'].includes(k))) invalid('Invalid final proof reference');
       continue;

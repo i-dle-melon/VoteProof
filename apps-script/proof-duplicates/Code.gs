@@ -8,8 +8,10 @@ function runDuplicateAnalysis() {
     if(!/^https:\/\/[a-zA-Z0-9.-]+$/.test(origin||'')||!/^[a-f0-9]{64}$/.test(secret||''))return {state:'not_configured'};
     var id=properties.getProperty('DUPLICATE_REQUEST_ID');
     if(!id){id=Utilities.getUuid();properties.setProperty('DUPLICATE_REQUEST_ID',id);}
+    var headers={Authorization:'Bearer '+secret},epoch=properties.getProperty('VOTEPROOF_RESET_EPOCH');
+    if(epoch){if(!/^[0-9]+$/.test(epoch))return {state:'not_configured'};headers['X-VoteProof-Reset-Epoch']=epoch;}
     var response=UrlFetchApp.fetch(origin+'/api/internal/proof-duplicates/process',{
-      method:'post',headers:{Authorization:'Bearer '+secret},contentType:'application/json',payload:JSON.stringify({request_id:id}),
+      method:'post',headers:headers,contentType:'application/json',payload:JSON.stringify({request_id:id}),
       muteHttpExceptions:true,followRedirects:false,validateHttpsCertificates:true
     });
     if(response.getResponseCode()!==200)return {state:'unavailable'};

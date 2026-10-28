@@ -13,6 +13,7 @@ import {uploadCapabilityHash,linkFinalProof,finalReference} from '../lib/immutab
 import { SubmissionError } from "../lib/submission-gate.js";
 import { ensureCaseBackups } from "../lib/proof-backup-store.js";
 import { directCasePreflight, directProofFile, insertDirectCase } from '../lib/direct-intent-case.js';
+import {requireResetSession} from '../lib/prelaunch-reset-fence.js';
 
 const errorResponse = error => error instanceof CaseError || error instanceof AuthError || error instanceof SubmissionError
   ? jsonError(error.status, error.code, error.message)
@@ -26,6 +27,7 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
   let db, input, id, identity, committed = false;
   try {
     input = validateCase(await readCaseJson(request));
+    await requireResetSession(env,input.sessionId,input.keys);
     if (direct) {
       requestOrigin(request, env);
       if (!finalReference(input.keys)) throw new CaseError(400, 'INVALID_UPLOAD_REFERENCE', 'A final proof is required');

@@ -1,0 +1,2668 @@
+[
+  {
+    "name": "admin_audit_logs",
+    "columns": [
+      "id",
+      "created_at",
+      "admin_member_id",
+      "admin_role",
+      "action",
+      "target_type",
+      "target_id",
+      "target_version",
+      "before_json",
+      "after_json",
+      "reason"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "admin_audit_no_replace",
+        "sql": "CREATE TRIGGER admin_audit_no_replace BEFORE INSERT ON admin_audit_logs\r\nWHEN EXISTS (SELECT 1 FROM admin_audit_logs a WHERE a.id = NEW.id\r\n  OR (a.target_type = NEW.target_type AND a.target_id = NEW.target_id AND a.target_version = NEW.target_version))\r\nBEGIN SELECT RAISE(ABORT, 'Audit records are immutable'); END"
+      },
+      {
+        "name": "admin_audit_no_update",
+        "sql": "CREATE TRIGGER admin_audit_no_update BEFORE UPDATE ON admin_audit_logs\r\nBEGIN SELECT RAISE(ABORT, 'Audit records are immutable'); END"
+      },
+      {
+        "name": "admin_audit_no_delete",
+        "sql": "CREATE TRIGGER admin_audit_no_delete BEFORE DELETE ON admin_audit_logs\r\nBEGIN SELECT RAISE(ABORT, 'Audit records are immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "admin_content_audit",
+    "columns": [
+      "id",
+      "created_at",
+      "admin_member_id",
+      "admin_role",
+      "action",
+      "target_type",
+      "target_id",
+      "target_version",
+      "before_json",
+      "after_json",
+      "reason"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "admin_content_audit_no_update",
+        "sql": "CREATE TRIGGER admin_content_audit_no_update BEFORE UPDATE ON admin_content_audit\r\nBEGIN SELECT RAISE(ABORT,'Content audit is immutable'); END"
+      },
+      {
+        "name": "admin_content_audit_no_delete",
+        "sql": "CREATE TRIGGER admin_content_audit_no_delete BEFORE DELETE ON admin_content_audit\r\nBEGIN SELECT RAISE(ABORT,'Content audit is immutable'); END"
+      },
+      {
+        "name": "admin_content_audit_no_replace",
+        "sql": "CREATE TRIGGER admin_content_audit_no_replace BEFORE INSERT ON admin_content_audit\r\nWHEN EXISTS(SELECT 1 FROM admin_content_audit WHERE id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT,'Content audit is immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "admin_member_contact_audit",
+    "columns": [
+      "id",
+      "created_at",
+      "admin_member_id",
+      "admin_role",
+      "target_member_id",
+      "action",
+      "send_id",
+      "outcome",
+      "subject_hash",
+      "body_hash"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "admin_member_mail_requests",
+        "from": "send_id",
+        "to": "send_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "target_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "admin_member_contact_no_update",
+        "sql": "CREATE TRIGGER admin_member_contact_no_update BEFORE UPDATE ON admin_member_contact_audit BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_CONTACT_AUDIT'); END"
+      },
+      {
+        "name": "admin_member_contact_no_delete",
+        "sql": "CREATE TRIGGER admin_member_contact_no_delete BEFORE DELETE ON admin_member_contact_audit BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_CONTACT_AUDIT'); END"
+      },
+      {
+        "name": "admin_member_contact_no_replace",
+        "sql": "CREATE TRIGGER admin_member_contact_no_replace BEFORE INSERT ON admin_member_contact_audit WHEN EXISTS(SELECT 1 FROM admin_member_contact_audit WHERE id=NEW.id OR (NEW.send_id IS NOT NULL AND send_id=NEW.send_id)) BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_CONTACT_AUDIT'); END"
+      },
+      {
+        "name": "admin_member_contact_send_binding",
+        "sql": "CREATE TRIGGER admin_member_contact_send_binding BEFORE INSERT ON admin_member_contact_audit WHEN NEW.action='member_mail_send' AND NOT EXISTS(\r\n SELECT 1 FROM admin_member_mail_requests r WHERE r.send_id=NEW.send_id AND r.admin_member_id=NEW.admin_member_id AND r.admin_role=NEW.admin_role\r\n AND r.target_member_id=NEW.target_member_id AND r.subject_hash=NEW.subject_hash AND r.body_hash=NEW.body_hash\r\n) BEGIN SELECT RAISE(ABORT,'MEMBER_MAIL_AUDIT_BINDING'); END"
+      }
+    ]
+  },
+  {
+    "name": "admin_member_mail_requests",
+    "columns": [
+      "send_id",
+      "created_at",
+      "admin_member_id",
+      "admin_role",
+      "target_member_id",
+      "subject_hash",
+      "body_hash",
+      "recipient_ref"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "target_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "admin_member_mail_no_update",
+        "sql": "CREATE TRIGGER admin_member_mail_no_update BEFORE UPDATE ON admin_member_mail_requests BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_MAIL_REQUEST'); END"
+      },
+      {
+        "name": "admin_member_mail_no_delete",
+        "sql": "CREATE TRIGGER admin_member_mail_no_delete BEFORE DELETE ON admin_member_mail_requests BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_MAIL_REQUEST'); END"
+      },
+      {
+        "name": "admin_member_mail_no_replace",
+        "sql": "CREATE TRIGGER admin_member_mail_no_replace BEFORE INSERT ON admin_member_mail_requests WHEN EXISTS(SELECT 1 FROM admin_member_mail_requests WHERE send_id=NEW.send_id) BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_MAIL_REQUEST'); END"
+      }
+    ]
+  },
+  {
+    "name": "admin_memberships",
+    "columns": [
+      "id",
+      "member_id",
+      "role",
+      "status",
+      "created_at",
+      "created_by",
+      "updated_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "created_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "auth_atomic_guards",
+    "columns": [
+      "id",
+      "valid"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "auth_email_challenges",
+    "columns": [
+      "id",
+      "email_lookup_hash",
+      "browser_hash",
+      "code_hash",
+      "email_ciphertext",
+      "email_iv",
+      "email_key_version",
+      "created_at",
+      "expires_at",
+      "attempts",
+      "state"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "auth_email_sends",
+    "columns": [
+      "id",
+      "challenge_id",
+      "email_lookup_hash",
+      "source_hash",
+      "created_at",
+      "status"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "auth_enrollments",
+    "columns": [
+      "id",
+      "email_lookup_hash",
+      "member_id",
+      "provider_subject",
+      "verified_transaction_id",
+      "totp_transaction_id",
+      "state",
+      "created_at",
+      "expires_at"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "auth_google_flows",
+    "columns": [
+      "id",
+      "state_hash",
+      "browser_hash",
+      "purpose",
+      "member_id",
+      "session_hash",
+      "email_ciphertext",
+      "email_iv",
+      "email_key_version",
+      "created_at",
+      "expires_at",
+      "consumed_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "auth_identities",
+    "columns": [
+      "provider",
+      "provider_subject",
+      "member_id",
+      "email_lookup_hash",
+      "email_ciphertext",
+      "email_iv",
+      "email_key_version",
+      "created_at",
+      "password_enabled",
+      "google_identity_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "identity_mapping_immutable",
+        "sql": "CREATE TRIGGER identity_mapping_immutable BEFORE UPDATE ON auth_identities\r\nWHEN NEW.provider_subject != OLD.provider_subject OR NEW.member_id != OLD.member_id OR NEW.email_lookup_hash != OLD.email_lookup_hash\r\n OR (OLD.google_identity_id IS NOT NULL AND NEW.google_identity_id IS NOT OLD.google_identity_id)\r\nBEGIN SELECT RAISE(ABORT,'Identity mapping is immutable'); END"
+      },
+      {
+        "name": "identity_mapping_no_replace",
+        "sql": "CREATE TRIGGER identity_mapping_no_replace BEFORE INSERT ON auth_identities\r\nWHEN EXISTS(SELECT 1 FROM auth_identities WHERE provider_subject=NEW.provider_subject OR member_id=NEW.member_id OR email_lookup_hash=NEW.email_lookup_hash)\r\nBEGIN SELECT RAISE(ABORT,'Identity mapping conflict'); END"
+      }
+    ]
+  },
+  {
+    "name": "auth_identity_events",
+    "columns": [
+      "id",
+      "member_id",
+      "flow_id",
+      "action",
+      "provider_subject",
+      "google_identity_id",
+      "created_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "identity_events_no_update",
+        "sql": "CREATE TRIGGER identity_events_no_update BEFORE UPDATE ON auth_identity_events BEGIN SELECT RAISE(ABORT,'Identity audit is immutable'); END"
+      },
+      {
+        "name": "identity_events_no_delete",
+        "sql": "CREATE TRIGGER identity_events_no_delete BEFORE DELETE ON auth_identity_events BEGIN SELECT RAISE(ABORT,'Identity audit is immutable'); END"
+      },
+      {
+        "name": "identity_events_no_replace",
+        "sql": "CREATE TRIGGER identity_events_no_replace BEFORE INSERT ON auth_identity_events WHEN EXISTS(SELECT 1 FROM auth_identity_events WHERE id=NEW.id) BEGIN SELECT RAISE(ABORT,'Identity audit is immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "auth_method_setups",
+    "columns": [
+      "member_id",
+      "transaction_id",
+      "password_digest",
+      "lease_owner",
+      "lease_until",
+      "created_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "auth_password_operations",
+    "columns": [
+      "id",
+      "member_id",
+      "transaction_id",
+      "credential_version",
+      "kind",
+      "status",
+      "lease_until",
+      "lease_owner",
+      "created_at",
+      "completed_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "auth_rate_limits",
+    "columns": [
+      "scope_hash",
+      "window_start",
+      "count",
+      "expires_at"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "auth_sessions",
+    "columns": [
+      "token_hash",
+      "member_id",
+      "created_at",
+      "expires_at",
+      "elevated_until",
+      "reauthenticated_until",
+      "auth_method",
+      "google_authenticated_until",
+      "revoked_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "auth_transactions",
+    "columns": [
+      "id",
+      "kind",
+      "member_id",
+      "browser_hash",
+      "payload",
+      "created_at",
+      "expires_at",
+      "attempts",
+      "consumed_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "backup_admin_audit",
+    "columns": [
+      "id",
+      "created_at",
+      "admin_member_id",
+      "action",
+      "target_id",
+      "affected_count"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "backup_audit_no_update",
+        "sql": "CREATE TRIGGER backup_audit_no_update BEFORE UPDATE ON backup_admin_audit\r\nBEGIN SELECT RAISE(ABORT, 'Backup audit is immutable'); END"
+      },
+      {
+        "name": "backup_audit_no_delete",
+        "sql": "CREATE TRIGGER backup_audit_no_delete BEFORE DELETE ON backup_admin_audit\r\nBEGIN SELECT RAISE(ABORT, 'Backup audit is immutable'); END"
+      },
+      {
+        "name": "backup_audit_no_replace",
+        "sql": "CREATE TRIGGER backup_audit_no_replace BEFORE INSERT ON backup_admin_audit\r\nWHEN EXISTS(SELECT 1 FROM backup_admin_audit WHERE id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT, 'Backup audit is immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "backup_processor_lock",
+    "columns": [
+      "id",
+      "lease_token",
+      "lease_until",
+      "blocked_error_code"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "campaign_content",
+    "columns": [
+      "campaign_id",
+      "submission_instructions",
+      "example_asset_id",
+      "version",
+      "updated_at",
+      "updated_by"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "campaign_example_assets",
+        "from": "example_asset_id",
+        "to": "asset_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "campaigns",
+        "from": "campaign_id",
+        "to": "campaign_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "campaign_example_assets",
+    "columns": [
+      "asset_id",
+      "campaign_id",
+      "object_key",
+      "content_type",
+      "size",
+      "etag",
+      "retired_at",
+      "created_at",
+      "created_by"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "created_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "campaigns",
+    "columns": [
+      "campaign_id",
+      "name",
+      "category",
+      "start_at",
+      "end_at",
+      "campaign_timezone",
+      "vote_start_date",
+      "vote_end_date",
+      "points_per_proof",
+      "daily_limit",
+      "status",
+      "note",
+      "created_at",
+      "updated_at",
+      "created_by",
+      "updated_by",
+      "version",
+      "last_mutation_id",
+      "solo_target"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "created_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "campaigns_immutable_id",
+        "sql": "CREATE TRIGGER campaigns_immutable_id BEFORE UPDATE OF campaign_id ON campaigns\r\nWHEN NEW.campaign_id != OLD.campaign_id\r\nBEGIN SELECT RAISE(ABORT, 'Campaign identity is immutable'); END"
+      },
+      {
+        "name": "campaigns_no_delete",
+        "sql": "CREATE TRIGGER campaigns_no_delete BEFORE DELETE ON campaigns\r\nBEGIN SELECT RAISE(ABORT, 'Archive campaigns instead of deleting'); END"
+      },
+      {
+        "name": "campaigns_no_replace",
+        "sql": "CREATE TRIGGER campaigns_no_replace BEFORE INSERT ON campaigns\r\nWHEN EXISTS (SELECT 1 FROM campaigns WHERE campaign_id = NEW.campaign_id)\r\nBEGIN SELECT RAISE(ABORT, 'Campaign identity already exists'); END"
+      },
+      {
+        "name": "campaigns_update_policy",
+        "sql": "CREATE TRIGGER campaigns_update_policy BEFORE UPDATE ON campaigns\r\nWHEN OLD.status = 'archived'\r\n  OR (OLD.status != NEW.status AND NOT (\r\n    (OLD.status = 'draft' AND NEW.status IN ('active', 'archived')) OR\r\n    (OLD.status = 'active' AND NEW.status = 'closed') OR\r\n    (OLD.status = 'closed' AND NEW.status = 'archived')))\r\n  OR (OLD.status != 'draft' AND (OLD.start_at != NEW.start_at OR OLD.end_at != NEW.end_at\r\n    OR OLD.campaign_timezone != NEW.campaign_timezone OR OLD.vote_start_date != NEW.vote_start_date OR OLD.vote_end_date != NEW.vote_end_date))\r\nBEGIN SELECT RAISE(ABORT, 'Invalid campaign transition or window change'); END"
+      },
+      {
+        "name": "campaigns_fixed_type_insert",
+        "sql": "CREATE TRIGGER campaigns_fixed_type_insert BEFORE INSERT ON campaigns\r\nWHEN NEW.category NOT IN ('Solo','團體') OR (NEW.category='Solo' AND NEW.solo_target IS NULL) OR (NEW.category='團體' AND NEW.solo_target IS NOT NULL)\r\nBEGIN SELECT RAISE(ABORT, 'CAMPAIGN_TYPE_INVALID'); END"
+      },
+      {
+        "name": "campaigns_fixed_type_update",
+        "sql": "CREATE TRIGGER campaigns_fixed_type_update BEFORE UPDATE OF category,solo_target ON campaigns\r\nWHEN NEW.category NOT IN ('Solo','團體') OR (NEW.category='Solo' AND NEW.solo_target IS NULL) OR (NEW.category='團體' AND NEW.solo_target IS NOT NULL)\r\n OR (OLD.status!='draft' AND NEW.category!=OLD.category)\r\n OR (OLD.solo_target IS NOT NULL AND NEW.solo_target IS NOT OLD.solo_target)\r\nBEGIN SELECT RAISE(ABORT, 'CAMPAIGN_TYPE_IMMUTABLE_OR_INVALID'); END"
+      }
+    ]
+  },
+  {
+    "name": "case_files",
+    "columns": [
+      "id",
+      "case_id",
+      "object_key",
+      "original_name",
+      "content_type",
+      "size",
+      "etag",
+      "created_at",
+      "upload_object_key",
+      "upload_intent_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "proof_upload_intents",
+        "from": "upload_intent_id",
+        "to": "session_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "completed_upload_files",
+        "from": "upload_object_key",
+        "to": "object_key",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "cases",
+        "from": "case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "final_case_file_guard",
+        "sql": "CREATE TRIGGER final_case_file_guard BEFORE INSERT ON case_files\r\nWHEN (NEW.object_key LIKE 'proofs/final/%' OR NEW.upload_intent_id IS NOT NULL) AND NOT EXISTS(\r\n SELECT 1 FROM proof_upload_intents i JOIN cases c ON coalesce(c.upload_intent_id,c.upload_session_id)=i.session_id\r\n WHERE c.id=NEW.case_id AND i.consumed_case_id=c.id AND i.state='consumed'\r\n AND NEW.id=i.proof_id AND NEW.object_key=i.object_key AND NEW.size=i.size AND NEW.content_type=i.content_type\r\n AND NEW.etag IS NOT NULL AND length(NEW.etag)>0\r\n AND ((i.completion_mode='legacy' AND NEW.upload_object_key=i.object_key AND NEW.upload_intent_id IS NULL)\r\n OR (i.completion_mode='direct' AND NEW.upload_intent_id=i.session_id AND NEW.upload_object_key IS NULL)))\r\nBEGIN SELECT RAISE(ABORT,'Final proof linkage mismatch'); END"
+      },
+      {
+        "name": "direct_file_binding",
+        "sql": "CREATE TRIGGER direct_file_binding BEFORE UPDATE ON case_files\r\nWHEN OLD.upload_intent_id IS NOT NULL\r\nBEGIN SELECT RAISE(ABORT,'Direct proof metadata is immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "case_idempotency",
+    "columns": [
+      "key_hash",
+      "request_hash",
+      "case_id",
+      "query_seed",
+      "created_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "cases",
+        "from": "case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "cases",
+    "columns": [
+      "id",
+      "case_id",
+      "created_at",
+      "updated_at",
+      "member_id",
+      "nickname",
+      "player_id",
+      "campaign_id",
+      "vote_type",
+      "vote_date",
+      "status",
+      "query_key_hash",
+      "note",
+      "source",
+      "duplicate_flag",
+      "reviewed_at",
+      "reviewer_id",
+      "points_awarded",
+      "point_status",
+      "upload_session_id",
+      "status_reason",
+      "status_updated_at",
+      "status_updated_by",
+      "duplicate_of_case_id",
+      "version",
+      "last_review_id",
+      "point_transaction_id",
+      "review_stage",
+      "review_risk_reason",
+      "upload_intent_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "case_files",
+        "from": "upload_intent_id",
+        "to": "upload_intent_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "proof_upload_intents",
+        "from": "upload_intent_id",
+        "to": "session_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "point_transactions",
+        "from": "point_transaction_id",
+        "to": "transaction_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 3,
+        "seq": 0,
+        "table": "cases",
+        "from": "duplicate_of_case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 4,
+        "seq": 0,
+        "table": "members",
+        "from": "status_updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 5,
+        "seq": 0,
+        "table": "completed_uploads",
+        "from": "upload_session_id",
+        "to": "session_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "cases_campaign_type_insert",
+        "sql": "CREATE TRIGGER cases_campaign_type_insert BEFORE INSERT ON cases\r\nWHEN NOT EXISTS(SELECT 1 FROM campaigns p WHERE p.campaign_id=NEW.campaign_id AND p.category=NEW.vote_type\r\n AND (p.category='團體' OR (p.category='Solo' AND p.solo_target IS NOT NULL)))\r\nBEGIN SELECT RAISE(ABORT, 'CAMPAIGN_TYPE_MISMATCH'); END"
+      },
+      {
+        "name": "cases_duplicate_insert",
+        "sql": "CREATE TRIGGER cases_duplicate_insert BEFORE INSERT ON cases\r\nWHEN (NEW.status = 'duplicate' AND (NEW.duplicate_flag != 1 OR NEW.duplicate_of_case_id IS NULL OR NEW.duplicate_of_case_id = NEW.id))\r\n  OR (NEW.status != 'duplicate' AND (NEW.duplicate_flag != 0 OR NEW.duplicate_of_case_id IS NOT NULL))\r\nBEGIN\r\n  SELECT RAISE(ABORT, 'Invalid duplicate reference');\r\nEND"
+      },
+      {
+        "name": "cases_duplicate_update",
+        "sql": "CREATE TRIGGER cases_duplicate_update BEFORE UPDATE ON cases\r\nWHEN (NEW.status = 'duplicate' AND (NEW.duplicate_flag != 1 OR NEW.duplicate_of_case_id IS NULL OR NEW.duplicate_of_case_id = NEW.id))\r\n  OR (NEW.status != 'duplicate' AND (NEW.duplicate_flag != 0 OR NEW.duplicate_of_case_id IS NOT NULL))\r\nBEGIN\r\n  SELECT RAISE(ABORT, 'Invalid duplicate reference');\r\nEND"
+      },
+      {
+        "name": "cases_fixed_identity_type",
+        "sql": "CREATE TRIGGER cases_fixed_identity_type BEFORE UPDATE OF campaign_id,vote_type,member_id,source ON cases\r\nWHEN NEW.campaign_id!=OLD.campaign_id OR NEW.vote_type!=OLD.vote_type OR NEW.member_id IS NOT OLD.member_id OR NEW.source!=OLD.source\r\nBEGIN SELECT RAISE(ABORT, 'Case identity and campaign type are immutable'); END"
+      },
+      {
+        "name": "cases_guest_points_insert",
+        "sql": "CREATE TRIGGER cases_guest_points_insert BEFORE INSERT ON cases\r\nWHEN NEW.member_id IS NULL AND NEW.points_awarded != 0\r\nBEGIN SELECT RAISE(ABORT, 'Guests cannot earn member points'); END"
+      },
+      {
+        "name": "cases_guest_points_update",
+        "sql": "CREATE TRIGGER cases_guest_points_update BEFORE UPDATE ON cases\r\nWHEN NEW.member_id IS NULL AND NEW.points_awarded != 0\r\nBEGIN SELECT RAISE(ABORT, 'Guests cannot earn member points'); END"
+      },
+      {
+        "name": "cases_review_stage_policy",
+        "sql": "CREATE TRIGGER cases_review_stage_policy BEFORE UPDATE OF review_stage,review_risk_reason ON cases\r\nWHEN (NEW.review_stage IS NOT OLD.review_stage OR NEW.review_risk_reason IS NOT OLD.review_risk_reason) AND (OLD.status!='pending' OR NEW.status!='pending' OR NEW.review_stage!='detailed' OR NEW.review_risk_reason IS NULL OR NEW.version!=OLD.version+1)\r\nBEGIN SELECT RAISE(ABORT,'Invalid detailed review transition'); END"
+      },
+      {
+        "name": "submissions_cases_insert",
+        "sql": "CREATE TRIGGER submissions_cases_insert BEFORE INSERT ON cases\r\nWHEN NOT EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)\r\nBEGIN SELECT RAISE(ABORT,'Submissions disabled'); END"
+      },
+      {
+        "name": "final_case_guard",
+        "sql": "CREATE TRIGGER final_case_guard BEFORE INSERT ON cases\r\nWHEN (NEW.upload_intent_id IS NOT NULL AND NOT EXISTS(\r\n SELECT 1 FROM proof_upload_intents i WHERE i.session_id=NEW.upload_intent_id AND i.completion_mode='direct'\r\n AND i.state='prepared' AND i.consumed_case_id IS NULL AND i.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')\r\n AND i.campaign_id=NEW.campaign_id AND i.member_id IS NEW.member_id))\r\n OR (EXISTS(SELECT 1 FROM proof_upload_intents WHERE session_id=NEW.upload_session_id) AND NOT EXISTS(\r\n SELECT 1 FROM proof_upload_intents i WHERE i.session_id=NEW.upload_session_id AND i.completion_mode='legacy'\r\n AND i.state='sealed' AND i.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND i.consumed_case_id IS NULL\r\n AND i.campaign_id=NEW.campaign_id AND i.member_id IS NEW.member_id))\r\nBEGIN SELECT RAISE(ABORT,'Final proof is not consumable'); END"
+      },
+      {
+        "name": "final_case_consume",
+        "sql": "CREATE TRIGGER final_case_consume AFTER INSERT ON cases\r\nBEGIN\r\n UPDATE proof_upload_intents SET state='consumed',consumed_case_id=NEW.id,consumed_at=NEW.created_at\r\n WHERE (session_id=NEW.upload_session_id AND completion_mode='legacy' AND state='sealed')\r\n OR (session_id=NEW.upload_intent_id AND completion_mode='direct' AND state='prepared');\r\n SELECT (CASE WHEN NEW.upload_intent_id IS NOT NULL AND NOT EXISTS(\r\n  SELECT 1 FROM proof_upload_intents WHERE session_id=NEW.upload_intent_id AND state='consumed' AND consumed_case_id=NEW.id)\r\n THEN RAISE(ABORT,'Direct intent consumption failed') END);\r\nEND"
+      },
+      {
+        "name": "cases_upload_binding",
+        "sql": "CREATE TRIGGER cases_upload_binding BEFORE UPDATE OF upload_session_id,upload_intent_id ON cases\r\nWHEN NEW.upload_session_id IS NOT OLD.upload_session_id OR NEW.upload_intent_id IS NOT OLD.upload_intent_id\r\nBEGIN SELECT RAISE(ABORT,'Case upload binding is immutable'); END"
+      },
+      {
+        "name": "archive_case_reopen_guard",
+        "sql": "CREATE TRIGGER archive_case_reopen_guard BEFORE UPDATE ON cases\r\nWHEN EXISTS(\r\n SELECT 1 FROM case_files f JOIN cold_proofs p ON p.file_id=f.id\r\n WHERE f.case_id=NEW.id AND\r\n   (p.state='deleting' OR (p.state IN('verifying','cold') AND NEW.status IS NOT OLD.status)))\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVED_PROOF_REQUIRES_RESTORE'); END"
+      }
+    ]
+  },
+  {
+    "name": "cold_proofs",
+    "columns": [
+      "file_id",
+      "state",
+      "lease_token",
+      "lease_until",
+      "attempts",
+      "error_code",
+      "backup_version",
+      "case_version",
+      "sha256",
+      "r2_version",
+      "etag",
+      "size",
+      "verified_at",
+      "updated_at",
+      "verification_context",
+      "archive_epoch"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "case_files",
+        "from": "file_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "completed_upload_files",
+    "columns": [
+      "session_id",
+      "object_key",
+      "content_type",
+      "size",
+      "etag"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "completed_uploads",
+        "from": "session_id",
+        "to": "session_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "submissions_upload_files_insert",
+        "sql": "CREATE TRIGGER submissions_upload_files_insert BEFORE INSERT ON completed_upload_files\r\nWHEN NOT EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)\r\nBEGIN SELECT RAISE(ABORT,'Submissions disabled'); END"
+      }
+    ]
+  },
+  {
+    "name": "completed_uploads",
+    "columns": [
+      "session_id",
+      "manifest_hash",
+      "completed_at",
+      "consumed_case_id",
+      "consumed_at",
+      "expires_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "cases",
+        "from": "consumed_case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "submissions_uploads_insert",
+        "sql": "CREATE TRIGGER submissions_uploads_insert BEFORE INSERT ON completed_uploads\r\nWHEN NOT EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)\r\nBEGIN SELECT RAISE(ABORT,'Submissions disabled'); END"
+      }
+    ]
+  },
+  {
+    "name": "drive_backup_folders",
+    "columns": [
+      "root_folder_id",
+      "folder_key",
+      "drive_folder_id",
+      "parent_folder_id",
+      "display_name",
+      "created_at"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "drive_quota_snapshots",
+    "columns": [
+      "id",
+      "observed_at",
+      "received_at",
+      "total_bytes",
+      "used_bytes",
+      "state"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "export_completed_files",
+    "columns": [
+      "file_id",
+      "etag",
+      "file_size",
+      "content_type",
+      "job_id",
+      "package_no",
+      "confirmed_by",
+      "confirmed_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "confirmed_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "export_completed_no_update",
+        "sql": "CREATE TRIGGER export_completed_no_update BEFORE UPDATE ON export_completed_files BEGIN SELECT RAISE(ABORT,'Export completion is immutable'); END"
+      },
+      {
+        "name": "export_completed_no_delete",
+        "sql": "CREATE TRIGGER export_completed_no_delete BEFORE DELETE ON export_completed_files BEGIN SELECT RAISE(ABORT,'Export completion is immutable'); END"
+      },
+      {
+        "name": "export_completed_no_replace",
+        "sql": "CREATE TRIGGER export_completed_no_replace BEFORE INSERT ON export_completed_files\r\nWHEN EXISTS(SELECT 1 FROM export_completed_files WHERE file_id=NEW.file_id AND etag=NEW.etag AND file_size=NEW.file_size AND content_type=NEW.content_type)\r\nBEGIN SELECT RAISE(ABORT,'Export completion already exists'); END"
+      }
+    ]
+  },
+  {
+    "name": "export_file_claims",
+    "columns": [
+      "file_id",
+      "job_id",
+      "package_no",
+      "attempt_id",
+      "member_id",
+      "lease_until"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "export_packages",
+        "from": "job_id",
+        "to": "job_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 0,
+        "seq": 1,
+        "table": "export_packages",
+        "from": "package_no",
+        "to": "number",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "export_job_items",
+    "columns": [
+      "job_id",
+      "ordinal",
+      "package_no",
+      "file_id",
+      "case_id",
+      "created_at",
+      "campaign_id",
+      "campaign_name",
+      "vote_type",
+      "source",
+      "review_status",
+      "review_stage",
+      "content_type",
+      "file_size",
+      "etag",
+      "sha256"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "export_jobs",
+        "from": "job_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "export_items_no_update",
+        "sql": "CREATE TRIGGER export_items_no_update BEFORE UPDATE ON export_job_items\r\nBEGIN SELECT RAISE(ABORT, 'Export snapshot is immutable'); END"
+      },
+      {
+        "name": "export_items_no_delete",
+        "sql": "CREATE TRIGGER export_items_no_delete BEFORE DELETE ON export_job_items\r\nBEGIN SELECT RAISE(ABORT, 'Export snapshot is immutable'); END"
+      },
+      {
+        "name": "export_items_no_replace",
+        "sql": "CREATE TRIGGER export_items_no_replace BEFORE INSERT ON export_job_items\r\nWHEN EXISTS (SELECT 1 FROM export_job_items WHERE job_id=NEW.job_id AND (ordinal=NEW.ordinal OR file_id=NEW.file_id))\r\nBEGIN SELECT RAISE(ABORT, 'Export snapshot already exists'); END"
+      },
+      {
+        "name": "export_items_sealed",
+        "sql": "CREATE TRIGGER export_items_sealed BEFORE INSERT ON export_job_items\r\nWHEN (SELECT sealed FROM export_jobs WHERE id=NEW.job_id)=1\r\nBEGIN SELECT RAISE(ABORT, 'Export snapshot is sealed'); END"
+      },
+      {
+        "name": "archive_export_insert_guard",
+        "sql": "CREATE TRIGGER archive_export_insert_guard BEFORE INSERT ON export_job_items\r\nWHEN EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=NEW.file_id AND p.state IN('verifying','deleting','cold'))\r\nBEGIN SELECT RAISE(ABORT,'EXPORT_ARCHIVED_PROOF'); END"
+      }
+    ]
+  },
+  {
+    "name": "export_jobs",
+    "columns": [
+      "id",
+      "owner_member_id",
+      "created_at",
+      "expires_at",
+      "filters_json",
+      "from_utc",
+      "to_utc",
+      "campaign_name",
+      "image_count",
+      "total_bytes",
+      "sealed"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "owner_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "export_jobs_binding",
+        "sql": "CREATE TRIGGER export_jobs_binding BEFORE UPDATE OF id,owner_member_id,filters_json,from_utc,to_utc,campaign_name,created_at,expires_at ON export_jobs\r\nBEGIN SELECT RAISE(ABORT, 'Export query is immutable'); END"
+      },
+      {
+        "name": "export_jobs_sealed",
+        "sql": "CREATE TRIGGER export_jobs_sealed BEFORE UPDATE ON export_jobs\r\nWHEN OLD.sealed=1\r\nBEGIN SELECT RAISE(ABORT, 'Export job is sealed'); END"
+      },
+      {
+        "name": "export_jobs_no_replace",
+        "sql": "CREATE TRIGGER export_jobs_no_replace BEFORE INSERT ON export_jobs\r\nWHEN EXISTS(SELECT 1 FROM export_jobs WHERE id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT, 'Export job already exists'); END"
+      }
+    ]
+  },
+  {
+    "name": "export_operation_audit",
+    "columns": [
+      "id",
+      "created_at",
+      "member_id",
+      "job_id",
+      "package_no",
+      "action",
+      "attempt_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "export_operation_no_update",
+        "sql": "CREATE TRIGGER export_operation_no_update BEFORE UPDATE ON export_operation_audit BEGIN SELECT RAISE(ABORT,'Export audit is immutable'); END"
+      },
+      {
+        "name": "export_operation_no_delete",
+        "sql": "CREATE TRIGGER export_operation_no_delete BEFORE DELETE ON export_operation_audit BEGIN SELECT RAISE(ABORT,'Export audit is immutable'); END"
+      },
+      {
+        "name": "export_operation_no_replace",
+        "sql": "CREATE TRIGGER export_operation_no_replace BEFORE INSERT ON export_operation_audit\r\nWHEN EXISTS(SELECT 1 FROM export_operation_audit WHERE id=NEW.id) BEGIN SELECT RAISE(ABORT,'Export audit already exists'); END"
+      }
+    ]
+  },
+  {
+    "name": "export_packages",
+    "columns": [
+      "job_id",
+      "number",
+      "image_count",
+      "total_bytes",
+      "status",
+      "attempt_id",
+      "started_at",
+      "completed_at",
+      "error_code",
+      "claim_member_id",
+      "lease_until"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "claim_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "export_jobs",
+        "from": "job_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "export_packages_binding",
+        "sql": "CREATE TRIGGER export_packages_binding BEFORE UPDATE OF job_id,number,image_count,total_bytes ON export_packages\r\nBEGIN SELECT RAISE(ABORT, 'Export package boundary is immutable'); END"
+      },
+      {
+        "name": "export_packages_sealed",
+        "sql": "CREATE TRIGGER export_packages_sealed BEFORE INSERT ON export_packages\r\nWHEN (SELECT sealed FROM export_jobs WHERE id=NEW.job_id)=1\r\nBEGIN SELECT RAISE(ABORT, 'Export package list is sealed'); END"
+      }
+    ]
+  },
+  {
+    "name": "export_scope_locks",
+    "columns": [
+      "scope_key",
+      "job_id",
+      "expires_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "export_jobs",
+        "from": "job_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "image_maintenance_control",
+    "columns": [
+      "id",
+      "mode",
+      "version",
+      "generation",
+      "legacy_status",
+      "legacy_evidence_hash",
+      "updated_at"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "image_control_identity",
+        "sql": "CREATE TRIGGER image_control_identity BEFORE UPDATE ON image_maintenance_control\r\nWHEN NEW.id!=OLD.id OR NEW.version<OLD.version OR NEW.generation<OLD.generation\r\n OR (NEW.mode!=OLD.mode AND NEW.version<=OLD.version)\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_CONTROL_CONFLICT'); END"
+      },
+      {
+        "name": "image_control_no_delete",
+        "sql": "CREATE TRIGGER image_control_no_delete BEFORE DELETE ON image_maintenance_control\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_CONTROL_IMMUTABLE'); END"
+      },
+      {
+        "name": "image_control_no_replace",
+        "sql": "CREATE TRIGGER image_control_no_replace BEFORE INSERT ON image_maintenance_control\r\nWHEN EXISTS(SELECT 1 FROM image_maintenance_control WHERE id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_CONTROL_IMMUTABLE'); END"
+      }
+    ]
+  },
+  {
+    "name": "image_mutation_operations",
+    "columns": [
+      "id",
+      "kind",
+      "parent_id",
+      "actor_member_id",
+      "object_key",
+      "generation",
+      "state",
+      "created_at",
+      "finished_at",
+      "outcome"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "actor_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "image_mutation_operations",
+        "from": "parent_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "image_operation_admission",
+        "sql": "CREATE TRIGGER image_operation_admission BEFORE INSERT ON image_mutation_operations\r\nWHEN NEW.state!='active' OR NEW.generation!=(SELECT generation FROM image_maintenance_control WHERE id=1)\r\n OR (NEW.parent_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM image_mutation_operations p\r\n   WHERE p.id=NEW.parent_id AND p.kind IN('admin_upload','admin_campaign') AND p.state='active'))\r\n OR (NEW.kind!='inventory' AND (\r\n   EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND inventory_id IS NOT NULL)\r\n   OR NOT EXISTS(SELECT 1 FROM image_maintenance_control WHERE id=1 AND (mode='open' OR\r\n     (mode='draining' AND NEW.kind='delete' AND EXISTS(SELECT 1 FROM image_mutation_operations p\r\n       WHERE p.id=NEW.parent_id AND p.kind IN('admin_upload','admin_campaign') AND p.state='active'))))))\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_MUTATION_FENCED'); END"
+      },
+      {
+        "name": "image_delete_generation",
+        "sql": "CREATE TRIGGER image_delete_generation AFTER INSERT ON image_mutation_operations WHEN NEW.kind='delete'\r\nBEGIN UPDATE image_maintenance_control SET generation=generation+1 WHERE id=1; END"
+      },
+      {
+        "name": "image_operation_identity",
+        "sql": "CREATE TRIGGER image_operation_identity BEFORE UPDATE ON image_mutation_operations\r\nWHEN NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind OR NEW.parent_id IS NOT OLD.parent_id\r\n OR NEW.actor_member_id IS NOT OLD.actor_member_id OR NEW.object_key IS NOT OLD.object_key\r\n OR NEW.generation IS NOT OLD.generation OR NEW.created_at IS NOT OLD.created_at\r\n OR OLD.state!='active' OR NEW.state NOT IN('unknown','completed','aborted')\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_OPERATION_IMMUTABLE'); END"
+      },
+      {
+        "name": "image_operation_no_delete",
+        "sql": "CREATE TRIGGER image_operation_no_delete BEFORE DELETE ON image_mutation_operations\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_OPERATION_IMMUTABLE'); END"
+      },
+      {
+        "name": "image_operation_no_replace",
+        "sql": "CREATE TRIGGER image_operation_no_replace BEFORE INSERT ON image_mutation_operations\r\nWHEN EXISTS(SELECT 1 FROM image_mutation_operations WHERE id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_OPERATION_IMMUTABLE'); END"
+      }
+    ]
+  },
+  {
+    "name": "leaderboard_results",
+    "columns": [
+      "run_id",
+      "leaderboard_id",
+      "rank",
+      "member_id",
+      "nickname",
+      "points",
+      "proof_count",
+      "reached_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "leaderboard_runs",
+        "from": "run_id",
+        "to": "run_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 0,
+        "seq": 1,
+        "table": "leaderboard_runs",
+        "from": "leaderboard_id",
+        "to": "leaderboard_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "leaderboard_results_no_update",
+        "sql": "CREATE TRIGGER leaderboard_results_no_update BEFORE UPDATE ON leaderboard_results\r\nBEGIN SELECT RAISE(ABORT, 'Results are immutable'); END"
+      },
+      {
+        "name": "leaderboard_results_no_delete",
+        "sql": "CREATE TRIGGER leaderboard_results_no_delete BEFORE DELETE ON leaderboard_results\r\nBEGIN SELECT RAISE(ABORT, 'Results are immutable'); END"
+      },
+      {
+        "name": "leaderboard_results_insert",
+        "sql": "CREATE TRIGGER leaderboard_results_insert BEFORE INSERT ON leaderboard_results\r\nWHEN EXISTS(SELECT 1 FROM leaderboard_results WHERE run_id = NEW.run_id AND (rank = NEW.rank OR member_id = NEW.member_id))\r\n  OR NOT EXISTS(SELECT 1 FROM leaderboard_runs r JOIN leaderboards b USING(leaderboard_id)\r\n    WHERE r.run_id = NEW.run_id AND r.leaderboard_id = NEW.leaderboard_id AND r.status = 'building' AND NEW.rank <= b.top_n)\r\nBEGIN SELECT RAISE(ABORT, 'Results require a building run'); END"
+      }
+    ]
+  },
+  {
+    "name": "leaderboard_runs",
+    "columns": [
+      "run_id",
+      "leaderboard_id",
+      "generated_at",
+      "definition_version",
+      "source_count",
+      "source_last_transaction_id",
+      "row_count",
+      "status",
+      "definition_json",
+      "integrity_errors"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "point_transactions",
+        "from": "source_last_transaction_id",
+        "to": "transaction_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "leaderboards",
+        "from": "leaderboard_id",
+        "to": "leaderboard_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "leaderboard_runs_no_replace",
+        "sql": "CREATE TRIGGER leaderboard_runs_no_replace BEFORE INSERT ON leaderboard_runs\r\nWHEN EXISTS(SELECT 1 FROM leaderboard_runs WHERE run_id = NEW.run_id)\r\nBEGIN SELECT RAISE(ABORT, 'Run exists'); END"
+      },
+      {
+        "name": "leaderboard_runs_no_delete",
+        "sql": "CREATE TRIGGER leaderboard_runs_no_delete BEFORE DELETE ON leaderboard_runs\r\nBEGIN SELECT RAISE(ABORT, 'Run history is immutable'); END"
+      },
+      {
+        "name": "leaderboard_runs_update",
+        "sql": "CREATE TRIGGER leaderboard_runs_update BEFORE UPDATE ON leaderboard_runs\r\nWHEN OLD.status != 'building' OR NEW.status != 'success' OR NEW.run_id != OLD.run_id\r\n  OR NEW.leaderboard_id != OLD.leaderboard_id OR NEW.generated_at != OLD.generated_at OR NEW.definition_version != OLD.definition_version\r\n  OR NEW.source_count != OLD.source_count OR NEW.source_last_transaction_id IS NOT OLD.source_last_transaction_id\r\n  OR NEW.definition_json != OLD.definition_json OR NEW.integrity_errors != OLD.integrity_errors OR NEW.row_count != (SELECT COUNT(*) FROM leaderboard_results WHERE run_id = OLD.run_id)\r\n  OR (NEW.row_count > 0 AND NEW.row_count != (SELECT MAX(rank) FROM leaderboard_results WHERE run_id = OLD.run_id))\r\nBEGIN SELECT RAISE(ABORT, 'Run is immutable or incomplete'); END"
+      },
+      {
+        "name": "boards_fixed_no_run",
+        "sql": "CREATE TRIGGER boards_fixed_no_run BEFORE INSERT ON leaderboard_runs\r\nWHEN EXISTS(SELECT 1 FROM leaderboards WHERE leaderboard_id=NEW.leaderboard_id AND type='all_time')\r\nBEGIN SELECT RAISE(ABORT, 'SYSTEM_LEADERBOARD_NO_REBUILD'); END"
+      }
+    ]
+  },
+  {
+    "name": "leaderboards",
+    "columns": [
+      "leaderboard_id",
+      "name",
+      "type",
+      "campaign_id",
+      "start_date",
+      "end_date",
+      "vote_type",
+      "top_n",
+      "is_public",
+      "status",
+      "created_at",
+      "updated_at",
+      "created_by",
+      "updated_by",
+      "version",
+      "last_mutation_id",
+      "current_run_id",
+      "is_current_comeback"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "leaderboard_runs",
+        "from": "current_run_id",
+        "to": "run_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 0,
+        "seq": 1,
+        "table": "leaderboard_runs",
+        "from": "leaderboard_id",
+        "to": "leaderboard_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "members",
+        "from": "created_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 3,
+        "seq": 0,
+        "table": "campaigns",
+        "from": "campaign_id",
+        "to": "campaign_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "leaderboards_no_replace",
+        "sql": "CREATE TRIGGER leaderboards_no_replace BEFORE INSERT ON leaderboards\r\nWHEN EXISTS(SELECT 1 FROM leaderboards WHERE leaderboard_id = NEW.leaderboard_id)\r\nBEGIN SELECT RAISE(ABORT, 'Leaderboard exists'); END"
+      },
+      {
+        "name": "leaderboards_no_delete",
+        "sql": "CREATE TRIGGER leaderboards_no_delete BEFORE DELETE ON leaderboards\r\nBEGIN SELECT RAISE(ABORT, 'Archive leaderboard instead'); END"
+      },
+      {
+        "name": "leaderboards_policy",
+        "sql": "CREATE TRIGGER leaderboards_policy BEFORE UPDATE ON leaderboards\r\nWHEN OLD.status = 'archived' OR NEW.leaderboard_id != OLD.leaderboard_id\r\n  OR (NEW.status != OLD.status AND NOT ((OLD.status = 'draft' AND NEW.status IN ('active','archived')) OR (OLD.status = 'active' AND NEW.status = 'archived')))\r\nBEGIN SELECT RAISE(ABORT, 'Immutable leaderboard or invalid transition'); END"
+      },
+      {
+        "name": "leaderboards_publish",
+        "sql": "CREATE TRIGGER leaderboards_publish BEFORE UPDATE OF current_run_id ON leaderboards\r\nWHEN NEW.current_run_id IS NOT OLD.current_run_id AND NEW.current_run_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM leaderboard_runs r\r\n  WHERE r.run_id = NEW.current_run_id AND r.leaderboard_id = NEW.leaderboard_id AND r.status = 'success' AND r.definition_version = OLD.version)\r\nBEGIN SELECT RAISE(ABORT, 'Invalid published run'); END"
+      },
+      {
+        "name": "boards_fixed_no_update",
+        "sql": "CREATE TRIGGER boards_fixed_no_update BEFORE UPDATE ON leaderboards WHEN OLD.type='all_time' OR NEW.type='all_time'\r\nBEGIN SELECT RAISE(ABORT, 'SYSTEM_LEADERBOARD_IMMUTABLE'); END"
+      },
+      {
+        "name": "boards_fixed_no_insert",
+        "sql": "CREATE TRIGGER boards_fixed_no_insert BEFORE INSERT ON leaderboards WHEN NEW.type='all_time'\r\nBEGIN SELECT RAISE(ABORT, 'SYSTEM_LEADERBOARD_IMMUTABLE'); END"
+      },
+      {
+        "name": "leaderboards_current_comeback_insert",
+        "sql": "CREATE TRIGGER leaderboards_current_comeback_insert BEFORE INSERT ON leaderboards\r\nWHEN NEW.is_current_comeback = 1 AND (NEW.type != 'campaign' OR NEW.status = 'archived')\r\nBEGIN SELECT RAISE(ABORT, 'Current comeback requires a non-archived campaign board'); END"
+      },
+      {
+        "name": "leaderboards_current_comeback_update",
+        "sql": "CREATE TRIGGER leaderboards_current_comeback_update BEFORE UPDATE ON leaderboards\r\nWHEN NEW.is_current_comeback = 1 AND (NEW.type != 'campaign' OR NEW.status = 'archived')\r\nBEGIN SELECT RAISE(ABORT, 'Current comeback requires a non-archived campaign board'); END"
+      }
+    ]
+  },
+  {
+    "name": "member_credentials",
+    "columns": [
+      "member_id",
+      "totp_ciphertext",
+      "totp_iv",
+      "totp_key_version",
+      "last_used_time_step",
+      "version",
+      "recovery_generation",
+      "updated_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "member_status_events",
+    "columns": [
+      "sequence",
+      "id",
+      "member_id",
+      "created_at",
+      "admin_member_id",
+      "admin_role",
+      "action",
+      "before_status",
+      "after_status",
+      "reason"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "member_status_events_no_update",
+        "sql": "CREATE TRIGGER member_status_events_no_update BEFORE UPDATE ON member_status_events BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_STATUS_AUDIT'); END"
+      },
+      {
+        "name": "member_status_events_no_delete",
+        "sql": "CREATE TRIGGER member_status_events_no_delete BEFORE DELETE ON member_status_events BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_STATUS_AUDIT'); END"
+      },
+      {
+        "name": "member_status_events_no_replace",
+        "sql": "CREATE TRIGGER member_status_events_no_replace BEFORE INSERT ON member_status_events WHEN EXISTS(SELECT 1 FROM member_status_events WHERE id=NEW.id OR sequence=NEW.sequence) BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMBER_STATUS_AUDIT'); END"
+      }
+    ]
+  },
+  {
+    "name": "member_tiers",
+    "columns": [
+      "tier_id",
+      "name",
+      "rank_order",
+      "min_points",
+      "icon_key",
+      "status",
+      "created_at",
+      "updated_at",
+      "created_by",
+      "updated_by",
+      "version",
+      "last_mutation_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "created_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "member_tiers_identity",
+        "sql": "CREATE TRIGGER member_tiers_identity BEFORE UPDATE ON member_tiers\r\nWHEN NEW.tier_id != OLD.tier_id OR NEW.name != OLD.name OR NEW.rank_order != OLD.rank_order OR NEW.icon_key != OLD.icon_key\r\nBEGIN SELECT RAISE(ABORT, 'Tier identity is immutable'); END"
+      },
+      {
+        "name": "member_tiers_no_delete",
+        "sql": "CREATE TRIGGER member_tiers_no_delete BEFORE DELETE ON member_tiers\r\nBEGIN SELECT RAISE(ABORT, 'Fixed tiers cannot be deleted'); END"
+      },
+      {
+        "name": "member_tiers_no_replace",
+        "sql": "CREATE TRIGGER member_tiers_no_replace BEFORE INSERT ON member_tiers\r\nWHEN EXISTS(SELECT 1 FROM member_tiers WHERE tier_id = NEW.tier_id)\r\nBEGIN SELECT RAISE(ABORT, 'Tier identity exists'); END"
+      },
+      {
+        "name": "member_tiers_order_insert",
+        "sql": "CREATE TRIGGER member_tiers_order_insert BEFORE INSERT ON member_tiers\r\nWHEN NEW.min_points IS NOT NULL AND EXISTS(SELECT 1 FROM member_tiers t WHERE t.min_points IS NOT NULL\r\n  AND ((t.rank_order < NEW.rank_order AND t.min_points >= NEW.min_points) OR (t.rank_order > NEW.rank_order AND t.min_points <= NEW.min_points)))\r\nBEGIN SELECT RAISE(ABORT, 'Tier thresholds must increase'); END"
+      },
+      {
+        "name": "member_tiers_order_update",
+        "sql": "CREATE TRIGGER member_tiers_order_update BEFORE UPDATE OF min_points ON member_tiers\r\nWHEN NEW.min_points IS NOT NULL AND EXISTS(SELECT 1 FROM member_tiers t WHERE t.tier_id != OLD.tier_id AND t.min_points IS NOT NULL\r\n  AND ((t.rank_order < NEW.rank_order AND t.min_points >= NEW.min_points) OR (t.rank_order > NEW.rank_order AND t.min_points <= NEW.min_points)))\r\nBEGIN SELECT RAISE(ABORT, 'Tier thresholds must increase'); END"
+      }
+    ]
+  },
+  {
+    "name": "members",
+    "columns": [
+      "id",
+      "member_id",
+      "login_name",
+      "nickname",
+      "player_id",
+      "status",
+      "created_at",
+      "updated_at",
+      "last_login_at"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "members_fan_id_no_replace",
+        "sql": "CREATE TRIGGER members_fan_id_no_replace BEFORE INSERT ON members\r\nWHEN NEW.player_id IS NOT NULL AND EXISTS(SELECT 1 FROM members WHERE lower(trim(player_id))=lower(trim(NEW.player_id)))\r\nBEGIN SELECT RAISE(ABORT, 'FAN_ID_TAKEN'); END"
+      },
+      {
+        "name": "members_fan_id_immutable",
+        "sql": "CREATE TRIGGER members_fan_id_immutable BEFORE UPDATE OF player_id ON members\r\nWHEN OLD.player_id IS NOT NULL AND NEW.player_id IS NOT OLD.player_id\r\nBEGIN SELECT RAISE(ABORT, 'FAN_ID_IMMUTABLE'); END"
+      },
+      {
+        "name": "members_no_replace_identity",
+        "sql": "CREATE TRIGGER members_no_replace_identity BEFORE INSERT ON members\r\nWHEN EXISTS(SELECT 1 FROM members WHERE member_id=NEW.member_id OR id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT, 'Member identity already exists'); END"
+      }
+    ]
+  },
+  {
+    "name": "point_transactions",
+    "columns": [
+      "transaction_id",
+      "created_at",
+      "member_id",
+      "case_id",
+      "campaign_id",
+      "category",
+      "vote_type",
+      "vote_date",
+      "points",
+      "reason",
+      "created_by",
+      "reference_transaction_id",
+      "metadata_json",
+      "idempotency_hash",
+      "request_hash"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "point_transactions",
+        "from": "reference_transaction_id",
+        "to": "transaction_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "created_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "campaigns",
+        "from": "campaign_id",
+        "to": "campaign_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 3,
+        "seq": 0,
+        "table": "cases",
+        "from": "case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 4,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "points_no_update",
+        "sql": "CREATE TRIGGER points_no_update BEFORE UPDATE ON point_transactions\r\nBEGIN SELECT RAISE(ABORT, 'Point ledger is immutable'); END"
+      },
+      {
+        "name": "points_no_delete",
+        "sql": "CREATE TRIGGER points_no_delete BEFORE DELETE ON point_transactions\r\nBEGIN SELECT RAISE(ABORT, 'Point ledger is immutable'); END"
+      },
+      {
+        "name": "points_no_replace",
+        "sql": "CREATE TRIGGER points_no_replace BEFORE INSERT ON point_transactions\r\nWHEN EXISTS (SELECT 1 FROM point_transactions p WHERE p.transaction_id = NEW.transaction_id\r\n  OR (NEW.idempotency_hash IS NOT NULL AND p.idempotency_hash = NEW.idempotency_hash)\r\n  OR (NEW.category = 'proof_approved' AND p.category = 'proof_approved' AND p.case_id = NEW.case_id)\r\n  OR (NEW.category = 'proof_revoked' AND p.category = 'proof_revoked' AND p.reference_transaction_id = NEW.reference_transaction_id))\r\nBEGIN SELECT RAISE(ABORT, 'Point ledger conflict'); END"
+      },
+      {
+        "name": "points_exact_reversal",
+        "sql": "CREATE TRIGGER points_exact_reversal BEFORE INSERT ON point_transactions\r\nWHEN NEW.category = 'proof_revoked' AND NOT EXISTS (SELECT 1 FROM point_transactions p WHERE p.transaction_id = NEW.reference_transaction_id\r\n  AND p.category IN ('proof_approved', 'proof_reapproved') AND p.case_id = NEW.case_id AND p.member_id = NEW.member_id\r\n  AND p.campaign_id = NEW.campaign_id AND p.vote_type = NEW.vote_type AND p.vote_date = NEW.vote_date AND NEW.points = -p.points)\r\nBEGIN SELECT RAISE(ABORT, 'Invalid point reversal'); END"
+      },
+      {
+        "name": "points_case_binding",
+        "sql": "CREATE TRIGGER points_case_binding BEFORE INSERT ON point_transactions\r\nWHEN NEW.case_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM cases c WHERE c.id = NEW.case_id\r\n  AND c.member_id = NEW.member_id AND c.campaign_id = NEW.campaign_id AND c.vote_type = NEW.vote_type AND c.vote_date = NEW.vote_date\r\n  AND ((NEW.category IN ('proof_approved', 'proof_reapproved') AND c.status = 'approved') OR (NEW.category = 'proof_revoked' AND c.status = 'revoked')))\r\nBEGIN SELECT RAISE(ABORT, 'Point transaction does not match case'); END"
+      }
+    ]
+  },
+  {
+    "name": "proof_backups",
+    "columns": [
+      "id",
+      "file_id",
+      "provider",
+      "status",
+      "source_object_key",
+      "source_size",
+      "source_mime",
+      "source_etag",
+      "drive_file_id",
+      "drive_folder_id",
+      "root_folder_id",
+      "attempts",
+      "next_attempt_at",
+      "lease_token",
+      "lease_until",
+      "created_at",
+      "started_at",
+      "completed_at",
+      "last_error_code",
+      "version"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "case_files",
+        "from": "file_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "proof_duplicate_groups",
+    "columns": [
+      "member_id",
+      "campaign_id",
+      "sha256",
+      "canonical_file_id",
+      "case_created_at",
+      "case_internal_id",
+      "generation",
+      "dirty",
+      "after_file_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "proof_duplicate_jobs",
+        "from": "canonical_file_id",
+        "to": "file_id",
+        "on_update": "NO ACTION",
+        "on_delete": "CASCADE",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "campaigns",
+        "from": "campaign_id",
+        "to": "campaign_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "proof_duplicate_jobs",
+    "columns": [
+      "file_id",
+      "member_id",
+      "campaign_id",
+      "sha256",
+      "case_internal_id",
+      "case_created_at",
+      "state",
+      "attempts",
+      "next_attempt_at",
+      "lease_token",
+      "lease_until",
+      "claimed_at",
+      "analyzed_canonical_file_id",
+      "canonical_file_id",
+      "canonical_case_id",
+      "last_error",
+      "completed_at",
+      "updated_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "cases",
+        "from": "canonical_case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "proof_duplicate_jobs",
+        "from": "canonical_file_id",
+        "to": "file_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "cases",
+        "from": "case_internal_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 3,
+        "seq": 0,
+        "table": "campaigns",
+        "from": "campaign_id",
+        "to": "campaign_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 4,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 5,
+        "seq": 0,
+        "table": "proof_exact_hashes",
+        "from": "file_id",
+        "to": "file_id",
+        "on_update": "NO ACTION",
+        "on_delete": "CASCADE",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "duplicate_source_immutable",
+        "sql": "CREATE TRIGGER duplicate_source_immutable BEFORE UPDATE OF file_id,member_id,campaign_id,sha256,case_internal_id,case_created_at ON proof_duplicate_jobs\r\nBEGIN SELECT RAISE(ABORT,'Duplicate source is immutable'); END"
+      },
+      {
+        "name": "duplicate_canonical_scope",
+        "sql": "CREATE TRIGGER duplicate_canonical_scope BEFORE UPDATE OF canonical_file_id,canonical_case_id,state ON proof_duplicate_jobs\r\nWHEN NEW.state='exact_duplicate' AND NOT EXISTS(SELECT 1 FROM proof_duplicate_jobs p\r\n  WHERE p.file_id=NEW.canonical_file_id AND p.case_internal_id=NEW.canonical_case_id\r\n  AND p.member_id=NEW.member_id AND p.campaign_id=NEW.campaign_id AND p.sha256=NEW.sha256\r\n  AND (p.case_created_at,p.case_internal_id,p.file_id)<(NEW.case_created_at,NEW.case_internal_id,NEW.file_id))\r\nBEGIN SELECT RAISE(ABORT,'Duplicate canonical scope mismatch'); END"
+      },
+      {
+        "name": "duplicate_source_insert",
+        "sql": "CREATE TRIGGER duplicate_source_insert BEFORE INSERT ON proof_duplicate_jobs\r\nWHEN NOT EXISTS(SELECT 1 FROM proof_exact_hashes h JOIN case_files f ON f.id=h.file_id JOIN cases c ON c.id=f.case_id\r\n  WHERE h.file_id=NEW.file_id AND h.sha256=NEW.sha256 AND h.source_etag=f.etag AND h.source_size=f.size\r\n  AND c.id=NEW.case_internal_id AND c.created_at=NEW.case_created_at AND c.member_id IS NEW.member_id AND c.campaign_id=NEW.campaign_id)\r\nBEGIN SELECT RAISE(ABORT,'Duplicate source mismatch'); END"
+      }
+    ]
+  },
+  {
+    "name": "proof_duplicate_requests",
+    "columns": [
+      "request_id",
+      "file_id",
+      "created_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "proof_duplicate_jobs",
+        "from": "file_id",
+        "to": "file_id",
+        "on_update": "NO ACTION",
+        "on_delete": "CASCADE",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "proof_exact_hashes",
+    "columns": [
+      "file_id",
+      "sha256",
+      "algorithm",
+      "version",
+      "verified_at",
+      "source_etag",
+      "source_size",
+      "case_created_at",
+      "case_internal_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "cases",
+        "from": "case_internal_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "case_files",
+        "from": "file_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "proof_exact_hash_no_update",
+        "sql": "CREATE TRIGGER proof_exact_hash_no_update BEFORE UPDATE ON proof_exact_hashes\r\nBEGIN SELECT RAISE(ABORT,'Verified proof hashes are immutable'); END"
+      },
+      {
+        "name": "duplicate_enqueue",
+        "sql": "CREATE TRIGGER duplicate_enqueue AFTER INSERT ON proof_exact_hashes\r\nBEGIN\r\n  INSERT INTO proof_duplicate_jobs(file_id,member_id,campaign_id,sha256,case_internal_id,case_created_at,state,next_attempt_at,updated_at)\r\n    SELECT NEW.file_id,c.member_id,c.campaign_id,NEW.sha256,c.id,c.created_at,\r\n      CASE WHEN c.member_id IS NULL THEN 'not_applicable' ELSE 'pending' END,\r\n      CASE WHEN c.member_id IS NULL THEN NULL ELSE 0 END,NEW.verified_at\r\n    FROM case_files f JOIN cases c ON c.id=f.case_id WHERE f.id=NEW.file_id;\r\n  -- Only one scoped group changes synchronously. Existing stale results are\r\n  -- logically pending immediately; bounded background reconciliation resets them.\r\n  -- A scoped minimum metadata register is updated by one PK UPSERT. There is\r\n  -- no SELECT of matching/prior proofs and no classification on this path.\r\n  INSERT INTO proof_duplicate_groups(member_id,campaign_id,sha256,canonical_file_id,case_created_at,case_internal_id,dirty,after_file_id)\r\n    SELECT member_id,campaign_id,sha256,file_id,case_created_at,case_internal_id,0,''\r\n    FROM proof_duplicate_jobs WHERE file_id=NEW.file_id AND member_id IS NOT NULL\r\n    ON CONFLICT(member_id,campaign_id,sha256) DO UPDATE SET canonical_file_id=excluded.canonical_file_id,\r\n      case_created_at=excluded.case_created_at,case_internal_id=excluded.case_internal_id,\r\n      dirty=1,after_file_id='',generation=generation+1\r\n      WHERE (excluded.case_created_at,excluded.case_internal_id,excluded.canonical_file_id)\r\n        <(proof_duplicate_groups.case_created_at,proof_duplicate_groups.case_internal_id,proof_duplicate_groups.canonical_file_id);\r\nEND"
+      },
+      {
+        "name": "proof_exact_hash_source",
+        "sql": "CREATE TRIGGER proof_exact_hash_source BEFORE INSERT ON proof_exact_hashes\r\nWHEN NOT EXISTS(SELECT 1 FROM case_files f JOIN cases c ON c.id=f.case_id\r\n  WHERE f.id=NEW.file_id AND f.etag=NEW.source_etag AND f.size=NEW.source_size\r\n  AND c.id=NEW.case_internal_id AND c.created_at=NEW.case_created_at)\r\nBEGIN SELECT RAISE(ABORT,'Proof hash source mismatch'); END"
+      }
+    ]
+  },
+  {
+    "name": "proof_upload_checksums",
+    "columns": [
+      "object_key",
+      "sha256",
+      "source_etag",
+      "source_size"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "completed_upload_files",
+        "from": "object_key",
+        "to": "object_key",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "proof_upload_checksum_source",
+        "sql": "CREATE TRIGGER proof_upload_checksum_source BEFORE INSERT ON proof_upload_checksums\r\nWHEN NOT EXISTS(SELECT 1 FROM completed_upload_files f WHERE f.object_key=NEW.object_key\r\n  AND f.etag=NEW.source_etag AND f.size=NEW.source_size)\r\nBEGIN SELECT RAISE(ABORT,'Upload checksum source mismatch'); END"
+      },
+      {
+        "name": "proof_upload_checksum_no_update",
+        "sql": "CREATE TRIGGER proof_upload_checksum_no_update BEFORE UPDATE ON proof_upload_checksums\r\nBEGIN SELECT RAISE(ABORT,'Verified upload checksums are immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "proof_upload_intents",
+    "columns": [
+      "session_id",
+      "proof_id",
+      "object_key",
+      "storage_version",
+      "campaign_id",
+      "member_id",
+      "guest_capability_hash",
+      "content_type",
+      "size",
+      "expected_sha256",
+      "created_at",
+      "expires_at",
+      "grant_expires",
+      "state",
+      "write_token",
+      "uploaded_at",
+      "sealed_at",
+      "consumed_at",
+      "consumed_case_id",
+      "completion_mode"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "cases",
+        "from": "consumed_case_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 1,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      },
+      {
+        "id": 2,
+        "seq": 0,
+        "table": "campaigns",
+        "from": "campaign_id",
+        "to": "campaign_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "final_intent_identity",
+        "sql": "CREATE TRIGGER final_intent_identity BEFORE UPDATE OF session_id,proof_id,object_key,storage_version,campaign_id,member_id,guest_capability_hash,content_type,size,expected_sha256,created_at,expires_at,grant_expires ON proof_upload_intents\r\nBEGIN SELECT RAISE(ABORT,'Immutable upload identity'); END"
+      },
+      {
+        "name": "final_intent_no_replace",
+        "sql": "CREATE TRIGGER final_intent_no_replace BEFORE INSERT ON proof_upload_intents\r\nWHEN EXISTS(SELECT 1 FROM proof_upload_intents WHERE session_id=NEW.session_id OR proof_id=NEW.proof_id OR object_key=NEW.object_key)\r\nBEGIN SELECT RAISE(ABORT,'Immutable upload identity'); END"
+      },
+      {
+        "name": "final_intent_no_delete",
+        "sql": "CREATE TRIGGER final_intent_no_delete BEFORE DELETE ON proof_upload_intents\r\nBEGIN SELECT RAISE(ABORT,'Upload tombstones must be retained'); END"
+      },
+      {
+        "name": "final_intent_mode_identity",
+        "sql": "CREATE TRIGGER final_intent_mode_identity BEFORE UPDATE OF completion_mode ON proof_upload_intents\r\nBEGIN SELECT RAISE(ABORT,'Immutable upload completion mode'); END"
+      },
+      {
+        "name": "final_intent_state",
+        "sql": "CREATE TRIGGER final_intent_state BEFORE UPDATE ON proof_upload_intents\r\nWHEN (OLD.state!=NEW.state AND NOT (\r\n (OLD.state='prepared' AND NEW.state IN ('uploaded','sealed','deleting')) OR\r\n (OLD.state='uploaded' AND NEW.state IN ('sealed','deleting')) OR\r\n (OLD.state='sealed' AND NEW.state IN ('consumed','deleting')) OR\r\n (OLD.completion_mode='direct' AND OLD.state='prepared' AND NEW.state='consumed') OR\r\n (OLD.state='deleting' AND NEW.state='deleted')))\r\n OR (OLD.consumed_case_id IS NOT NULL AND NEW.consumed_case_id IS NOT OLD.consumed_case_id)\r\n OR (NEW.completion_mode='direct' AND NEW.state IN ('uploaded','sealed'))\r\nBEGIN SELECT RAISE(ABORT,'Invalid upload transition'); END"
+      },
+      {
+        "name": "final_intent_direct_insert",
+        "sql": "CREATE TRIGGER final_intent_direct_insert BEFORE INSERT ON proof_upload_intents\r\nWHEN NEW.completion_mode='direct' AND NEW.state!='prepared'\r\nBEGIN SELECT RAISE(ABORT,'Direct intent must start prepared'); END"
+      }
+    ]
+  },
+  {
+    "name": "recovery_codes",
+    "columns": [
+      "member_id",
+      "generation",
+      "code_hash",
+      "created_at",
+      "used_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "site_announcements",
+    "columns": [
+      "announcement_id",
+      "title",
+      "body",
+      "enabled",
+      "dismissible",
+      "starts_at",
+      "ends_at",
+      "button_label",
+      "button_url",
+      "version",
+      "created_at",
+      "updated_at",
+      "updated_by",
+      "last_mutation_id",
+      "button_enabled"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "solo_targets",
+    "columns": [
+      "target_id",
+      "display_name",
+      "active",
+      "sort_order"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "solo_targets_stable_identity",
+        "sql": "CREATE TRIGGER solo_targets_stable_identity BEFORE UPDATE OF target_id ON solo_targets\r\nWHEN NEW.target_id IS NOT OLD.target_id\r\nBEGIN SELECT RAISE(ABORT, 'SOLO_TARGET_IMMUTABLE'); END"
+      }
+    ]
+  },
+  {
+    "name": "storage_alert_deliveries",
+    "columns": [
+      "id",
+      "alert_id",
+      "recipient_hash",
+      "created_at",
+      "state"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "storage_alerts",
+        "from": "alert_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "storage_alerts",
+    "columns": [
+      "id",
+      "episode",
+      "kind",
+      "created_at",
+      "lease_token",
+      "lease_until",
+      "state"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "storage_archive_control",
+    "columns": [
+      "id",
+      "epoch",
+      "mode",
+      "writer_policy",
+      "evidence_hash",
+      "verified_until",
+      "updated_at"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "archive_control_identity",
+        "sql": "CREATE TRIGGER archive_control_identity BEFORE UPDATE ON storage_archive_control\r\nWHEN NEW.id!=OLD.id OR NEW.epoch<OLD.epoch\r\n OR (NEW.mode!=OLD.mode AND NEW.epoch<=OLD.epoch)\r\n OR (NEW.mode='running' AND (NEW.writer_policy IS NOT 'create_only_v1' OR NEW.evidence_hash IS NULL OR length(NEW.evidence_hash)!=64\r\n OR NEW.verified_until<=CAST(strftime('%s','now') AS INTEGER)\r\n OR EXISTS(SELECT 1 FROM storage_archive_dispatches WHERE state!='completed')\r\n OR EXISTS(SELECT 1 FROM cold_proofs WHERE state='deleting')))\r\n OR (NEW.mode='paused' AND (EXISTS(SELECT 1 FROM storage_archive_dispatches WHERE state!='completed')\r\n OR EXISTS(SELECT 1 FROM cold_proofs WHERE state='deleting')))\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_CONTROL_CONFLICT'); END"
+      },
+      {
+        "name": "archive_control_no_delete",
+        "sql": "CREATE TRIGGER archive_control_no_delete BEFORE DELETE ON storage_archive_control\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_CONTROL_IMMUTABLE'); END"
+      },
+      {
+        "name": "archive_control_no_replace",
+        "sql": "CREATE TRIGGER archive_control_no_replace BEFORE INSERT ON storage_archive_control\r\nWHEN EXISTS(SELECT 1 FROM storage_archive_control WHERE id=NEW.id)\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_CONTROL_IMMUTABLE'); END"
+      }
+    ]
+  },
+  {
+    "name": "storage_archive_dispatches",
+    "columns": [
+      "token",
+      "file_id",
+      "epoch",
+      "state",
+      "created_at",
+      "completed_at"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "case_files",
+        "from": "file_id",
+        "to": "id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "archive_dispatch_identity",
+        "sql": "CREATE TRIGGER archive_dispatch_identity BEFORE UPDATE ON storage_archive_dispatches\r\nWHEN NEW.token IS NOT OLD.token OR NEW.file_id IS NOT OLD.file_id OR NEW.epoch IS NOT OLD.epoch OR NEW.created_at IS NOT OLD.created_at\r\n OR OLD.state='completed' OR (OLD.state='ambiguous' AND NEW.state='reserved')\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_DISPATCH_IMMUTABLE'); END"
+      },
+      {
+        "name": "archive_dispatch_no_delete",
+        "sql": "CREATE TRIGGER archive_dispatch_no_delete BEFORE DELETE ON storage_archive_dispatches\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_DISPATCH_IMMUTABLE'); END"
+      },
+      {
+        "name": "archive_dispatch_no_replace",
+        "sql": "CREATE TRIGGER archive_dispatch_no_replace BEFORE INSERT ON storage_archive_dispatches\r\nWHEN EXISTS(SELECT 1 FROM storage_archive_dispatches WHERE token=NEW.token)\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_DISPATCH_IMMUTABLE'); END"
+      },
+      {
+        "name": "archive_dispatch_admission",
+        "sql": "CREATE TRIGGER archive_dispatch_admission BEFORE INSERT ON storage_archive_dispatches\r\nWHEN NEW.state!='reserved' OR NOT EXISTS(SELECT 1 FROM storage_archive_control WHERE id=1 AND mode='running'\r\n AND epoch=NEW.epoch AND writer_policy='create_only_v1' AND length(evidence_hash)=64\r\n AND verified_until>CAST(strftime('%s','now') AS INTEGER))\r\n OR NOT EXISTS(SELECT 1 FROM cold_proofs WHERE file_id=NEW.file_id AND state='deleting' AND lease_token=NEW.token AND archive_epoch=NEW.epoch)\r\nBEGIN SELECT RAISE(ABORT,'ARCHIVE_FENCED'); END"
+      },
+      {
+        "name": "image_archive_dispatch_guard",
+        "sql": "CREATE TRIGGER image_archive_dispatch_guard BEFORE INSERT ON storage_archive_dispatches\r\nWHEN NOT EXISTS(SELECT 1 FROM image_maintenance_control WHERE id=1 AND mode='open' AND legacy_status='operator_attested')\r\n OR EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND inventory_id IS NOT NULL)\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_MUTATION_FENCED'); END"
+      }
+    ]
+  },
+  {
+    "name": "storage_audit",
+    "columns": [
+      "id",
+      "created_at",
+      "action",
+      "target",
+      "detail"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "storage_audit_no_update",
+        "sql": "CREATE TRIGGER storage_audit_no_update BEFORE UPDATE ON storage_audit BEGIN SELECT RAISE(ABORT,'Storage audit is immutable'); END"
+      },
+      {
+        "name": "storage_audit_no_delete",
+        "sql": "CREATE TRIGGER storage_audit_no_delete BEFORE DELETE ON storage_audit BEGIN SELECT RAISE(ABORT,'Storage audit is immutable'); END"
+      },
+      {
+        "name": "storage_audit_no_replace",
+        "sql": "CREATE TRIGGER storage_audit_no_replace BEFORE INSERT ON storage_audit WHEN EXISTS(SELECT 1 FROM storage_audit WHERE id=NEW.id) BEGIN SELECT RAISE(ABORT,'Storage audit is immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "storage_capacity",
+    "columns": [
+      "id",
+      "used_bytes",
+      "reserved_bytes",
+      "trusted_until",
+      "blocked",
+      "episode",
+      "inventory_id",
+      "inventory_cursor",
+      "inventory_bytes",
+      "inventory_count",
+      "inventory_staging",
+      "inventory_other",
+      "inventory_version",
+      "anomaly",
+      "observed_at",
+      "cleanup_requested",
+      "inventory_phase"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "image_inventory_claim",
+        "sql": "CREATE TRIGGER image_inventory_claim BEFORE UPDATE OF inventory_id ON storage_capacity\r\nWHEN OLD.inventory_id IS NULL AND NEW.inventory_id IS NOT NULL AND (\r\n NOT EXISTS(SELECT 1 FROM image_maintenance_control WHERE id=1 AND mode IN('open','closed') AND legacy_status='operator_attested')\r\n OR EXISTS(SELECT 1 FROM image_mutation_operations WHERE state IN('active','unknown') AND kind!='inventory')\r\n OR EXISTS(SELECT 1 FROM proof_upload_intents WHERE write_token IS NOT NULL)\r\n OR EXISTS(SELECT 1 FROM storage_archive_dispatches WHERE state!='completed')\r\n OR EXISTS(SELECT 1 FROM cold_proofs WHERE state='deleting') OR NEW.reserved_bytes!=0)\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_INVENTORY_BUSY'); END"
+      },
+      {
+        "name": "image_inventory_pin",
+        "sql": "CREATE TRIGGER image_inventory_pin AFTER UPDATE OF inventory_id ON storage_capacity\r\nWHEN OLD.inventory_id IS NULL AND NEW.inventory_id IS NOT NULL\r\nBEGIN\r\n INSERT INTO image_mutation_operations(id,kind,generation,state,created_at)\r\n SELECT NEW.inventory_id,'inventory',generation,'active',CAST(strftime('%s','now') AS INTEGER) FROM image_maintenance_control WHERE id=1;\r\n INSERT INTO storage_audit VALUES(NEW.inventory_id||':image-pin',CAST(strftime('%s','now') AS INTEGER),'inventory_image_pin',NEW.inventory_id,'{}');\r\nEND"
+      },
+      {
+        "name": "image_inventory_publish",
+        "sql": "CREATE TRIGGER image_inventory_publish BEFORE UPDATE OF inventory_id ON storage_capacity\r\nWHEN OLD.inventory_id IS NOT NULL AND NEW.inventory_id IS NULL AND NEW.trusted_until>0 AND (\r\n NOT EXISTS(SELECT 1 FROM image_maintenance_control m JOIN image_mutation_operations o ON o.id=OLD.inventory_id\r\n   WHERE m.id=1 AND m.mode IN('open','closed') AND m.legacy_status='operator_attested'\r\n   AND o.kind='inventory' AND o.state='active' AND o.generation=m.generation)\r\n OR EXISTS(SELECT 1 FROM image_mutation_operations WHERE kind!='inventory' AND state IN('active','unknown'))\r\n OR EXISTS(SELECT 1 FROM proof_upload_intents WHERE write_token IS NOT NULL)\r\n OR EXISTS(SELECT 1 FROM storage_archive_dispatches WHERE state!='completed')\r\n OR EXISTS(SELECT 1 FROM cold_proofs WHERE state='deleting') OR NEW.reserved_bytes!=0)\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_INVENTORY_UNTRUSTED'); END"
+      },
+      {
+        "name": "image_inventory_abort_guard",
+        "sql": "CREATE TRIGGER image_inventory_abort_guard BEFORE UPDATE OF inventory_id ON storage_capacity\r\nWHEN OLD.inventory_id IS NOT NULL AND NEW.inventory_id IS NULL AND NEW.trusted_until=0\r\n AND (NEW.blocked!=1 OR NOT EXISTS(SELECT 1 FROM image_maintenance_control WHERE id=1 AND mode IN('draining','closed')))\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_INVENTORY_ABORT_FENCED'); END"
+      },
+      {
+        "name": "image_inventory_terminal",
+        "sql": "CREATE TRIGGER image_inventory_terminal AFTER UPDATE OF inventory_id ON storage_capacity\r\nWHEN OLD.inventory_id IS NOT NULL AND NEW.inventory_id IS NULL\r\nBEGIN UPDATE image_mutation_operations SET state=CASE WHEN NEW.trusted_until>0 THEN 'completed' ELSE 'aborted' END,\r\n finished_at=CAST(strftime('%s','now') AS INTEGER),outcome=CASE WHEN NEW.trusted_until>0 THEN 'published' ELSE 'invalidated' END\r\n WHERE id=OLD.inventory_id AND kind='inventory' AND state='active'; END"
+      }
+    ]
+  },
+  {
+    "name": "storage_history",
+    "columns": [
+      "id",
+      "created_at",
+      "bytes",
+      "reserved_bytes",
+      "object_count",
+      "staging_bytes",
+      "other_bytes",
+      "anomaly"
+    ],
+    "fk": [],
+    "triggers": []
+  },
+  {
+    "name": "storage_reservations",
+    "columns": [
+      "id",
+      "object_key",
+      "bytes",
+      "state",
+      "created_at",
+      "etag",
+      "object_version"
+    ],
+    "fk": [],
+    "triggers": [
+      {
+        "name": "storage_reserve_guard",
+        "sql": "CREATE TRIGGER storage_reserve_guard BEFORE INSERT ON storage_reservations BEGIN\r\n SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND blocked=0 AND anomaly IS NULL\r\n AND inventory_id IS NULL AND trusted_until>CAST(strftime('%s','now') AS INTEGER)\r\n AND used_bytes+reserved_bytes+NEW.bytes<9500000000) THEN RAISE(ABORT,'R2_STORAGE_CAPACITY_EXCEEDED') END;\r\nEND"
+      },
+      {
+        "name": "storage_reserve_count",
+        "sql": "CREATE TRIGGER storage_reserve_count AFTER INSERT ON storage_reservations BEGIN\r\n UPDATE storage_capacity SET reserved_bytes=reserved_bytes+NEW.bytes WHERE id=1;\r\nEND"
+      },
+      {
+        "name": "storage_commit_count",
+        "sql": "CREATE TRIGGER storage_commit_count AFTER UPDATE OF state ON storage_reservations WHEN OLD.state='reserved' AND NEW.state='committed' BEGIN\r\n UPDATE storage_capacity SET used_bytes=used_bytes+NEW.bytes,reserved_bytes=reserved_bytes-NEW.bytes WHERE id=1;\r\nEND"
+      },
+      {
+        "name": "archive_writer_reservation_guard",
+        "sql": "CREATE TRIGGER archive_writer_reservation_guard BEFORE INSERT ON storage_reservations\r\nWHEN EXISTS(SELECT 1 FROM case_files f JOIN cold_proofs p ON p.file_id=f.id\r\n WHERE f.object_key=NEW.object_key AND p.state IN('verifying','deleting','cold'))\r\nBEGIN SELECT RAISE(ABORT,'R2_STORAGE_CAPACITY_EXCEEDED'); END"
+      },
+      {
+        "name": "storage_cancel_count",
+        "sql": "CREATE TRIGGER storage_cancel_count AFTER UPDATE OF state ON storage_reservations WHEN OLD.state='reserved' AND NEW.state='cancelled' BEGIN\r\n UPDATE storage_capacity SET reserved_bytes=reserved_bytes-NEW.bytes WHERE id=1;\r\nEND"
+      },
+      {
+        "name": "image_put_maintenance_guard",
+        "sql": "CREATE TRIGGER image_put_maintenance_guard BEFORE INSERT ON storage_reservations\r\nWHEN NOT EXISTS(SELECT 1 FROM image_maintenance_control WHERE id=1 AND mode='open')\r\nBEGIN SELECT RAISE(ABORT,'IMAGE_MUTATION_FENCED'); END"
+      }
+    ]
+  },
+  {
+    "name": "submission_settings",
+    "columns": [
+      "id",
+      "submissions_enabled",
+      "submissions_message",
+      "version",
+      "updated_at",
+      "updated_by",
+      "last_mutation_id"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "updated_by",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  },
+  {
+    "name": "submission_settings_audit",
+    "columns": [
+      "id",
+      "created_at",
+      "admin_member_id",
+      "admin_role",
+      "version",
+      "before_json",
+      "after_json"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "admin_member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "submission_audit_no_update",
+        "sql": "CREATE TRIGGER submission_audit_no_update BEFORE UPDATE ON submission_settings_audit\r\nBEGIN SELECT RAISE(ABORT,'Submission audit is immutable'); END"
+      },
+      {
+        "name": "submission_audit_no_delete",
+        "sql": "CREATE TRIGGER submission_audit_no_delete BEFORE DELETE ON submission_settings_audit\r\nBEGIN SELECT RAISE(ABORT,'Submission audit is immutable'); END"
+      },
+      {
+        "name": "submission_audit_no_replace",
+        "sql": "CREATE TRIGGER submission_audit_no_replace BEFORE INSERT ON submission_settings_audit\r\nWHEN EXISTS(SELECT 1 FROM submission_settings_audit WHERE id=NEW.id OR version=NEW.version)\r\nBEGIN SELECT RAISE(ABORT,'Submission audit is immutable'); END"
+      }
+    ]
+  },
+  {
+    "name": "trusted_devices",
+    "columns": [
+      "id",
+      "member_id",
+      "token_hash",
+      "created_at",
+      "last_used_at",
+      "expires_at",
+      "revoked_at",
+      "label"
+    ],
+    "fk": [
+      {
+        "id": 0,
+        "seq": 0,
+        "table": "members",
+        "from": "member_id",
+        "to": "member_id",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "match": "NONE"
+      }
+    ],
+    "triggers": []
+  }
+]

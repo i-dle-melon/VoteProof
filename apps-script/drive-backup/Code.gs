@@ -12,6 +12,8 @@ function vpConfig_() {
 function vpRequest_(c, path, method, body, job) {
   vpCheck_(/^\/api\/internal\/drive-backup\//.test(path), 'INVALID_SOURCE');
   var headers = { Authorization: 'Bearer ' + c.secret };
+  var epoch = (c.properties || PropertiesService.getScriptProperties()).getProperty('VOTEPROOF_RESET_EPOCH');
+  if (epoch) { vpCheck_(/^[0-9]+$/.test(epoch), 'CONFIG_MISSING'); headers['X-VoteProof-Reset-Epoch'] = epoch; }
   if (job) { headers['X-VoteProof-Backup-Lease'] = job.lease_token; headers['X-VoteProof-Backup-Attempt'] = String(job.attempt); }
   var options = { method: method, headers: headers, muteHttpExceptions: true, followRedirects: false, validateHttpsCertificates: true };
   if (body !== undefined) { options.contentType = 'application/json'; options.payload = JSON.stringify(body); }

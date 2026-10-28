@@ -218,5 +218,5 @@ export async function embeddedCaseRuntime({ migrationHook, migrationThrough } = 
     }
     return { p, ref };
   }
-  return { db, env, fetch, identity, upload, bucket, close: () => sqlite.close() };
+  return { db, sqlite, env, fetch, identity, upload, bucket, close: () => sqlite.close() };
 }

@@ -7,6 +7,8 @@ import {requireCaseCampaignRow} from './campaign-policy.js';
 import {r2VerifiedSha256} from './r2-verified-checksum.js';
 import {rememberCompletedUpload,COMPLETED_UPLOAD_TTL_SECONDS} from './completed-uploads.js';
 import {CaseError} from '../api/case-validation.js';
+import {issueResetSession} from './prelaunch-reset-fence.js';
+import {proofKey} from './proof-generation.js';
 
 const fail=(code='UPLOAD_INTENT_INVALID',status=409)=>{throw new UploadError(status,code,'Upload authorization or state is invalid');};
 export const uploadCapabilityHash=capability=>sha256('VoteProof/upload-capability/v2:'+capability);
@@ -24,7 +26,8 @@ export async function prepareFinalUpload(env,request,config,input) {
   const sessionId=crypto.randomUUID(),proofId=crypto.randomUUID(),file=input.files[0],now=new Date();
   const capability=member?null:newQueryKey(),guestCapabilityHash=capability?await uploadCapabilityHash(capability):null;
   const expires=Math.floor(now.valueOf()/1000)+UPLOAD_LIMITS.expiresSeconds;
-  const objectKey=`proofs/final/${sessionId}/${proofId}.${MIME_EXTENSIONS[file.type]}`;
+  const objectKey=proofKey(env,'final',`${sessionId}/${proofId}.${MIME_EXTENSIONS[file.type]}`);
+  await issueResetSession(env,sessionId,[objectKey],input.completionMode==='direct'?'direct':'v2');
   await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
     content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
     SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)`)

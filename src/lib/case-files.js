@@ -2,6 +2,7 @@ import {capacityPut,StorageCapacityError} from './storage-capacity.js';
 import { CaseError } from "../api/case-validation.js";
 import { validUploadedObject, MIME_EXTENSIONS } from "../api/upload-validation.js";
 import { r2VerifiedSha256, validSha256 } from './r2-verified-checksum.js';
+import {proofKey} from './proof-generation.js';
 
 export async function archiveCaseFiles(env, caseId, files, cleanupKeys) {
   const bucket=env.PROOFS_BUCKET;
@@ -25,7 +26,7 @@ export async function archiveCaseFiles(env, caseId, files, cleanupKeys) {
         throw new CaseError(409, "UPLOAD_CHANGED", "Upload changed after completion; prepare a new upload");
       }
       const id = crypto.randomUUID();
-      const key = `proofs/cases/${caseId}/${id}.${MIME_EXTENSIONS[file.type]}`;
+      const key = proofKey(env,'cases',`${caseId}/${id}.${MIME_EXTENSIONS[file.type]}`);
       cleanupKeys.push(key);
       if (!validSha256(file.sha256) || r2VerifiedSha256(object)!==file.sha256) {
         await object.body.cancel();

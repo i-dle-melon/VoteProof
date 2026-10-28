@@ -64,7 +64,7 @@ export async function memberSession(request, env, required = true) {
   if (row.status !== "active") throw suspended();
   return { ...row, tokenHash };
 }
-export async function csrfToken(member, env) { return authMac(await authKey(env), "csrf", member.tokenHash); }
+export async function csrfToken(member, env) { const epoch=env.PRELAUNCH_RESET_CONTEXT?.epoch;return authMac(await authKey(env), Number.isSafeInteger(epoch)&&epoch>0?'csrf:prelaunch:'+epoch:'csrf', member.tokenHash); }
 export async function memberCsrf(request, env, member) {
   requestOrigin(request, env);
   const supplied = request.headers.get("X-CSRF-Token");

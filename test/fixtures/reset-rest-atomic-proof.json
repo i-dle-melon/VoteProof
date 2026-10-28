@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "atomicity": "PASS_FOR_TESTED_REST_48_BATCHES",
+  "parameters": "PASS_FOR_USED_TYPES",
+  "tests": 5,
+  "metadata_get": 5,
+  "d1_query_post": 41,
+  "sql": 951,
+  "creates": 1,
+  "deletes": 1,
+  "known_rows_read": 925497,
+  "known_rows_written": 1713,
+  "failed_metadata_incomplete": 3,
+  "cleanup": "PASS"
+}

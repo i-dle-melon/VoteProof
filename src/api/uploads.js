@@ -10,6 +10,8 @@ import { rememberCompletedUpload } from "../lib/completed-uploads.js";
 import { CaseError } from "./case-validation.js";
 import { requireSubmissionsEnabled, SubmissionError } from "../lib/submission-gate.js";
 import {prepareFinalUpload,putFinalUpload,sealFinalUpload,finalReference} from '../lib/immutable-uploads.js';
+import {issueResetSession,requireResetSession} from '../lib/prelaunch-reset-fence.js';
+import {proofKey} from '../lib/proof-generation.js';
 
 export async function prepareUpload(env, _url, request) {
   try {
@@ -30,9 +32,10 @@ export async function prepareUpload(env, _url, request) {
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "/");
     const uploads = await Promise.all(files.map(file => {
       const fileId = crypto.randomUUID();
-      const key = `proofs/staging/${date}/${sessionId}/${fileId}.${MIME_EXTENSIONS[file.type]}`;
+      const key = proofKey(env,'staging',`${date}/${sessionId}/${fileId}.${MIME_EXTENSIONS[file.type]}`);
       return issueUploadGrant(config, `/api/uploads/put/${sessionId}/${fileId}`, key, file);
     }));
+    await issueResetSession(env,sessionId,uploads.map(x=>x.key),'legacy');
     return jsonSuccess({ session_id: sessionId, expires_in: UPLOAD_LIMITS.expiresSeconds, uploads });
   } catch (error) {
     if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status, error.code, error.message);
@@ -44,6 +47,7 @@ export async function putUpload(env, url, request) {
   try {
     requestOrigin(request, env);
     const grant = await readUploadGrant(env, request, url.pathname);
+    await requireResetSession(env,grant.path.split('/')[4],[grant.key],{singlePut:true});
     if (request.headers.get('Content-Type') !== grant.type || request.headers.get('Content-Length') !== String(grant.size) || !request.body)
       throw new UploadError(400, 'UPLOAD_VALIDATION_FAILED', 'Uploaded size or type does not match authorization');
     await requireSubmissionsEnabled(env.DB);
@@ -57,7 +61,7 @@ export async function putUpload(env, url, request) {
       throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload');
     return jsonSuccess({uploaded:true});
   } catch (error) {
-    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status,error.code,error.message);
+    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status,error.code,error.message);
     return jsonError(502,'R2_UPLOAD_ERROR','Upload storage is unavailable');
   }
 }
@@ -66,6 +70,7 @@ export async function completeUpload(env, _url, request) {
   try {
     const reference = validateComplete(await readUploadJson(request));
     const {sessionId,keys}=reference;
+    await requireResetSession(env,sessionId,keys);
     if(finalReference(keys)) {
       await requireSubmissionsEnabled(env.DB);
       return jsonSuccess(await sealFinalUpload(env,request,reference));

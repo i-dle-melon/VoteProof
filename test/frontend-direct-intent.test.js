@@ -122,11 +122,11 @@ test("lost Case ACK replays identical payload/key without another Prepare or PUT
   assert.equal(h.puts.length, 1);
   assert.equal(h.calls.filter((x) => x.path.endsWith("prepare")).length, 1);
 });
-test("missing object after ambiguous PUT retries PUT on same intent/key", async () => {
+test("missing object after ambiguous PUT retries only Case verification on the same intent/key", async () => {
   const h = harness({ failPut: true, missing: true });
   await assert.rejects(h.flow.attempt(), { code: "UPLOAD_INCOMPLETE" });
   await h.flow.attempt();
-  assert.equal(h.puts.length, 2);
+  assert.equal(h.puts.length, 1);
   const cs = h.calls.filter((x) => x.path.endsWith("/direct"));
   assert.equal(cs[0].body, cs[1].body);
   assert.equal(cs[0].headers["Idempotency-Key"], cs[1].headers["Idempotency-Key"]);

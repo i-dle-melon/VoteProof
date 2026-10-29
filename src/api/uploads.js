@@ -44,25 +44,35 @@ export async function prepareUpload(env, _url, request) {
 }
 
 export async function putUpload(env, url, request) {
+  const diagnostic=env.PRELAUNCH_RESET_CONTEXT?.uploadDiagnostic??{stage:'origin',putState:'not_started'};
   try {
+    diagnostic.stage='origin';
     requestOrigin(request, env);
+    diagnostic.stage='grant';
     const grant = await readUploadGrant(env, request, url.pathname);
+    diagnostic.stage='reset_issuance';
     await requireResetSession(env,grant.path.split('/')[4],[grant.key],{singlePut:true});
+    diagnostic.stage='request_validation';
     if (request.headers.get('Content-Type') !== grant.type || request.headers.get('Content-Length') !== String(grant.size) || !request.body)
       throw new UploadError(400, 'UPLOAD_VALIDATION_FAILED', 'Uploaded size or type does not match authorization');
-    await requireSubmissionsEnabled(env.DB);
-    if(grant.v===2)return jsonSuccess(await putFinalUpload(env,request,grant));
+    diagnostic.stage='submission_gate';await requireSubmissionsEnabled(env.DB);
+    if(grant.v===2)return jsonSuccess(await putFinalUpload(env,request,grant,diagnostic));
     // Pass the original native request stream directly to R2. R2 verifies bytes;
     // no arrayBuffer(), tee(), digest(), Blob or per-chunk JS hashing here.
     let object;
-    try { object = await capacityPut(env,grant.key,request.body,{sha256:grant.sha256,httpMetadata:{contentType:grant.type}},grant.size); }
+    try { object = await capacityPut(env,grant.key,request.body,{sha256:grant.sha256,httpMetadata:{contentType:grant.type}},grant.size,diagnostic); }
     catch(error) { if(error instanceof StorageCapacityError)throw error; throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload'); }
+    diagnostic.stage='r2_verify';
     if (!object || object.size!==grant.size || r2VerifiedSha256(object)!==grant.sha256 || !validUploadedObject(grant.key,object))
       throw new UploadError(502, 'UPLOAD_CHECKSUM_FAILED', 'Upload integrity verification failed; retry the same upload');
     return jsonSuccess({uploaded:true});
   } catch (error) {
-    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status,error.code,error.message);
-    return jsonError(502,'R2_UPLOAD_ERROR','Upload storage is unavailable');
+    // Fixed enum-only diagnostics; never expose a provider message, key or Grant.
+    const headers={'X-VoteProof-Upload-Stage':diagnostic.stage,'X-VoteProof-Put-State':diagnostic.putState};
+    if(error?.noWrite===true)headers['X-VoteProof-Upload-Rejected']='1';
+    if(['format','path','version','expired','invalid'].includes(error?.uploadGrantReason))headers['X-VoteProof-Grant-Reason']=error.uploadGrantReason;
+    if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status,error.code,error.message,headers);
+    return jsonError(502,'R2_UPLOAD_ERROR','Upload storage is unavailable',headers);
   }
 }
 

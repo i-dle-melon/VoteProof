@@ -25,7 +25,7 @@ function fixture(count = 3) {
     return receipts.get(key);
   };
   const batch = new BatchSubmission({ api, put: async (_upload, file) => {
-    puts.push(file.name); if (failPut && file.name === "proof-1.png") { failPut = false; throw new PublicError("PUT_FAILED"); }
+    puts.push(file.name); if (failPut && file.name === "proof-1.png") { failPut = false; throw new PublicError("UPLOAD_VALIDATION_FAILED",400); }
   }, token: async () => randomUUID(), changed: summary => states.push(summary) });
   return { batch, calls, puts, receipts, states, api, start: () => batch.start(metadata, files(count)), off: () => { enabled = false; } };
 }
@@ -40,7 +40,7 @@ test("batch accepts 20 independent 5 MiB files; rejects 21, empty, invalid MIME 
 test("partial batch retries only failed items and replays a lost case response with the same payload/key", async () => {
   const h = fixture(); h.start(); const first = await h.batch.attempt();
   assert.deepEqual([first.total, first.succeeded, first.failed], [3, 1, 2]);
-  assert.equal(first.items[0].status, "success"); assert.equal(first.items[1].error, "PUT_FAILED");
+  assert.equal(first.items[0].status, "success"); assert.equal(first.items[1].error, "UPLOAD_VALIDATION_FAILED");
   assert.equal(first.items[2].error, "NETWORK_ERROR"); assert.equal(h.receipts.size, 2);
   const second = await h.batch.attempt(); assert.equal(second.complete, true); assert.equal(h.receipts.size, 3);
   assert.deepEqual(h.puts, ["proof-0.png", "proof-1.png", "proof-2.png", "proof-1.png"]);

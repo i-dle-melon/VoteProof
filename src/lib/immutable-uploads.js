@@ -1,4 +1,4 @@
-import {capacityPut,StorageCapacityError} from './storage-capacity.js';
+import {reserveStorage,putReservedStorage,StorageCapacityError} from './storage-capacity.js';
 import {UploadError,UPLOAD_LIMITS,validUploadedObject,MIME_EXTENSIONS} from '../api/upload-validation.js';
 import {memberSession,memberCsrf,requestOrigin} from './auth-session.js';
 import {newQueryKey,sha256,equalQueryHash} from './case-keys.js';
@@ -48,24 +48,27 @@ async function ownIntent(env,request,intent,capability,{csrf=true}={}) {
   } else if(!capability || !equalQueryHash(await uploadCapabilityHash(capability),intent.guest_capability_hash))fail('UPLOAD_OWNER_MISMATCH',403);
 }
 
-export async function putFinalUpload(env,request,grant) {
+export async function putFinalUpload(env,request,grant,diagnostic) {
+  if(diagnostic)diagnostic.stage='intent_read';
   const intent=await intentRow(env.DB,grant.session_id);
+  if(diagnostic)diagnostic.stage='intent_validation';
   if(!intent || intent.object_key!==grant.key || intent.proof_id!==grant.proof_id || intent.campaign_id!==grant.campaign_id ||
     intent.member_id!==grant.member_id || intent.guest_capability_hash!==grant.guest_capability_hash ||
     intent.size!==grant.size || intent.content_type!==grant.type || intent.expected_sha256!==grant.sha256 || intent.grant_expires!==grant.expires ||
     intent.expires_at<=new Date().toISOString() || ['deleting','deleted'].includes(intent.state))fail();
   // A private authenticated grant is itself the PUT capability. Member grants
   // additionally require the current member session; no auth state is cached.
+  if(diagnostic)diagnostic.stage='intent_owner';
   if(intent.member_id)await ownIntent(env,request,intent,null,{csrf:false});
   if(['sealed','consumed'].includes(intent.state)) {
+    if(diagnostic)diagnostic.stage='replay_head';
     if(!matches(intent,await env.PROOFS_BUCKET.head(intent.object_key)))fail('UPLOAD_CHANGED');
     await request.body.cancel();fail('UPLOAD_ALREADY_UPLOADED');
   }
   const token=crypto.randomUUID();
-  const locked=await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=? WHERE session_id=? AND write_token IS NULL
-    AND state IN ('prepared','uploaded') AND grant_expires>CAST(strftime('%s','now') AS INTEGER)
-    AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') RETURNING session_id`).bind(token,intent.session_id).first();
-  if(!locked) {
+  const reservation=await reserveStorage(env,intent.object_key,intent.size,{sessionId:intent.session_id,token},diagnostic);
+  if(!reservation) {
+    if(diagnostic)diagnostic.stage='replay_head';
     // Never reclaim an unknown writer by a wall-clock lease. Its native PUT
     // might still be running. Existing completed bytes can be safely replayed.
     if(matches(intent,await env.PROOFS_BUCKET.head(intent.object_key))){await request.body.cancel();fail('UPLOAD_ALREADY_UPLOADED');}
@@ -75,17 +78,19 @@ export async function putFinalUpload(env,request,grant) {
   try {
     // Storage-enforced create-only, including simultaneous PUTs. The SHA is
     // verified by R2 against the native request stream, never by JS buffering.
-    object=await capacityPut(env,intent.object_key,request.body,{onlyIf:new Headers({'If-None-Match':'*'}),
+    object=await putReservedStorage(env,intent.object_key,request.body,{onlyIf:new Headers({'If-None-Match':'*'}),
       sha256:intent.expected_sha256,httpMetadata:{contentType:intent.content_type},
-      customMetadata:{voteproof_upload:intent.session_id,voteproof_write:token}},intent.size);
+      customMetadata:{voteproof_upload:intent.session_id,voteproof_write:token}},intent.size,reservation,diagnostic);
+    if(diagnostic)diagnostic.stage='r2_verify';
     if(!object){existing=true;object=await env.PROOFS_BUCKET.head(intent.object_key);}
     if(!matches(intent,object))fail('UPLOAD_CHECKSUM_FAILED',502);
   } catch(error) {
-    if(error instanceof StorageCapacityError){if(error.noWrite)await env.DB.prepare('UPDATE proof_upload_intents SET write_token=NULL WHERE session_id=? AND write_token=?').bind(intent.session_id,token).run();throw error;}
+    if(error instanceof StorageCapacityError)throw error;
     // Ambiguous native write: retain the durable pin. A fresh prepare is safe;
     // timeouts must never allow cleanup to race an unacknowledged PUT.
     fail('UPLOAD_REPREPARE_REQUIRED',502);
   }
+  if(diagnostic)diagnostic.stage='intent_receipt';
   await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,
     uploaded_at=CASE WHEN completion_mode='legacy' THEN coalesce(uploaded_at,?) ELSE uploaded_at END,
     state=CASE WHEN state='prepared' AND completion_mode='legacy' THEN 'uploaded' ELSE state END WHERE session_id=? AND write_token=?`)

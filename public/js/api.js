@@ -3,6 +3,17 @@ import { PREVIEW, previewFetch } from "./preview.js";
 export class PublicError extends Error {
   constructor(code, status = 0) { super(code); this.code = code; this.status = status; }
 }
+const putCodes=new Set(['UPLOAD_GRANT_INVALID','UPLOAD_VALIDATION_FAILED','UPLOAD_INTENT_INVALID','UPLOAD_OWNER_MISMATCH','UPLOAD_SESSION_EXPIRED','UPLOAD_CHANGED','UPLOAD_CHECKSUM_FAILED','UPLOAD_REPREPARE_REQUIRED','UPLOAD_ALREADY_UPLOADED','R2_UPLOAD_ERROR','R2_UPLOAD_NOT_CONFIGURED','R2_STORAGE_CAPACITY_EXCEEDED','SUBMISSIONS_DISABLED','SUBMISSIONS_UNAVAILABLE','PRELAUNCH_MAINTENANCE','PRELAUNCH_EPOCH_CHANGED','PRELAUNCH_UPLOAD_RETIRED','PRELAUNCH_PROOF_RETIRED','PRELAUNCH_PROOF_GENERATION_RETIRED','AUTH_REQUIRED','AUTH_IDENTITY_CHANGED','MEMBER_BLOCKED','CSRF_INVALID']);
+const putStages=new Set(['origin','grant','reset_issuance','request_validation','submission_gate','intent_read','intent_validation','intent_owner','capacity_admission','r2_fence','r2_dispatch','r2_put','r2_receipt','r2_head','r2_head_fence','reservation_receipt','capacity_evaluation','r2_verify','intent_receipt','replay_head']);
+function putError(xhr,code){
+  const error=new PublicError(putCodes.has(code)?code:'PUT_RESULT_UNCONFIRMED',xhr.status);
+  const header=name=>xhr.getResponseHeader(name);
+  const stage=header('X-VoteProof-Upload-Stage'),state=header('X-VoteProof-Put-State'),reason=header('X-VoteProof-Grant-Reason');
+  if(putStages.has(stage))error.uploadStage=stage;
+  if(['not_started','unknown','acknowledged'].includes(state))error.putState=state;
+  if(['expired','path','format','version','invalid'].includes(reason))error.grantReason=reason;
+  error.putRejected=header('X-VoteProof-Upload-Rejected')==='1';return error;
+}
 export async function api(path, { method = "GET", body, headers = {} } = {}) {
   let response;
   try {
@@ -39,24 +50,28 @@ export function putImage(upload, file, onProgress) {
         // Create-only replay does not attest to the retried body. Legacy
         // Complete or direct Case HEAD verifies the original provider checksum.
         if(xhr.status===409&&code==='UPLOAD_ALREADY_UPLOADED'){onProgress(1);resolve();}
-        else reject(new PublicError(['UPLOAD_REPREPARE_REQUIRED','R2_STORAGE_CAPACITY_EXCEEDED'].includes(code)?code:'PUT_FAILED',xhr.status));
+        else reject(putError(xhr,code));
       }
     };
-    xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new PublicError("PUT_FAILED"));
+    xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new PublicError("PUT_ACK_UNKNOWN"));
     xhr.send(file);
   });
 }
 
 const messages = {
+  UPLOAD_GRANT_INVALID: "未完成圖片的授權已失效；重試會取得新授權，已成功案件不會重送。",
+  PUT_ACK_UNKNOWN: "上傳回覆尚未確認；保留原上傳並核對結果，不會直接重新傳送圖片。",
+  PUT_RESULT_UNCONFIRMED: "上傳結果無法確認，已停止重送。請保留目前資料並聯絡管理員。",
+  R2_UPLOAD_ERROR: "上傳服務發生錯誤，結果尚未確認；請保留目前資料，不要重複投稿。",
   DIRECT_INTENT_DISABLED: "投稿服務尚未完成啟用，請稍後重試；已送出的案件不會重複建立。",
   R2_STORAGE_CAPACITY_EXCEEDED: "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。",
-  UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認，請按重試以重新準備安全上傳。",
+  UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認；重試只會核對原上傳，不會重新傳送圖片。",
   SUBMISSIONS_IMMUTABLE_DISABLED: "安全上傳目前暫停開放，請稍後重試。",
   UI_PREVIEW_ONLY: "這是 UI 預覽，無法登入、投稿或保存變更。",
   SUBMISSIONS_DISABLED: "投稿目前暫停開放，請稍後再試。",
   SUBMISSIONS_UNAVAILABLE: "投稿服務暫時無法使用，請稍後再試。",
   NETWORK_ERROR: "網路連線中斷或等待逾時。請檢查連線後重試，投稿資料會保留。",
-  PUT_FAILED: "圖片未能上傳。請檢查網路後重試；若持續失敗，請稍後再試。",
+  PUT_FAILED: "圖片上傳未獲確認；請保留本次資料，勿另建重複投稿。",
   TURNSTILE_REQUIRED: "請先完成人機驗證。",
   TURNSTILE_INVALID: "人機驗證已失效，請重新驗證後重試。",
   TURNSTILE_UPSTREAM_ERROR: "驗證服務暫時無法連線，請重新驗證後重試。",

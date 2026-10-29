@@ -1,7 +1,7 @@
 import { UploadError, UPLOAD_LIMITS } from '../api/upload-validation.js';
 import { configuredAuthOrigin } from './auth-session.js';
 
-const denied = () => new UploadError(403, 'UPLOAD_GRANT_INVALID', 'Upload authorization is invalid or expired');
+const denied = (reason='invalid') => Object.assign(new UploadError(403, 'UPLOAD_GRANT_INVALID', 'Upload authorization is invalid or expired'),{uploadGrantReason:reason});
 const aad = new TextEncoder().encode('VoteProof/upload-grant/v1');
 const encode = bytes => btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/, '');
 async function key(env) {
@@ -20,12 +20,15 @@ export async function issueUploadGrant(config, path, objectKey, file, binding) {
 }
 export async function readUploadGrant(env, request, path) {
   const token = request.headers.get('X-Upload-Grant');
-  if (typeof token !== 'string' || token.length>2048 || !/^[A-Za-z0-9_-]{40,}$/.test(token)) throw denied();
+  if (typeof token !== 'string' || token.length>2048 || !/^[A-Za-z0-9_-]{40,}$/.test(token)) throw denied('format');
   try {
     const bytes = Uint8Array.from(atob(token.replaceAll('-','+').replaceAll('_','/')), x=>x.charCodeAt(0));
     const clear = await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.subarray(0,12),additionalData:aad},await key(env),bytes.subarray(12));
     const grant = JSON.parse(new TextDecoder().decode(clear));
-    if (![1,2].includes(grant.v) || grant.path!==path || !Number.isSafeInteger(grant.expires) || grant.expires<=Math.floor(Date.now()/1000)) throw denied();
+    if(![1,2].includes(grant.v))throw denied('version');
+    if(grant.path!==path)throw denied('path');
+    if(!Number.isSafeInteger(grant.expires))throw denied();
+    if(grant.expires<=Math.floor(Date.now()/1000))throw denied('expired');
     return grant;
-  } catch (error) { if (error instanceof UploadError && error.status===503) throw error; throw denied(); }
+  } catch (error) { if (error instanceof UploadError) throw error; throw denied(); }
 }

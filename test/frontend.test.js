@@ -71,16 +71,16 @@ test("concurrent double attempt shares a single running submission", async () =>
   const first = h.flow.attempt(), second = h.flow.attempt(); assert.equal(first === second, true);
   await Promise.all([first, second]); assert.equal(h.calls.filter((c) => c.path === "/api/cases").length, 1);
 });
-test("PUT retry resumes the failed image with same unexpired grant", async () => {
+test("definitive pre-PUT validation rejection resumes the failed image with same unexpired grant", async () => {
   const h = harness(), original = h.dependencies.put; let calls = 0;
-  h.flow.put = async (...args) => { calls++; if (calls === 2) throw new PublicError("PUT_FAILED"); return original(...args); };
-  h.flow.start(metadata(), h.files); await assert.rejects(h.flow.attempt(), { code: "PUT_FAILED" }); await h.flow.attempt();
+  h.flow.put = async (...args) => { calls++; if (calls === 2) throw new PublicError("UPLOAD_VALIDATION_FAILED",400); return original(...args); };
+  h.flow.start(metadata(), h.files); await assert.rejects(h.flow.attempt(), { code: "UPLOAD_VALIDATION_FAILED" }); await h.flow.attempt();
   assert.equal(calls, 3); assert.equal(h.tokens, 1); assert.equal(h.calls.filter((c) => c.path.endsWith("prepare")).length, 1);
 });
 test('browser computes each digest once across grant expiry and technical retries',async()=>{
   const h=harness({count:1});let reads=0,failed=true;
   h.files[0].arrayBuffer=async()=>{reads++;return new Uint8Array(h.files[0].size).buffer;};
-  const original=h.flow.put;h.flow.put=async(...args)=>{if(failed){failed=false;throw new PublicError('PUT_FAILED');}return original(...args);};
+  const original=h.flow.put;h.flow.put=async(...args)=>{if(failed){failed=false;throw new PublicError('UPLOAD_VALIDATION_FAILED',400);}return original(...args);};
   h.flow.start(metadata(),h.files);await assert.rejects(h.flow.attempt());h.advance(301000);await h.flow.attempt();
   assert.equal(reads,1);assert.equal(h.calls.filter(c=>c.path.endsWith('prepare')).length,2);
   assert.ok(h.calls.filter(c=>c.path.endsWith('prepare')).every(c=>c.body.files[0].algorithm==='sha256'&&/^[0-9a-f]{64}$/.test(c.body.files[0].sha256)));
@@ -88,7 +88,7 @@ test('browser computes each digest once across grant expiry and technical retrie
 test('prepare cannot redirect an upload grant to another origin',async()=>{const h=harness({count:1}),original=h.flow.api;h.flow.api=async(...args)=>{const v=await original(...args);if(args[0].endsWith('prepare'))v.uploads[0].upload_url='https://evil.example/api/uploads/put/'+randomUUID()+'/'+randomUUID();return v;};h.flow.start(metadata(),h.files);await assert.rejects(h.flow.attempt(),{code:'SERVICE_UNAVAILABLE'});assert.equal(h.puts.length,0);});
 test("expired pending PUT grants prepare again before the immutable case POST exists", async () => {
   const h = harness(), original = h.dependencies.put; let fail = true;
-  h.flow.put = async (...args) => { if (fail) { fail = false; throw new PublicError("PUT_FAILED"); } return original(...args); };
+  h.flow.put = async (...args) => { if (fail) { fail = false; throw new PublicError("UPLOAD_VALIDATION_FAILED",400); } return original(...args); };
   h.flow.start(metadata(), h.files); await assert.rejects(h.flow.attempt()); h.advance(301000); await h.flow.attempt();
   assert.equal(h.tokens, 2); assert.equal(h.calls.filter((c) => c.path.endsWith("prepare")).length, 2);
 });

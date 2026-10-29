@@ -1,5 +1,6 @@
 import { authAtomic } from "./auth-store.js";
 import { AdminError } from "./admin-identity.js";
+import {storageAdmissionStatements} from './storage-admission.js';
 export const R2_STORAGE_BUDGET_BYTES=10000000000;
 export const R2_CLEANUP_START_BYTES=9000000000;
 export const R2_UPLOAD_STOP_BYTES=9500000000;
@@ -20,26 +21,40 @@ export async function storageAudit(db, action, target, detail = {}) {
     .bind(crypto.randomUUID(), nowSeconds(), action, target, JSON.stringify(detail))
     .run();
 }
-export async function reserveStorage(env, key, size) {
+export async function reserveStorage(env, key, size, claim=null,diagnostic) {
+  if(diagnostic)diagnostic.stage='capacity_admission';
   if (!Number.isSafeInteger(size) || size <= 0) throw new StorageCapacityError();
   const id = crypto.randomUUID();
-  try {
-    await env.DB.prepare(
-      "INSERT INTO storage_reservations(id,object_key,bytes,state,created_at) VALUES(?,?,?,'reserved',?)",
-    )
-      .bind(id, key, size, nowSeconds())
-      .run();
-  } catch {
-    const error = new StorageCapacityError();
-    error.noWrite = true;
-    throw error;
+  const input={id,key,size,createdAt:nowSeconds(),claim};
+  if(env.PRELAUNCH_RESET_FENCE_ENABLED==='true'&&!env.PRELAUNCH_RESET_CONTEXT?.admitStorage)throw new StorageCapacityError();
+  // Never label a thrown/unknown D1 ACK as noWrite. A commit may have acquired
+  // both records; its durable Reservation/Pin must survive for reconciliation.
+  const results=env.PRELAUNCH_RESET_CONTEXT?.admitStorage
+    ?await env.PRELAUNCH_RESET_CONTEXT.admitStorage(input)
+    :await env.DB.batch(storageAdmissionStatements(env.DB,input));
+  if(!Array.isArray(results)||results.length!==(claim?3:1)||results.some(r=>r?.success!==true))throw new StorageCapacityError();
+  const pin=claim?results[0]:null,reservation=results[claim?1:0];
+  // Native D1 changes can include Trigger effects; the returned exact IDs are
+  // the admission receipt. Do not compare total Trigger changes to one.
+  if(reservation.results?.length===1&&reservation.results[0].id===id&&
+    (!claim||pin.results?.length===1&&pin.results[0].session_id===claim.sessionId))return id;
+  if(reservation?.meta?.changes!==0||reservation.results?.length!==0||claim&&(pin?.meta?.changes!==0||pin.results?.length!==0))throw new StorageCapacityError();
+  if(claim){
+    const allowed=results[2]?.results;
+    if(allowed?.length!==1||![0,1].includes(allowed[0].capacity_allowed))throw new StorageCapacityError();
+    if(allowed[0].capacity_allowed===1)return null;
   }
-  return id;
+  const error=new StorageCapacityError();error.noWrite=true;throw error;
 }
-export async function capacityPut(env, key, body, options, size) {
-  const id = await reserveStorage(env, key, size);
+export async function capacityPut(env, key, body, options, size,diagnostic) {
+  const id = await reserveStorage(env, key, size,null,diagnostic);
+  return putReservedStorage(env,key,body,options,size,id,diagnostic);
+}
+export async function putReservedStorage(env,key,body,options,size,id,diagnostic) {
   // Never expire ambiguous reservations: a timed-out native PUT may still finish.
+  if(diagnostic){diagnostic.stage='r2_put';diagnostic.putState='unknown';}
   const object = await env.PROOFS_BUCKET.put(key, body, options);
+  if(diagnostic){diagnostic.stage='reservation_receipt';diagnostic.putState='acknowledged';}
   if (!object) {
     await env.DB.prepare(
       "UPDATE storage_reservations SET state='cancelled' WHERE id=? AND state='reserved' RETURNING id",
@@ -63,6 +78,7 @@ export async function capacityPut(env, key, body, options, size) {
   } catch {
     throw new StorageCapacityError();
   }
+  if(diagnostic)diagnostic.stage='capacity_evaluation';
   try{await evaluateCapacity(env.DB);}catch{throw new StorageCapacityError();}
   return object;
 }

@@ -238,10 +238,10 @@ test('identity, expiration, checksum and permanent cleanup tombstones cannot be 
  await assert.rejects(cleanupFinalUploads({}, {limit:11}),TypeError);
  const p=await prepare();for(const sql of ["UPDATE proof_upload_intents SET expected_sha256='"+'a'.repeat(64)+"' WHERE session_id=?","UPDATE proof_upload_intents SET expires_at='2100-01-01T00:00:00.000Z' WHERE session_id=?",'DELETE FROM proof_upload_intents WHERE session_id=?'])await assert.rejects(local.db.prepare(sql).bind(p.session_id).run());
 });
-test('native PUT failure can reprepare in the browser without changing any committed payload',async()=>{
+test('unknown native PUT verifies the original upload in the browser without allocating another intent',async()=>{
  const {Submission}=await import('../public/js/submission.js');globalThis.location={origin};let prepared=0,puts=0;
  const api=async(path,opt)=>{if(path.endsWith('prepare')){prepared++;return{session_id:randomUUID(),expires_in:300,capability:'a'.repeat(43),uploads:[{key:'proofs/final/'+randomUUID()+'/'+randomUUID()+'.png',method:'PUT',headers:{'Content-Type':'image/png','X-Upload-Grant':'a'.repeat(64)},upload_url:origin+'/api/uploads/put/'+randomUUID()+'/'+randomUUID()}]};}if(path.endsWith('complete'))return{};return{case_id:'VP-20261014-'+'A'.repeat(16),query_key:'a'.repeat(43)};};
- const flow=new Submission({api,put:async()=>{if(puts++===0)throw Object.assign(Error('retry'),{code:'UPLOAD_REPREPARE_REQUIRED'});},token:async()=>randomUUID()});flow.start(body({session_id:randomUUID(),uploads:[{key:'x'}]}),[{type:'image/png',size:3,arrayBuffer:async()=>bytes.buffer}]);await assert.rejects(flow.attempt());assert.ok(await flow.attempt());assert.equal(prepared,2);
+ const flow=new Submission({api,put:async()=>{if(puts++===0)throw Object.assign(Error('retry'),{code:'UPLOAD_REPREPARE_REQUIRED'});},token:async()=>randomUUID()});flow.start(body({session_id:randomUUID(),uploads:[{key:'x'}]}),[{type:'image/png',size:3,arrayBuffer:async()=>bytes.buffer}]);await assert.rejects(flow.attempt());assert.ok(await flow.attempt());assert.equal(prepared,1);assert.equal(puts,1);
 });
 test('lost native PUT ACK is recoverable by its provider-persisted writer marker, never by age alone',async()=>{
  const isolated=await localAdminRuntime(),l=isolated.local;try{const p=await prepare(l),env=environment(l);env.PROOFS_BUCKET={head:(...a)=>l.bucket.head(...a),put:async(key,_stream,options)=>{await l.bucket.put(key,bytes,options);throw Error('synthetic provider ACK loss');}};

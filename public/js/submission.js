@@ -75,7 +75,7 @@ export class Submission {
     validateImages(files);
     if(this.directIntent && files.length!==1)throw new PublicError('INVALID_UPLOAD_REFERENCE');
     this.#context = { metadata: normalizedMetadata(metadata), files: [...files], idempotency: newIdempotencyKey(),
-      prepared: null, digests:null, uploaded: new Set(), completed: false, payload: null, caseApi };
+      prepared: null, digests:null, uploaded: new Set(), uncertainPuts:new Set(),putHold:false, completed: false, payload: null, caseApi };
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
@@ -89,9 +89,10 @@ export class Submission {
   }
   async #attempt() {
     const c = this.#context;
+    if(c.putHold)throw new PublicError('PUT_RESULT_UNCONFIRMED');
     // Before case creation is attempted, expired PUT grants can safely be
     // replaced. Once payload exists, it is immutable, including upload refs.
-    if (!c.payload && !c.completed && c.prepared && this.now() >= c.expiresAt) {
+    if (!c.payload && !c.completed && !c.uncertainPuts.size && c.prepared && this.now() >= c.expiresAt) {
       c.prepared = null; c.uploaded.clear();
     }
     if (!c.prepared) {
@@ -112,18 +113,31 @@ export class Submission {
     }
     if(this.directIntent && c.prepared.completion_mode!=='direct')throw new PublicError('SERVICE_UNAVAILABLE');
     for (let i = 0; i < c.files.length && !c.completed; i++) {
-      if (c.uploaded.has(i)) continue;
+      if (c.uploaded.has(i)||c.uncertainPuts.has(i)) continue;
       const update = (fraction) => this.progress({ phase: "put", file: i + 1, count: c.files.length,
         fraction: (c.uploaded.size + fraction) / c.files.length });
       update(0);
       try {await this.put(c.prepared.uploads[i], c.files[i], update);}
       catch(error) {
-        // An ambiguous PUT is resolved by the authoritative Case HEAD. Never
-        // invent success from the browser flag or allocate a second intent.
-        if(this.directIntent && ['PUT_FAILED','NETWORK_ERROR','UPLOAD_REPREPARE_REQUIRED'].includes(error.code)) {
-          c.uploaded.add(i); continue;
+        // A rejected Grant cannot have reached native R2. Never turn a 403 into
+        // a successful upload flag or a speculative Direct Case submission.
+        if(error.code==='UPLOAD_GRANT_INVALID'&&error.status===403){
+          if(!c.payload&&!c.uncertainPuts.size){c.prepared=null;c.uploaded.clear();}
+          else {c.putHold=true;error.pauseBatch=true;}
+          throw error;
         }
-        if(error.code==='UPLOAD_REPREPARE_REQUIRED'&&!c.payload){c.prepared=null;c.uploaded.clear();}
+        const ambiguous=['PUT_ACK_UNKNOWN','PUT_FAILED','NETWORK_ERROR'].includes(error.code)&&!error.status||
+          ['unknown','acknowledged'].includes(error.putState)||
+          error.code==='UPLOAD_REPREPARE_REQUIRED'&&error.putState!=='not_started';
+        if(ambiguous){
+          c.uncertainPuts.add(i);
+          // This is verification, not success. Keep this exact intent and never
+          // send PUT again, even when a later HEAD still reports missing bytes.
+          if(this.directIntent)continue;
+          throw error;
+        }
+        const rejected=error.putRejected||['UPLOAD_VALIDATION_FAILED','UPLOAD_INTENT_INVALID','UPLOAD_OWNER_MISMATCH','UPLOAD_SESSION_EXPIRED','SUBMISSIONS_DISABLED','SUBMISSIONS_UNAVAILABLE','AUTH_REQUIRED','AUTH_IDENTITY_CHANGED','MEMBER_BLOCKED','CSRF_INVALID','PRELAUNCH_MAINTENANCE','PRELAUNCH_EPOCH_CHANGED','PRELAUNCH_UPLOAD_RETIRED','PRELAUNCH_PROOF_RETIRED','PRELAUNCH_PROOF_GENERATION_RETIRED'].includes(error.code);
+        if(!rejected){c.putHold=true;error.pauseBatch=true;}
         throw error;
       }
       c.uploaded.add(i);
@@ -133,7 +147,7 @@ export class Submission {
     if (!c.completed && !this.directIntent) {
       this.progress({ phase: "complete", fraction: 1 });
       try { await (c.caseApi??this.api)("/api/uploads/complete", { method: "POST", body: reference }); }
-      catch (e) { if (e.code === "UPLOAD_INCOMPLETE") c.uploaded.clear(); throw e; }
+      catch (e) { if (e.code === "UPLOAD_INCOMPLETE"&&!c.uncertainPuts.size) c.uploaded.clear(); throw e; }
       c.completed = true;
     }
     if(this.directIntent)c.completed=true;
@@ -141,13 +155,7 @@ export class Submission {
     // replay this exact body/key, even if the upload is already consumed.
     c.payload ??= JSON.stringify({ ...c.metadata, upload_session: reference });
     this.progress({ phase: "case", fraction: 1 });
-    let result;
-    try {
-      result = await (c.caseApi ?? this.api)(this.directIntent?"/api/cases/direct":"/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
-    } catch(error) {
-      if(this.directIntent && error.code==='UPLOAD_INCOMPLETE'){c.completed=false;c.uploaded.clear();}
-      throw error;
-    }
+    const result = await (c.caseApi ?? this.api)(this.directIntent?"/api/cases/direct":"/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
     if (!/^VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}$/.test(result?.case_id ?? "") ||
         !/^[A-Za-z0-9_-]{43}$/.test(result?.query_key ?? "")) throw new PublicError("SERVICE_UNAVAILABLE");
     this.#context = null;
@@ -216,7 +224,7 @@ export class BatchSubmission {
       } catch (error) {
         item.error = error; item.status = "failed"; this.#error = error;
         // Global auth, campaign, gate or challenge failures pause the queue.
-        if (/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|DIRECT_INTENT_)/.test(error.code ?? "")) {
+        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|DIRECT_INTENT_)/.test(error.code ?? "")) {
           this.changed(this.summary); break;
         }
       }

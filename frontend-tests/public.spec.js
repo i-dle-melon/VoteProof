@@ -11,12 +11,19 @@ async function fixture(page, options = {}) {
   const boards = options.boards ?? [{ leaderboard_id: "system-history", name: "公開榜", generated_at: new Date().toISOString(),
     rankings: [{ rank: 7, nickname: options.nickname ?? "測試粉絲", points: 10, proof_count: 2, player_id: "not-for-display", email: "not-for-display" }] },
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
-  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, failBoards: 0 };
+  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, grantRejects:0,putPending:false,uploadStates:new Map(),prepareSessions:[], failBoards: 0 };
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let widget;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}));}};` }));
   await page.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
-    if(path.startsWith('/api/uploads/put/')){state.puts.push({method:request.method(),type:request.headers()['content-type'],bytes:request.postDataBuffer()?.length});expect(request.headers()['x-upload-grant']).toMatch(/^[A-Za-z0-9_-]{40,2048}$/);if(state.putFailures-->0)return route.abort('failed');return route.fulfill({status:200,body:''});}
+    if(path.startsWith('/api/uploads/put/')){
+      state.puts.push({method:request.method(),type:request.headers()['content-type'],bytes:request.postDataBuffer()?.length});expect(request.headers()['x-upload-grant']).toMatch(/^[A-Za-z0-9_-]{40,2048}$/);
+      if(state.grantRejects-->0)return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'UPLOAD_GRANT_INVALID',message:'Synthetic expired grant'}})});
+      state.uploadStates.get(path.split('/')[4]).present=!state.putPending;
+      // Abort models a lost response after server admission; Complete below is
+      // authoritative about whether bytes are available, never a blind success.
+      if(state.putFailures-->0)return route.abort('failed');return route.fulfill({status:200,body:''});
+    }
     const body = request.method() === "POST" ? request.postDataJSON() : undefined;
     state.calls.push({ path, method: request.method(), body: request.postData(), idempotency: request.headers()["idempotency-key"] });
     const reply = (data, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
@@ -36,12 +43,13 @@ async function fixture(page, options = {}) {
     if (path === "/api/uploads/prepare") {
       if (state.prepareReject) return error("TURNSTILE_INVALID", 403);
       const session_id = randomUUID();
+      state.prepareSessions.push(session_id);state.uploadStates.set(session_id,{present:false});
       return reply({ session_id, expires_in: 300, uploads: body.files.map((file) => ({
         key: `proofs/staging/${today().replaceAll("-", "/")}/${session_id}/${randomUUID()}.png`, method: "PUT",
         upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${randomUUID()}`,
         headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') } })) });
     }
-    if (path === "/api/uploads/complete") return reply({ session_id: body.session_id, files: [] });
+    if (path === "/api/uploads/complete") return state.uploadStates.get(body.session_id)?.present?reply({ session_id: body.session_id, files: [] }):error('UPLOAD_INCOMPLETE',400);
     if (path === "/api/cases") {
       if (state.delayCase) await new Promise((r) => setTimeout(r, 350));
       const key = request.headers()["idempotency-key"];
@@ -321,11 +329,35 @@ test("rapid repeated submit does not create a second request", async ({ page }) 
   await page.locator("#submission-form").evaluate((form) => { form.requestSubmit(); form.requestSubmit(); });
   await expect(page.locator("#submission-success")).toBeVisible(); expect(state.calls.filter((c) => c.path === "/api/cases").length).toBe(1);
 });
-test("PUT network retry preserves images and completes", async ({ page }) => {
+test("PUT network retry preserves images and verifies original bytes without resending PUT", async ({ page }) => {
   const state = await fixture(page); state.putFailures = 1; await form(page);
-  await page.locator("#submit-button").click(); await expect(page.locator("#submission-error")).toContainText("圖片未能上傳");
+  await page.locator("#submit-button").click(); await expect(page.locator("#submission-error")).toContainText("上傳回覆尚未確認");
+  await expect(page.locator('#image-list .image-item')).toHaveCount(1);expect(state.receipts.size).toBe(0);
   await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
-  expect(state.calls.filter((c) => c.path.endsWith("prepare")).length).toBe(1); expect(state.puts.length).toBe(2);
+  expect(state.calls.filter((c) => c.path.endsWith("prepare")).length).toBe(1); expect(state.puts.length).toBe(1);
+  const complete=state.calls.find(c=>c.path.endsWith('/complete')),created=state.calls.find(c=>c.path==='/api/cases');
+  const reference=JSON.parse(complete.body);expect(reference.session_id).toBe(state.prepareSessions[0]);expect(JSON.parse(created.body).upload_session).toEqual(reference);expect(state.receipts.size).toBe(1);
+});
+
+test('known rejected Grant renews only failed batch item and keeps successful Cases',async({page})=>{
+ const state=await fixture(page);state.grantRejects=1;await form(page,3);await page.locator('#submit-button').click();
+ await expect(page.locator('#batch-summary')).toHaveText('共 3 張 · 已送出 2 · 未成功 1 · 等待 0');
+ expect(state.calls.filter(c=>c.path==='/api/cases').length).toBe(2);expect(state.receipts.size).toBe(2);const successfulKeys=[...state.receipts.keys()];
+ await expect(page.locator('#image-list .image-item')).toHaveCount(3);await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();
+ expect(state.prepareSessions.length).toBe(4);expect(state.puts.length).toBe(4);expect(state.prepareSessions[0]).not.toBe(state.prepareSessions[3]);expect(state.receipts.size).toBe(3);
+ for(const key of successfulKeys)expect(state.calls.filter(c=>c.path==='/api/cases'&&c.idempotency===key).length).toBe(1);
+ expect(JSON.parse(state.calls.filter(c=>c.path==='/api/cases').at(-1).body).upload_session.session_id).toBe(state.prepareSessions[3]);
+ expect(state.calls.filter(c=>c.path==='/api/cases').every(c=>JSON.parse(c.body).upload_session.session_id!==state.prepareSessions[0])).toBe(true);
+});
+
+test('unknown pending PUT keeps original Intent through missing Complete and late completion',async({page})=>{
+ const state=await fixture(page);state.putFailures=1;state.putPending=true;await form(page);await page.locator('#submit-button').click();
+ await expect(page.locator('#submission-error')).toContainText('上傳回覆尚未確認');await page.locator('#submit-button').click();
+ await expect(page.locator('#submission-error')).toContainText('尚未完成上傳');expect(state.puts.length).toBe(1);expect(state.prepareSessions.length).toBe(1);expect(state.receipts.size).toBe(0);
+ await expect(page.locator('#image-list .image-item')).toHaveCount(1);state.uploadStates.get(state.prepareSessions[0]).present=true;
+ await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();expect(state.puts.length).toBe(1);expect(state.receipts.size).toBe(1);
+ const completed=state.calls.filter(c=>c.path.endsWith('/complete'));expect(completed.length).toBe(2);expect(completed[0].body).toEqual(completed[1].body);
+ expect(JSON.parse(state.calls.find(c=>c.path==='/api/cases').body).upload_session).toEqual(JSON.parse(completed[0].body));
 });
 test("Turnstile rejection remains a failure, with no PUT/case bypass", async ({ page }) => {
   const state = await fixture(page); state.prepareReject = true; await form(page);

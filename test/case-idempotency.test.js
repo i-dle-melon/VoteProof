@@ -6,6 +6,7 @@ import { createCase } from "../src/api/cases.js";
 import { sha256 } from "../src/lib/case-keys.js";
 import { COMPLETED_UPLOAD_TTL_SECONDS } from "../src/lib/completed-uploads.js";
 import { cleanPrivateCopies } from "../src/lib/case-files.js";
+import {scopedBatchFault,isCaseCommit} from './helpers/scoped-batch-fault.mjs';
 
 let local;
 before(async () => { local = await localCaseRuntime(); });
@@ -234,20 +235,19 @@ test("a session expiring during R2 copying cannot be consumed by the atomic batc
 
 test("lost D1 acknowledgement still returns a recoverable persistent idempotent response", async () => {
   const reference = await local.upload(), token = key(), body = guestBody(reference);
-  const db = { prepare: sql => local.db.prepare(sql), batch: async statements => {
-    await local.db.batch(statements); throw new Error("Acknowledgement lost");
-  } };
-  const first = await success(await createCase({ DB: db, PROOFS_BUCKET: local.bucket,
+  const fault=scopedBatchFault(local.db,isCaseCommit,async commit=>{await commit();throw new Error('Acknowledgement lost');});
+  const first = await success(await createCase({ DB: fault.db, PROOFS_BUCKET: local.bucket,
     CASE_QUERY_KEY_SECRET: local.querySecret }, null, request(body, token)));
   assert.deepEqual(await success(await submit(body, token)), first);
+  assert.equal(fault.state.injected,1);assert.ok(fault.state.passed>0);assert.equal(await count('cases',reference.session_id),1);
+  const file=await local.db.prepare('SELECT object_key FROM case_files WHERE case_id=(SELECT id FROM cases WHERE case_id=?)').bind(first.data.case_id).first();assert.ok(await local.bucket.head(file.object_key));
 });
 
 test("unknown commit acknowledgement preserves proofs and normal retry recovers query credential", async () => {
   const reference = await local.upload(), token = key(), body = guestBody(reference);
   let unavailable = false;
-  const db = { prepare: sql => { if (unavailable) throw new Error("Database offline"); return local.db.prepare(sql); },
-    batch: async statements => { await local.db.batch(statements); unavailable = true; throw new Error("Acknowledgement lost"); } };
-  await failure(await createCase({ DB: db, PROOFS_BUCKET: local.bucket, CASE_QUERY_KEY_SECRET: local.querySecret }, null,
+  const fault=scopedBatchFault({prepare:sql=>{if(unavailable)throw new Error('Database offline');return local.db.prepare(sql);},batch:s=>local.db.batch(s)},isCaseCommit,async commit=>{await commit();unavailable=true;throw new Error('Acknowledgement lost');});
+  await failure(await createCase({ DB: fault.db, PROOFS_BUCKET: local.bucket, CASE_QUERY_KEY_SECRET: local.querySecret }, null,
     request(body, token)), 500, "DATABASE_ERROR");
   const replay = await success(await submit(body, token));
   assert.equal((await local.fetch(`/api/cases/${replay.data.case_id}`, "GET", undefined,
@@ -255,16 +255,17 @@ test("unknown commit acknowledgement preserves proofs and normal retry recovers 
   const file = await local.db.prepare("SELECT object_key FROM case_files WHERE case_id = (SELECT id FROM cases WHERE case_id = ?)")
     .bind(replay.data.case_id).first();
   assert.ok(await local.bucket.head(file.object_key));
+  assert.equal(fault.state.injected,1);assert.ok(fault.state.passed>0);assert.equal(await count('cases',reference.session_id),1);
 });
 
 test("D1 rejection with cleanup failures preserves the database error and logs no private metadata", async () => {
   const reference = await local.upload({ count: 2 }), attempted = [], logs = [], privateError = randomBytes(32).toString("hex");
-  const db = { prepare: sql => local.db.prepare(sql), batch: async () => { throw new Error(privateError); } };
+  const fault=scopedBatchFault(local.db,isCaseCommit,async()=>{throw new Error(privateError);});
   const bucket = { get: (...args) => local.bucket.get(...args), put: (...args) => local.bucket.put(...args),
     delete: async objectKey => { attempted.push(objectKey); throw new Error(privateError + objectKey); } };
   const warn = console.warn; console.warn = (...args) => logs.push(args);
   let payload;
-  try { payload = await failure(await createCase({ DB: db, PROOFS_BUCKET: bucket }, null,
+  try { payload = await failure(await createCase({ DB: fault.db, PROOFS_BUCKET: bucket }, null,
     request(guestBody(reference))), 500, "DATABASE_ERROR"); }
   finally { console.warn = warn; }
   assert.equal(attempted.length, 2);
@@ -272,5 +273,14 @@ test("D1 rejection with cleanup failures preserves the database error and logs n
   const serialized = JSON.stringify([payload, logs]);
   for (const value of [privateError, ...attempted]) assert.equal(serialized.includes(value), false);
   assert.equal(await count("cases", reference.session_id), 0);
+  assert.equal(fault.state.injected,1);assert.ok(fault.state.passed>0);
+  assert.equal(new Set(attempted).size,2,'cleanup must not retry an unknown DELETE');
+  for(const objectKey of attempted){
+    assert.match(objectKey,/^proofs\/cases\//);assert.equal(reference.keys.includes(objectKey),false);
+    const object=await local.bucket.head(objectKey);assert.ok(object);
+    const receipt=await local.db.prepare("SELECT state,etag,object_version FROM storage_reservations WHERE object_key=?").bind(objectKey).first();
+    assert.equal(receipt.state,'committed');assert.equal(receipt.etag,object.etag);assert.equal(receipt.object_version,object.version);
+  }
+  for(const objectKey of reference.keys)assert.ok(await local.bucket.head(objectKey));
   for (const objectKey of attempted) await local.bucket.delete(objectKey);
 });

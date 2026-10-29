@@ -56,10 +56,16 @@ test('announcement Admin-only mutation, version CAS, server scheduling and immut
 });
 test('failed content transactions roll back publication and remove only newly uncommitted image bytes',async()=>{
  const before=(await h.db.prepare('SELECT COUNT(*) n FROM site_announcements').first()).n,assets=(await h.db.prepare('SELECT COUNT(*) n FROM campaign_example_assets').first()).n;
- const original=h.db.batch.bind(h.db),put=h.bucket.put.bind(h.bucket);let key;
- h.db.batch=statements=>original([...statements,h.db.prepare('SELECT * FROM injected_content_failure')]);h.bucket.put=async(k,...args)=>{key=k;return put(k,...args);};
+ const original=h.db.batch.bind(h.db),put=h.bucket.put.bind(h.bucket);let key,announcementFaults=0,assetFaults=0,admissionPassed=0;
+ h.db.batch=statements=>{
+  if(statements.some(s=>/^\s*INSERT INTO site_announcements\b/i.test(s.sql))){announcementFaults++;return original([...statements,h.db.prepare('SELECT * FROM injected_content_failure')]);}
+  if(statements.some(s=>/^\s*INSERT INTO campaign_example_assets\b/i.test(s.sql))){assetFaults++;assert.match(key,/^campaign-assets\/CONTENT_TEST\/example\//);return original([...statements,h.db.prepare('SELECT * FROM injected_content_failure')]);}
+  if(statements.some(s=>/^\s*INSERT INTO storage_reservations\b/i.test(s.sql)))admissionPassed++;
+  return original(statements);
+ };h.bucket.put=async(k,...args)=>{key=k;return put(k,...args);};
  try{assert.equal((await post('/api/admin/announcements',announcement)).status,503);assert.equal((await raw()).status,503);}finally{h.db.batch=original;h.bucket.put=put;}
  assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM site_announcements').first()).n,before);assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM campaign_example_assets').first()).n,assets);assert.match(key,/^campaign-assets\/CONTENT_TEST\/example\//);assert.equal(await h.bucket.head(key),null);assert.ok(await h.bucket.head('proofs/unchanged'));
+ assert.deepEqual({announcementFaults,assetFaults,admissionPassed},{announcementFaults:1,assetFaults:1,admissionPassed:1});
 });
 test('announcement schedule includes exact start and excludes exact end',async t=>{
  const starts_at='2030-01-01T00:00:00.000Z',ends_at='2030-01-01T00:01:00.000Z',row=await data(await post('/api/admin/announcements',{...announcement,starts_at,ends_at}),201);

@@ -63,7 +63,12 @@ test("login stays hidden while the initial session probe is pending", async ({ p
   });
   try {
     await page.goto("/#login"); await expect(page.locator("#login-session-status")).toBeVisible();
-    await expect(page.locator("#login-content")).toBeHidden(); release();
+    await expect(page.locator("#login-content")).toBeHidden();
+    const reads=['/api/auth/login-security','/api/me/points','/api/me/cases'].map(path=>page.waitForResponse(r=>new URL(r.url()).pathname===path));
+    // Boot /auth/me and subsequent member reads must describe the same session.
+    // Leaving this false supplies a real 401 which correctly hides the UI.
+    state.authenticated=true;release();
+    for(const response of await Promise.all(reads))expect(response.status()).toBe(200);
     await expect(page).toHaveURL(/#member$/); await expect(page.locator("#member-content")).toBeVisible();
   } finally { release(); }
 });

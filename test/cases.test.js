@@ -5,6 +5,7 @@ import { localCaseRuntime, guestBody } from "../scripts/lib/local-case-runtime.m
 import { sha256, CASE_ID_PATTERN, QUERY_KEY_PATTERN } from "../src/lib/case-keys.js";
 import worker from "../src/index.js";
 import { createCase } from "../src/api/cases.js";
+import {scopedBatchFault,isCaseCommit} from './helpers/scoped-batch-fault.mjs';
 
 let local;
 before(async () => { local = await localCaseRuntime(); });
@@ -189,28 +190,29 @@ test("actual D1 batch failure rolls back case, files and consumption; private co
 
 test("a lost D1 acknowledgement does not delete committed proof files", async () => {
   const reference = await local.upload();
-  const db = { prepare: sql => local.db.prepare(sql), batch: async statements => { await local.db.batch(statements); throw new Error("Lost acknowledgement"); } };
-  const response = await createCase({ DB: db, PROOFS_BUCKET: local.bucket }, null,
+  const fault=scopedBatchFault(local.db,isCaseCommit,async commit=>{await commit();throw new Error('Lost acknowledgement');});
+  const response = await createCase({ DB: fault.db, PROOFS_BUCKET: local.bucket }, null,
     new Request("https://voteproof.example/api/cases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(guestBody(reference)) }));
   assert.equal(response.status, 201);
   const created = (await response.json()).data;
   const row = await local.db.prepare("SELECT id FROM cases WHERE case_id = ?").bind(created.case_id).first();
   const file = await local.db.prepare("SELECT object_key FROM case_files WHERE case_id = ?").bind(row.id).first();
   assert.ok(await local.bucket.head(file.object_key));
+  assert.equal(fault.state.injected,1);assert.ok(fault.state.passed>0);
 });
 
 test("unverifiable D1 acknowledgement preserves possibly committed case files", async () => {
   const reference = await local.upload();
   let offline = false;
-  const db = { prepare: sql => { if (offline) throw new Error("Offline"); return local.db.prepare(sql); },
-    batch: async statements => { await local.db.batch(statements); offline = true; throw new Error("Lost acknowledgement"); } };
-  const response = await createCase({ DB: db, PROOFS_BUCKET: local.bucket }, null,
+  const fault=scopedBatchFault({prepare:sql=>{if(offline)throw new Error('Offline');return local.db.prepare(sql);},batch:s=>local.db.batch(s)},isCaseCommit,async commit=>{await commit();offline=true;throw new Error('Lost acknowledgement');});
+  const response = await createCase({ DB: fault.db, PROOFS_BUCKET: local.bucket }, null,
     new Request("https://voteproof.example/api/cases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(guestBody(reference)) }));
   await error(response, 500, "DATABASE_ERROR");
   const row = await local.db.prepare("SELECT id FROM cases WHERE upload_session_id = ?").bind(reference.session_id).first();
   assert.ok(row);
   const file = await local.db.prepare("SELECT object_key FROM case_files WHERE case_id = ?").bind(row.id).first();
   assert.ok(await local.bucket.head(file.object_key));
+  assert.equal(fault.state.injected,1);assert.ok(fault.state.passed>0);
 });
 
 test("Idempotency-Key creates a case and replays the same successful response", async () => {

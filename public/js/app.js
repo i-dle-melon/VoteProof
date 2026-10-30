@@ -59,7 +59,7 @@ put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putI
   assertSubmissionOpen(); return token;
 }, progress: renderSubmissionProgress });
 function renderSubmissionProgress(state) {
-  const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
+  const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", capacity_wait:"背景容量盤點中，安全等待後繼續…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
     complete: "驗證已上傳的圖片…", case: "建立案件，請勿關閉分頁…" };
   $("upload-progress").hidden = false;
   $("progress").value = Math.round(state.fraction * 100);

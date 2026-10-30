@@ -97,6 +97,25 @@ test("decimal budget and unknown default, expired snapshot and D1 failure all bl
   );
   assert.equal(calls, 0);
 });
+test("known zero-write admission distinguishes active inventory, stale snapshot and real capacity stop",async()=>{
+  await normal();
+  const held=randomUUID();
+  await db.prepare("UPDATE storage_capacity SET inventory_id=?,inventory_phase='scan',trusted_until=0 WHERE id=1").bind(held).run();
+  let puts=0;
+  const bucket={put:async()=>{puts++;throw Error('R2 was reached');}};
+  await assert.rejects(write('inventory-admission',3,bucket),e=>
+    e.code==='R2_STORAGE_INVENTORY_BUSY' && e.noWrite===true);
+  assert.equal(puts,0);
+  await db.prepare("UPDATE storage_capacity SET inventory_id=NULL,inventory_phase=NULL WHERE id=1").run();
+  await assert.rejects(write('stale-admission',3,bucket),e=>
+    e.code==='R2_STORAGE_SNAPSHOT_STALE' && e.noWrite===true);
+  assert.equal(puts,0);
+  await normal(STORAGE.stop);
+  await assert.rejects(write('full-admission',3,bucket),e=>
+    e.code==='R2_STORAGE_CAPACITY_EXCEEDED' && e.noWrite===true);
+  assert.equal(puts,0);
+});
+
 test("concurrent reservations cannot overbook and accepted reservations include staging/admin/other bytes", async () => {
   await normal(STORAGE.stop - 10);
   const results = await Promise.allSettled(

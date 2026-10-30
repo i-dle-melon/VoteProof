@@ -59,11 +59,19 @@ export function queryInformation(result) {
   return `VoteProof\n案件編號：${result.case_id}\n查詢碼：${result.query_key}`;
 }
 
+export function canWaitForInventory(error) {
+  // All four signals must agree. If any is absent, treat the PUT as possibly
+  // dispatched; especially never retry an unknown or acknowledged native write.
+  return error?.code==='R2_STORAGE_INVENTORY_BUSY'&&error?.putRejected===true&&
+    error?.uploadStage==='capacity_admission'&&error?.putState==='not_started'&&error?.status===503;
+}
+
 export class Submission {
   #context = null;
   #running = null;
-  constructor({ api, put, token, progress = () => {}, now = () => Date.now(), directIntent = false }) {
-    this.api = api; this.put = put; this.token = token; this.progress = progress; this.now = now;
+  constructor({ api, put, token, progress = () => {}, now = () => Date.now(),
+    sleep = ms => new Promise(resolve => setTimeout(resolve,ms)), directIntent = false }) {
+    this.api = api; this.put = put; this.token = token; this.progress = progress; this.now = now; this.sleep=sleep;
     // Snapshot the server-advertised mode for this logical item. A later gate
     // refresh must never change the payload/endpoint of an in-flight retry.
     this.directIntent = typeof directIntent==='function'?Boolean(directIntent()):Boolean(directIntent);
@@ -117,7 +125,21 @@ export class Submission {
       const update = (fraction) => this.progress({ phase: "put", file: i + 1, count: c.files.length,
         fraction: (c.uploaded.size + fraction) / c.files.length });
       update(0);
-      try {await this.put(c.prepared.uploads[i], c.files[i], update);}
+      try {
+        // Only server-confirmed ZERO-WRITE inventory admission rejections may be
+        // retried. A timed-out/unknown/acknowledged R2 PUT is NEVER resent.
+        // Keep the same immutable intent, file, grant and idempotency key.
+        for(let waits=0;;){
+          try {await this.put(c.prepared.uploads[i], c.files[i], update);break;}
+          catch(error){
+            if(!canWaitForInventory(error)||waits>=12||this.now()+5000>=c.expiresAt)throw error;
+            waits++;
+            this.progress({phase:'capacity_wait',file:i+1,count:c.files.length,
+              fraction:c.uploaded.size/c.files.length});
+            await this.sleep(5000);
+          }
+        }
+      }
       catch(error) {
         // A rejected Grant cannot have reached native R2. Never turn a 403 into
         // a successful upload flag or a speculative Direct Case submission.

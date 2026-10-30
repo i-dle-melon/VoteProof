@@ -44,7 +44,23 @@ export async function reserveStorage(env, key, size, claim=null,diagnostic) {
     if(allowed?.length!==1||![0,1].includes(allowed[0].capacity_allowed))throw new StorageCapacityError();
     if(allowed[0].capacity_allowed===1)return null;
   }
-  const error=new StorageCapacityError();error.noWrite=true;throw error;
+  // The exact zero-row admission proves this request did not dispatch an R2 PUT.
+  // Diagnose a concurrent inventory only AFTER that receipt. Never classify
+  // thrown D1 acknowledgements or ambiguous native writes as safe-to-retry.
+  let current;
+  try { current=await capacityRow(env.DB); } catch { /* Keep the conservative code. */ }
+  const error=new StorageCapacityError();
+  if(current?.inventory_id!==null && current?.inventory_id!==undefined){
+    error.code='R2_STORAGE_INVENTORY_BUSY';
+    error.message='Background capacity inventory is temporarily blocking upload admission';
+  }else if(current && current.trusted_until<=nowSeconds() &&
+    current.blocked===0 && current.anomaly===null &&
+    current.used_bytes+current.reserved_bytes+size<STORAGE.stop){
+    error.code='R2_STORAGE_SNAPSHOT_STALE';
+    error.message='Capacity snapshot is not fresh';
+  }
+  error.noWrite=true;
+  throw error;
 }
 export async function capacityPut(env, key, body, options, size,diagnostic) {
   const id = await reserveStorage(env, key, size,null,diagnostic);

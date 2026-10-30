@@ -60,10 +60,12 @@ export function queryInformation(result) {
 }
 
 export function canWaitForInventory(error) {
-  // All four signals must agree. If any is absent, treat the PUT as possibly
-  // dispatched; especially never retry an unknown or acknowledged native write.
-  return error?.code==='R2_STORAGE_INVENTORY_BUSY'&&error?.putRejected===true&&
-    error?.uploadStage==='capacity_admission'&&error?.putState==='not_started'&&error?.status===503;
+  // BOTH transient denial codes require the original, atomic zero-write
+  // receipt, plus the native PUT diagnostic proving no dispatch occurred.
+  // Missing diagnostics, real capacity, unknown ACK or R2 dispatch never retry.
+  return ['R2_STORAGE_INVENTORY_BUSY','R2_STORAGE_SNAPSHOT_STALE'].includes(error?.code)&&
+    error?.putRejected===true&&error?.uploadStage==='capacity_admission'&&
+    error?.putState==='not_started'&&error?.status===503;
 }
 
 export class Submission {
@@ -245,8 +247,11 @@ export class BatchSubmission {
         item.error = null; item.result = await item.flow.attempt(); item.status = "success";
       } catch (error) {
         item.error = error; item.status = "failed"; this.#error = error;
-        // Global auth, campaign, gate or challenge failures pause the queue.
-        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|DIRECT_INTENT_)/.test(error.code ?? "")) {
+        // Capacity admission is a batch-wide condition. Stop trying new
+        // images when the bounded wait has expired; successful receipts remain.
+        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||
+            /^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|DIRECT_INTENT_)/.test(error.code ?? "")||
+            /^R2_STORAGE_(?:CAPACITY_EXCEEDED|INVENTORY_BUSY|SNAPSHOT_STALE)$/.test(error.code ?? "")) {
           this.changed(this.summary); break;
         }
       }

@@ -50,12 +50,15 @@ export async function reserveStorage(env, key, size, claim=null,diagnostic) {
   let current;
   try { current=await capacityRow(env.DB); } catch { /* Keep the conservative code. */ }
   const error=new StorageCapacityError();
-  if(current?.inventory_id!==null && current?.inventory_id!==undefined){
+  // An admission failure caused by real capacity, anomaly, or blocked state
+  // must never be mislabeled transient even if a scan is also in progress.
+  const safelyBelowLimit=current && current.blocked===0 && current.anomaly===null &&
+    Number.isSafeInteger(current.used_bytes)&&Number.isSafeInteger(current.reserved_bytes)&&
+    current.used_bytes+current.reserved_bytes+size<STORAGE.stop;
+  if(safelyBelowLimit && current.inventory_id!=null){
     error.code='R2_STORAGE_INVENTORY_BUSY';
     error.message='Background capacity inventory is temporarily blocking upload admission';
-  }else if(current && current.trusted_until<=nowSeconds() &&
-    current.blocked===0 && current.anomaly===null &&
-    current.used_bytes+current.reserved_bytes+size<STORAGE.stop){
+  }else if(safelyBelowLimit && current.trusted_until<=nowSeconds()){
     error.code='R2_STORAGE_SNAPSHOT_STALE';
     error.message='Capacity snapshot is not fresh';
   }

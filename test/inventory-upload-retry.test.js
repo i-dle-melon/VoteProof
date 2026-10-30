@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Submission,canWaitForInventory} from '../public/js/submission.js';
+import {Submission,BatchSubmission,canWaitForInventory} from '../public/js/submission.js';
 import {PublicError} from '../public/js/api.js';
 
 const uuid='11111111-1111-4111-8111-111111111111';
@@ -71,5 +71,52 @@ test('inventory retries are bounded and stop before grant expiry',async()=>{
    const short=fixture({failCount:100,expires:1});
    await assert.rejects(short.flow.attempt(),e=>e.code==='R2_STORAGE_INVENTORY_BUSY');
    assert.equal(short.counts().puts,1);
+ }finally{globalThis.location=previous;}
+});
+
+test('stale snapshot: known zero-write PUT can retry once with same grant',async()=>{
+ const previous=globalThis.location;globalThis.location={origin:'https://voteproof.example'};
+ try{
+   const f=fixture({error:Object.assign(safeError(),{code:'R2_STORAGE_SNAPSHOT_STALE'})});
+   assert.deepEqual(await f.flow.attempt(),caseResult);
+   assert.deepEqual(f.counts(),{puts:2,tokens:1,cases:1,sleeps:1,prepares:1});
+ }finally{globalThis.location=previous;}
+});
+test('a stale snapshot rejection without the no-write receipt NEVER retries',async()=>{
+ const previous=globalThis.location;globalThis.location={origin:'https://voteproof.example'};
+ try{
+   const f=fixture({error:Object.assign(safeError(),{code:'R2_STORAGE_SNAPSHOT_STALE',putRejected:false})});
+   await assert.rejects(f.flow.attempt(),e=>e.code==='R2_STORAGE_SNAPSHOT_STALE');
+   assert.deepEqual(f.counts(),{puts:1,tokens:1,cases:0,sleeps:0,prepares:1});
+ }finally{globalThis.location=previous;}
+});
+test('batch stops on first stale capacity failure and leaves remaining items queued',async()=>{
+ const previous=globalThis.location;globalThis.location={origin:'https://voteproof.example'};
+ try{
+   let tokenCount=0,puts=0,prepares=0,sleeps=0,cases=0;
+   const files=Array.from({length:3},(_,i)=>({...file,name:'proof'+i+'.png'}));
+   const flow=new BatchSubmission({
+     api:async(path)=>{
+       if(path==='/api/submissions/status')return{submissions_enabled:true};
+       if(path==='/api/uploads/prepare'){prepares++;return response;}
+       if(path==='/api/uploads/complete')return{};
+       if(path==='/api/cases'){cases++;return caseResult;}
+       throw Error(path);
+     },
+     put:async()=>{puts++;throw Object.assign(safeError(),{code:'R2_STORAGE_SNAPSHOT_STALE'});},
+     token:async()=>{tokenCount++;return 'synthetic';},
+     now:()=>10000,
+     sleep:async()=>{sleeps++;}
+   });
+   flow.start(metadata,files);
+   const summary=await flow.attempt();
+   assert.equal(summary.succeeded,0);
+   assert.equal(summary.failed,1);
+   assert.equal(summary.queued,2);
+   assert.equal(puts,13);
+   assert.equal(prepares,1);
+   assert.equal(tokenCount,1);
+   assert.equal(cases,0);
+   assert.equal(sleeps,12);
  }finally{globalThis.location=previous;}
 });

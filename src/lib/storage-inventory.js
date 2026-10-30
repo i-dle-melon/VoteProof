@@ -1,6 +1,7 @@
 import {AdminError} from './admin-identity.js';
 import {authAtomic} from './auth-store.js';
 import {capacityRow,evaluateCapacity,nowSeconds,STORAGE,StorageCapacityError} from './storage-capacity.js';
+import {pendingInventoryPage,pendingInventoryFinalize,pendingReceipt} from './storage-inventory-pending.js';
 
 const conflict=code=>new AdminError(409,code,'盤點狀態已變更，請從持久進度續跑。');
 function writer(env){if(env.R2_EXCLUSIVE_WRITER_CONFIRMED!=='true')throw conflict('STORAGE_WRITER_UNVERIFIED');}
@@ -13,6 +14,8 @@ const guard=row=>({sql:"EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND inv
 export async function scanInventoryPage(env){
   writer(env);const db=env.DB;let row=await capacityRow(db);
   await evaluateCapacity(db,row);
+  const pending=await pendingInventoryPage(env,row);
+  if(pending)return pending;
   if(!row.inventory_id){
     row=await db.prepare(`UPDATE storage_capacity SET inventory_id=?,inventory_phase='scan',
       inventory_cursor=NULL,inventory_bytes=0,inventory_count=0,inventory_staging=0,inventory_other=0,
@@ -52,13 +55,14 @@ export async function scanInventoryPage(env){
 
 async function receipt(db,id,version){
   // The audit row is the durable commit receipt, keyed by the server scan UUID.
-  const row=await db.prepare(`SELECT h.bytes,h.anomaly,a.detail FROM storage_history h
+  const row=await db.prepare(`SELECT h.bytes,h.reserved_bytes,h.anomaly,a.detail FROM storage_history h
     JOIN storage_audit a ON a.id=h.id AND a.target=h.id AND a.action='inventory' WHERE h.id=?`).bind(id).first();
   if(!row)return null;
   let detail;try{detail=JSON.parse(row.detail);}catch{throw new StorageCapacityError();}
   if(detail.inventory_version!==version)throw conflict('STORAGE_FINALIZE_CONFLICT');
+  if(detail.conservative===true&&(detail.bytes!==row.bytes||detail.pending_bytes!==row.reserved_bytes))throw new StorageCapacityError();
   return{complete:true,phase:'finalize',inventory_id:id,inventory_version:version,
-    bytes:row.bytes,anomaly:row.anomaly,replayed:true};
+    bytes:row.bytes,anomaly:row.anomaly,replayed:true,...pendingReceipt(detail)};
 }
 
 // Separate HTTP invocation: no R2 LIST, no archive, no mail delivery.
@@ -68,6 +72,8 @@ export async function finalizeInventory(env,id,version){
     const saved=await receipt(db,id,version);if(saved)return saved;
     throw conflict('STORAGE_FINALIZE_NOT_READY');
   }
+  const pending=await pendingInventoryFinalize(env,row,id,version,receipt);
+  if(pending)return pending;
   if(row.inventory_phase!=='ready'||row.inventory_cursor!==null||row.inventory_version!==version||row.reserved_bytes)
     throw conflict('STORAGE_FINALIZE_NOT_READY');
   const total=row.inventory_bytes,at=nowSeconds();

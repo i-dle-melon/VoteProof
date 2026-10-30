@@ -20,7 +20,9 @@ export async function memberFixture(page, options = {}) {
     };
   });
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", route => route.fulfill({ contentType: "text/javascript", body:
-    `let next=0;const widgets=new Map();globalThis.turnstile={render(container,opts){const id=String(next++);widgets.set(id,opts);container.textContent='本機隔離驗證';queueMicrotask(()=>opts.callback('local-browser-fixture'));return id;},reset(id){queueMicrotask(()=>widgets.get(id).callback('local-browser-fixture'));}};` }));
+    // Each newly completed challenge issues a different token, as Siteverify
+    // tokens are single-use; reset must not replay a previously consumed one.
+    `let next=0,issued=0;const widgets=new Map();globalThis.turnstile={render(container,opts){const id=String(next++);widgets.set(id,opts);container.textContent='本機隔離驗證';queueMicrotask(()=>opts.callback('local-browser-fixture-'+(++issued)));return id;},reset(id){queueMicrotask(()=>widgets.get(id).callback('local-browser-fixture-'+(++issued)));}};` }));
   const session = () => ({ member: state.member, csrf_token: state.csrf, ...(options.adminRole ? { elevated_until: state.elevationUntil ?? Date.now() / 1000 + 600 } : {}), expires_in: options.shortSession ? .2 : 600 });
   state.googleConnected = Boolean(options.googleOnly || options.dual); state.passwordConfigured = !options.googleOnly; state.authenticatorConfigured = !options.googleOnly; state.googlePurpose = options.googlePurpose ?? "login";
   // WebKit cannot fulfill mocked 302 responses; the isolated provider fixture

@@ -28,6 +28,7 @@ async function fixture(page, options = {}) {
         body:JSON.stringify({ok:false,error:{code:'R2_STORAGE_INVENTORY_BUSY'}})});return;
     }
     if (options.partial && index === 1 && !failedPut) { failedPut = true; await route.abort(); return; }
+    if(options.putWait)await options.putWait;
     await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
   });
   await page.route("**/api/cases", async route => {
@@ -77,12 +78,72 @@ test("20-image member batch creates 20 independent cases, status/receipts and mo
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(1); // theme preference only
 });
 
+test('one mobile click waits for delayed verification; focus/Gate refresh and duplicate submit never reset or duplicate it',async({page})=>{
+ const state=await fixture(page,{authenticated:false});
+ await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',route=>route.fulfill({contentType:'text/javascript',body:
+  `globalThis.__resets=0;let o;globalThis.turnstile={render(_,v){o=v;return 'delayed';},reset(){globalThis.__resets++;}};globalThis.__verify=()=>o.callback('synthetic-fresh-once');`}));
+ await page.goto('/#submit');await expect(page.locator('#submission-fields')).toBeEnabled();
+ await page.locator('#proof-images').setInputFiles([{name:'one.png',mimeType:'image/png',buffer:png}]);
+ await page.locator('#submit-button').click();await expect(page.locator('#submit-button')).toBeDisabled();
+ await page.locator('#submission-form').evaluate(form=>{form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));window.dispatchEvent(new Event('focus'));});
+ expect(state.prepares).toHaveLength(0);await page.evaluate(()=>globalThis.__verify());
+ await expect(page.locator('#submission-success')).toBeVisible();expect(state.puts).toHaveLength(1);expect(state.posts).toHaveLength(1);expect(await page.evaluate(()=>globalThis.__resets)).toBe(0);
+});
+
+test('Complete failure resumes confirmed bytes on one click without PUT or another challenge',async({page})=>{
+ const state=await fixture(page);let completes=0;
+ await page.route('**/api/uploads/complete',route=>{
+  completes++;return route.fulfill({status:completes===1?400:200,contentType:'application/json',body:JSON.stringify(completes===1?{ok:false,error:{code:'UPLOAD_INCOMPLETE'}}:{ok:true,data:{}})});
+ });
+ await form(page,1);await page.locator('#submit-button').click();await expect(page.locator('#retry-note')).toBeVisible();
+ await expect(page.locator('.upload-completion-hint')).toBeVisible();expect(state.puts).toHaveLength(1);expect(state.posts).toHaveLength(0);
+ await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();
+ expect(completes).toBe(2);expect(state.puts).toHaveLength(1);expect(state.posts).toHaveLength(1);expect(state.prepares).toHaveLength(1);
+});
+
+test('one tap during foreground Gate refresh waits; a fresh OFF still prevents every write',async({page})=>{
+ const state=await fixture(page);await form(page,3);let release,entered;
+ const pending=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+ await page.route('**/api/submissions/status',async route=>{entered();await pending;await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data:{submissions_enabled:false,submissions_message:'暫停'}})});});
+ try{
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await started;
+  await page.locator('#submit-button').click();await expect(page.locator('#submit-button')).toBeDisabled();expect(state.prepares).toHaveLength(0);
+  release();await expect(page.locator('#submit-state')).toHaveText('目前暫停投稿');await expect(page.locator('#submit-button')).toBeDisabled();
+  expect(state.authorizations).toHaveLength(0);expect(state.puts).toHaveLength(0);expect(state.posts).toHaveLength(0);await expect(page.locator('#image-list .image-item')).toHaveCount(3);
+ }finally{release();}
+});
+
+test('UNKNOWN remains a warning and confirmation-only retry never uploads again',async({page})=>{
+ const state=await fixture(page);let missing=true;
+ await page.route('**/api/uploads/put/**',async route=>{state.puts.push(0);await route.abort();});
+ await page.route('**/api/uploads/complete',route=>route.fulfill({status:missing?400:200,contentType:'application/json',body:JSON.stringify(missing?{ok:false,error:{code:'UPLOAD_INCOMPLETE'}}:{ok:true,data:{}})}));
+ await form(page,1);await page.locator('#submit-button').click();await expect(page.locator('#batch-counts')).toContainText('結果待確認：1');
+ await expect(page.locator('#batch-items [data-state="unknown"]')).toContainText('不會直接重新傳送');
+ await page.locator('#submit-button').click();await expect(page.locator('#submit-button')).toBeEnabled();expect(state.puts).toHaveLength(1);expect(state.posts).toHaveLength(0);
+ missing=false;await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();expect(state.puts).toHaveLength(1);expect(state.receipts.size).toBe(1);
+});
+
+test('20 pending images keep stable DOM, truthful sub-100 progress and mobile layout',async({page},info)=>{
+ let release;const wait=new Promise(r=>release=r);const state=await fixture(page,{putWait:wait});
+ try{
+  await form(page,20);await page.locator('#submit-button').click();await expect.poll(()=>state.puts.length).toBe(2);
+  await expect(page.locator('#batch-items .batch-item')).toHaveCount(20);await expect(page.locator('#batch-counts')).toContainText('處理中：2');
+  await page.locator('#batch-items .batch-item').first().evaluate(row=>{globalThis.__firstRow=row;});
+  expect(await page.locator('#progress').evaluate(p=>p.value)).toBeLessThan(100);await expect(page.locator('.upload-completion-hint')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:`.wrangler/frontend-previews/batch-inflight-${info.project.name}.png`,fullPage:true});
+  release();await expect(page.locator('#submission-success')).toBeVisible();
+  expect(await page.locator('#batch-items .batch-item').first().evaluate(row=>row===globalThis.__firstRow)).toBe(true);
+  expect(state.posts).toHaveLength(20);await expect(page.locator('#batch-title')).toHaveText('本次投稿全部完成');
+ }finally{release();}
+});
+
 for(const authenticated of [false,true])test(`inventory Busy waits and resumes the ${authenticated?'member':'guest'} batch without another challenge`,async({page})=>{
   const state=await fixture(page,{authenticated,inventoryBusy:true});await form(page,3);await page.locator('#submit-button').click();
   await expect(page.locator('#progress-label')).toContainText('背景容量盤點');
   await expect(page.locator('#submission-success')).toBeVisible({timeout:15000});
   expect(state.authorizations.length).toBe(1);expect(state.prepares.length).toBe(3);
-  expect(state.puts).toEqual([0,0,1,2]);expect(state.receipts.size).toBe(3);
+  expect(state.puts.filter(i=>i===0)).toHaveLength(2);expect(state.puts.filter(i=>i===1)).toHaveLength(1);expect(state.puts.filter(i=>i===2)).toHaveLength(1);expect(state.receipts.size).toBe(3);
   expect(new Set(state.posts.map(p=>p.key)).size).toBe(3);expect(state.posts.length).toBe(3);
 });
 
@@ -97,8 +158,9 @@ test("partial batch keeps successes and retries only failed PUT/lost case items"
   // the client must not resend that PUT just because the response was lost.
   expect(state.prepares.length).toBe(3); expect(state.puts).toEqual([0, 1, 2]);
   expect(state.posts.length).toBe(4); expect(state.receipts.size).toBe(3);
-  expect(state.posts[1].serialized).toBe(state.posts[3].serialized); expect(state.posts[1].key).toBe(state.posts[3].key);
-  expect(state.posts.filter(post => post.key === state.posts[0].key).length).toBe(1);
+  const groups=[...state.receipts.keys()].map(key=>state.posts.filter(p=>p.key===key));
+  expect(groups.map(g=>g.length).sort()).toEqual([1,1,2]);
+  const replay=groups.find(g=>g.length===2);expect(replay[0].serialized).toBe(replay[1].serialized);
 });
 
 test('guest final upload carries its capability only in the request body and keeps anonymous identity',async({page})=>{
@@ -119,11 +181,12 @@ test("fresh OFF blocks all 20 selected images without any upload or new case", a
   expect(state.prepares).toEqual([]); expect(state.puts).toEqual([]); expect(state.posts).toEqual([]);
 });
 
-test("account change between batch items stops before another member proof is prepared", async ({ page }) => {
+test("account change stops new lanes while retaining the two already admitted member proofs", async ({ page }) => {
   const state = await fixture(page, { switchIdentity: true }); await form(page, 3); await page.locator("#submit-button").click();
   await expect(page.locator("#retry-note")).toBeVisible();
-  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 1 · 未成功 1 · 等待 1");
-  expect(state.prepares.length).toBe(1); expect(state.posts.length).toBe(1);
+  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 2 · 未成功 1 · 等待 0");
+  expect(state.prepares.length).toBe(2); expect(state.posts.length).toBe(2);
+  expect(state.posts.every(p=>p.headers['x-csrf-token']===state.member.csrf)).toBe(true);
 });
 
 test("one interactive challenge authorizes the batch without reusing the consumed token", async ({ page }) => {

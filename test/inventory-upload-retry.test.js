@@ -62,7 +62,7 @@ test('batch forwards its deterministic sleep; busy limit pauses later items with
  const old=globalThis.location;globalThis.location={origin:'https://voteproof.example'};
  try{
   let puts=0,sleeps=0,clock=10000,tokens=0,authorizations=0,prepares=0;
-  const flow=new BatchSubmission({now:()=>clock,sleep:async ms=>{assert.equal(ms,5000);sleeps++;clock+=ms;},
+  const flow=new BatchSubmission({concurrency:1,now:()=>clock,sleep:async ms=>{assert.equal(ms,5000);sleeps++;clock+=ms;},
    api:async path=>{
     if(path.endsWith('/status'))return{submissions_enabled:true};
     if(path.endsWith('/authorize')){authorizations++;return{tickets:['A','B','C'].map(x=>x.repeat(60)),expires_in:300};}
@@ -100,7 +100,7 @@ test('Busy after one successful case preserves its receipt and retries only the 
  const old=globalThis.location;globalThis.location={origin:'https://voteproof.example'};
  try{
   let clock=10000,recovered=false,prepares=0,authorizations=0,tokens=0,sleeps=0;const uploads=[],caseKeys=[],posts=[];
-  const flow=new BatchSubmission({now:()=>clock,sleep:async ms=>{clock+=ms;sleeps++;},token:async()=>{tokens++;return'synthetic';},
+  const flow=new BatchSubmission({concurrency:1,now:()=>clock,sleep:async ms=>{clock+=ms;sleeps++;},token:async()=>{tokens++;return'synthetic';},
    api:async(path,options)=>{
     if(path.endsWith('/status'))return{submissions_enabled:true};
     if(path.endsWith('/authorize')){authorizations++;return{tickets:['A','B','C'].map(x=>x.repeat(60)),expires_in:300};}
@@ -124,7 +124,7 @@ test('actual MemberSession owner change during Busy wait prevents another PUT or
  let current=first,clock=10000,puts=0;
  const session=new MemberSession({fetcher:async path=>{assert.equal(path,'/api/auth/me');return Response.json({ok:true,data:current});}});session.accept(first);const sender=session.caseSender();
  try{
-  const flow=new BatchSubmission({gate:()=>sender.verify(),now:()=>clock,sleep:async ms=>{clock+=ms;current=second;},token:async()=>'synthetic',
+  const flow=new BatchSubmission({concurrency:1,gate:()=>sender.verify(),now:()=>clock,sleep:async ms=>{clock+=ms;current=second;},token:async()=>'synthetic',
    api:async path=>{if(path.endsWith('/authorize'))return{tickets:['A','B'].map(x=>x.repeat(60)),expires_in:300};if(path.endsWith('/prepare'))return response;assert.fail('No Case or guest fallback');},put:async()=>{puts++;throw safeError();}});
   flow.start(metadata,[file,file]);const result=await flow.attempt();assert.equal(puts,1);assert.equal(result.items[0].error,'AUTH_IDENTITY_CHANGED');assert.equal(result.succeeded,0);assert.equal(result.queued,1);
  }finally{session.clear();globalThis.location=old;}
@@ -185,7 +185,7 @@ test('batch stops on first stale capacity failure and leaves remaining items que
  try{
    let tokenCount=0,puts=0,prepares=0,sleeps=0,cases=0;
    const files=Array.from({length:3},(_,i)=>({...file,name:'proof'+i+'.png'}));
-   const flow=new BatchSubmission({
+   const flow=new BatchSubmission({concurrency:1,
      api:async(path)=>{
        if(path==='/api/submissions/status')return{submissions_enabled:true};
        if(path==='/api/uploads/batch/authorize')return{tickets:files.map((_,i)=>String(i).repeat(60)),expires_in:300};

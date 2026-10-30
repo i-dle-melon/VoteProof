@@ -82,7 +82,7 @@ const messages = {
   TURNSTILE_UPSTREAM_ERROR: "驗證服務暫時無法連線，請重新驗證後重試。",
   TURNSTILE_NOT_CONFIGURED: "投稿驗證服務尚未就緒，請稍後再試。",
   R2_UPLOAD_NOT_CONFIGURED: "圖片上傳服務尚未就緒，請稍後再試。",
-  UPLOAD_INCOMPLETE: "部分圖片尚未完成上傳，請重試。",
+  UPLOAD_INCOMPLETE: "圖片尚未確認完整；接續只核對原上傳，不會重新傳送已上傳圖片。若仍未確認，請保留此分頁並聯絡管理員。",
   UPLOAD_VALIDATION_FAILED: "圖片未通過檢查。請放棄本次投稿，重新選擇有效圖片。",
   UPLOAD_SESSION_EXPIRED: "本次上傳已過期。請放棄本次投稿後重新開始。",
   UPLOAD_ALREADY_USED: "這批圖片已用於另一案件，請先確認原案件的查詢資訊。",

@@ -40,7 +40,8 @@ async function fixture(t,{mode='normal',direct=true}={}){
   }
  };
  t.after(async()=>{for(const h of holds.values())h.release();await Promise.allSettled(pending);globalThis.XMLHttpRequest=oldXHR;rt.close();});
- const batch=new BatchSubmission({api,put:putImage,token:async()=>randomUUID(),now:()=>clock,directIntent:direct});
+ // Expiry fault injection temporarily changes process Date.now: keep this legacy fixture serial.
+ const batch=new BatchSubmission({concurrency:1,api,put:putImage,token:async()=>randomUUID(),now:()=>clock,directIntent:direct});
  const start=n=>batch.start({campaign_id:'UPLOAD-LOCAL',vote_date:new Date().toISOString().slice(0,10)},Array.from({length:n},(_,i)=>new File([image],'proof-'+i+'.png',{type:'image/png'})));
  const count=sql=>rt.sqlite.prepare(sql).get().n;
  return{...rt,batch,start,requests,keyForURL,nativePuts:()=>nativePuts,httpPuts:()=>httpPuts,count,advance:ms=>clock+=ms,finish:async()=>{for(const h of holds.values())h.release();await Promise.all(pending);}};
@@ -59,15 +60,15 @@ for(const n of [1,3,10,20]){
   await f.batch.attempt();assert.equal(f.nativePuts(),n);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),n);
  });
  test(n+' images: late native PUT + missing HEAD never replays PUT; later Case uses identical key/body',async t=>{
-  const f=await fixture(t,{mode:'pending_native'});f.start(n);assert.equal((await f.batch.attempt()).failed,n);assert.equal(f.nativePuts(),n);
+  const f=await fixture(t,{mode:'pending_native'});f.start(n);assert.equal((await f.batch.attempt()).unknown,n);assert.equal(f.nativePuts(),n);
   const cases1=f.requests.filter(r=>r.path==='/api/cases/direct');assert.equal(cases1.length,n);f.advance(301000);
-  assert.equal((await f.batch.attempt()).failed,n);assert.equal(f.nativePuts(),n);assert.equal(f.requests.filter(r=>r.path.endsWith('/prepare')).length,n);
+  assert.equal((await f.batch.attempt()).unknown,n);assert.equal(f.nativePuts(),n);assert.equal(f.requests.filter(r=>r.path.endsWith('/prepare')).length,n);
   assert.equal(f.count('SELECT COUNT(*) n FROM proof_upload_intents WHERE write_token IS NOT NULL'),n);
   await f.finish();assert.equal((await f.batch.attempt()).succeeded,n);assert.equal(f.nativePuts(),n);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),n);
   const cases=f.requests.filter(r=>r.path==='/api/cases/direct');for(let i=0;i<n;i++){assert.equal(cases[i].bodyHash===cases[i+n].bodyHash&&cases[i].bodyHash===cases[i+2*n].bodyHash,true);assert.equal(cases[i].idempotencyHash===cases[i+2*n].idempotencyHash,true);}
  });
  test(n+' images: lost Case ACK retains exact payload/key after expiry, with no duplicate successful Case',async t=>{
-  const f=await fixture(t,{mode:'case_ack_lost'});f.start(n);assert.equal((await f.batch.attempt()).failed,n);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),n);
+  const f=await fixture(t,{mode:'case_ack_lost'});f.start(n);assert.equal((await f.batch.attempt()).unknown,n);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),n);
   f.advance(86400000);assert.equal((await f.batch.attempt()).succeeded,n);assert.equal(f.nativePuts(),n);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),n);
   const cs=f.requests.filter(r=>r.path==='/api/cases/direct');for(let i=0;i<n;i++){assert.equal(cs[i].bodyHash===cs[i+n].bodyHash,true);assert.equal(cs[i].idempotencyHash===cs[i+n].idempotencyHash,true);}
  });
@@ -78,19 +79,19 @@ test('partial 3-image batch renews only rejected item, keeping two successful re
 });
 for(const status of [403,502])test('old frontend adapter PUT_FAILED HTTP'+status+' cannot be promoted to unknown-native success',async t=>{
  const f=await fixture(t);let puts=0;f.batch.dependencies.put=async()=>{puts++;throw new PublicError('PUT_FAILED',status);};f.start(1);
- assert.equal((await f.batch.attempt()).failed,1);assert.equal((await f.batch.attempt()).failed,1);assert.equal(f.batch.error.code,'PUT_RESULT_UNCONFIRMED');assert.equal(puts,1);assert.equal(f.requests.filter(r=>r.path==='/api/cases/direct').length,0);assert.equal(f.nativePuts(),0);
+ assert.equal((await f.batch.attempt()).unknown,1);assert.equal((await f.batch.attempt()).unknown,1);assert.equal(f.batch.summary.items[0].recovery,'hold');assert.equal(puts,1);assert.equal(f.requests.filter(r=>r.path==='/api/cases/direct').length,0);assert.equal(f.nativePuts(),0);
 });
 test('Legacy unknown PUT is verified with Complete, never resent after missing HEAD or expired Grant',async t=>{
- const f=await fixture(t,{mode:'pending_native',direct:false});f.start(1);assert.equal((await f.batch.attempt()).failed,1);
- f.advance(301000);assert.equal((await f.batch.attempt()).failed,1);assert.equal(f.nativePuts(),1);assert.equal(f.requests.filter(r=>r.path.endsWith('/prepare')).length,1);
+ const f=await fixture(t,{mode:'pending_native',direct:false});f.start(1);assert.equal((await f.batch.attempt()).unknown,1);
+ f.advance(301000);assert.equal((await f.batch.attempt()).unknown,1);assert.equal(f.nativePuts(),1);assert.equal(f.requests.filter(r=>r.path.endsWith('/prepare')).length,1);
  await f.finish();assert.equal((await f.batch.attempt()).succeeded,1);assert.equal(f.nativePuts(),1);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),1);
 });
-test('true Legacy v1 three-image flow renews a rejected Grant without losing or duplicating a Case',async t=>{
+test('true Legacy v1 partial Grant expiry retains known writes and holds rather than duplicating them',async t=>{
  const f=await fixture(t,{mode:'expired_partial',direct:false}),flow=new Submission({api,put:putImage,token:async()=>randomUUID()});
  flow.start({campaign_id:'UPLOAD-LOCAL',vote_date:new Date().toISOString().slice(0,10)},Array.from({length:3},(_,i)=>new File([image],'proof-'+i+'.png',{type:'image/png'})));
  await assert.rejects(flow.attempt(),{code:'UPLOAD_GRANT_INVALID',status:403});assert.equal(f.count('SELECT COUNT(*) n FROM cases'),0);
- await flow.attempt();assert.equal(f.count('SELECT COUNT(*) n FROM cases'),1);assert.equal(f.count('SELECT COUNT(*) n FROM case_files'),3);assert.equal(f.count('SELECT COUNT(*) n FROM proof_upload_intents'),0);
- assert.equal(f.requests.filter(r=>r.path.endsWith('/prepare')).length,2);assert.equal(f.count("SELECT COUNT(*) n FROM prelaunch_reset_operations WHERE state='unknown'"),0);
+ await assert.rejects(flow.attempt(),{code:'PUT_RESULT_UNCONFIRMED'});assert.equal(flow.recovery,'hold');assert.equal(f.nativePuts(),1);assert.equal(f.count('SELECT COUNT(*) n FROM cases'),0);assert.equal(f.count('SELECT COUNT(*) n FROM proof_upload_intents'),0);
+ assert.equal(f.requests.filter(r=>r.path.endsWith('/prepare')).length,1);assert.equal(f.count("SELECT COUNT(*) n FROM prelaunch_reset_operations WHERE state='unknown'"),0);
 });
 for(const version of [1,2])test('Grant v'+version+': 300-second boundary, path, reuse and cipher mismatch are distinct from native ACK',async t=>{
  const env={AUTH_ORIGIN:origin,UPLOAD_GRANT_SECRET:randomBytes(32).toString('hex'),PROOFS_BUCKET:{put(){assert.fail('Grant validation must not call native PUT');}}},config=await uploadGrantConfig(env),s=randomUUID(),p=randomUUID(),pathname='/api/uploads/put/'+s+'/'+p,expires=Math.floor(Date.now()/1000)+300;
@@ -125,13 +126,13 @@ for(const stage of ['r2_head','r2_head_fence'])test('completed intent read failu
 test('D1 unknown admission does not trigger speculative Direct Case or resend, while its Pin/UNKNOWN remain',async t=>{
  const f=await fixture(t),raw=f.env.DB;let lost=false;
  f.env.DB={...raw,batch:async ss=>{const r=await raw.batch(ss);if(!lost&&ss.some(s=>s.sql.startsWith('UPDATE proof_upload_intents SET write_token='))){lost=true;throw Error('synthetic D1 admission ACK lost');}return r;}};
- f.start(1);assert.equal((await f.batch.attempt()).failed,1);assert.equal(f.batch.error.code,'R2_UPLOAD_ERROR');assert.equal(f.batch.error.uploadStage,'capacity_admission');assert.equal(f.batch.error.putState,'not_started');
+ f.start(1);assert.equal((await f.batch.attempt()).unknown,1);assert.equal(f.batch.error.code,'R2_UPLOAD_ERROR');assert.equal(f.batch.error.uploadStage,'capacity_admission');assert.equal(f.batch.error.putState,'not_started');
  assert.equal(f.requests.filter(r=>r.path==='/api/cases/direct').length,0);assert.equal(f.nativePuts(),0);assert.equal(f.count('SELECT COUNT(*) n FROM proof_upload_intents WHERE write_token IS NOT NULL'),1);
- assert.equal((await f.batch.attempt()).failed,1);assert.equal(f.httpPuts(),1);assert.equal(f.count("SELECT COUNT(*) n FROM prelaunch_reset_operations WHERE state='unknown'"),1);
+ assert.equal((await f.batch.attempt()).unknown,1);assert.equal(f.httpPuts(),1);assert.equal(f.count("SELECT COUNT(*) n FROM prelaunch_reset_operations WHERE state='unknown'"),1);
 });
 test('unconfirmed D1 result pauses the remaining batch instead of multiplying unknown operations',async t=>{
  const f=await fixture(t),raw=f.env.DB;
  f.env.DB={...raw,batch:async ss=>{if(ss.some(s=>s.sql.startsWith('UPDATE proof_upload_intents SET write_token=')))throw Error('synthetic unknown admission');return raw.batch(ss);}};
- f.start(3);const r=await f.batch.attempt();assert.equal(r.failed,1);assert.equal(r.queued,2);assert.equal(f.httpPuts(),1);assert.equal(f.requests.filter(x=>x.path.endsWith('/prepare')).length,1);assert.equal(f.nativePuts(),0);
+ f.start(3);const r=await f.batch.attempt();assert.equal(r.unknown,1);assert.equal(r.queued,2);assert.equal(f.httpPuts(),1);assert.equal(f.requests.filter(x=>x.path.endsWith('/prepare')).length,1);assert.equal(f.nativePuts(),0);
  const retry=await f.batch.attempt();assert.equal(retry.queued,2);assert.equal(f.httpPuts(),1);assert.equal(f.count("SELECT COUNT(*) n FROM prelaunch_reset_operations WHERE state='unknown'"),1);
 });

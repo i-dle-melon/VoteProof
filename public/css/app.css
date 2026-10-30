@@ -635,6 +635,20 @@ progress {
   padding: 16px 0;
   border-bottom: 1px solid var(--line);
 }
+.batch-item > p { margin: 8px 0; }
+.batch-item[data-state="success"] > p { color: var(--primary); }
+.batch-item:is([data-state="put"],[data-state="prepare"],[data-state="case"]) > p { color: #6bb8ff; }
+.batch-item:is([data-state="capacity_wait"],[data-state="complete"],[data-state="unknown"]) > p { color: #e5a83d; }
+.batch-item[data-state="failed"] > p { color: var(--danger, #e96969); }
+.batch-item[data-state="queued"] > p { color: var(--muted); }
+.batch-counts,.upload-completion-hint { line-height: 1.7; overflow-wrap: anywhere; }
+.submission-actions .btn { min-height: 44px; }
+#batch-items { max-height: min(65vh, 600px); overflow-y: auto; overscroll-behavior: contain; }
+.submission-in-progress #image-list { max-height: 240px; overflow-y: auto; }
+[data-theme="light"] .batch-item:is([data-state="put"],[data-state="prepare"],[data-state="case"]) > p { color: #14548d; }
+[data-theme="light"] .batch-item:is([data-state="capacity_wait"],[data-state="complete"],[data-state="unknown"]) > p { color: #805500; }
+[data-theme="light"] .batch-item[data-state="failed"] > p { color: #aa2424; }
+[data-theme="light"] .batch-item[data-state="success"] > p { color: #08742b; }
 .credentials dt {
   font-size: 13px;
   color: var(--muted);

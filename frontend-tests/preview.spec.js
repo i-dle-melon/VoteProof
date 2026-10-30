@@ -230,12 +230,12 @@ for (const [submission, count] of [
     }
     if (submission === "success") {
       await expect(page.locator("#submission-success")).toBeVisible();
-      await expect(page.locator("#success-title")).toHaveText("3 個案件已送出");
+      await expect(page.locator("#success-title")).toHaveText("本次投稿全部完成 · 成功 3 / 3");
       await expect(page.locator("#receipt-download")).toBeDisabled();
     }
     if (submission === "failed") {
       await expect(page.locator("#retry-note")).toBeVisible();
-      await expect(page.locator("#submit-button")).toHaveText("重試本次投稿");
+      await expect(page.locator("#submit-button")).toHaveText("安全接續未完成項目");
     }
   });
 

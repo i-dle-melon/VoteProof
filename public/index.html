@@ -399,6 +399,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <label for="progress">投稿進度</label
                 ><progress id="progress" max="100" value="0"></progress>
                 <p id="progress-label" role="status" aria-live="polite"></p>
+                <p class="notice warn upload-completion-hint">圖片上傳完成不代表投稿成功，請等畫面顯示「投稿成功」後再離開。</p>
               </div>
               <p class="error" id="submission-error" role="alert"></p>
               <p id="retry-note" class="notice warn" hidden>
@@ -413,9 +414,11 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </div>
             </form>
             <section class="card" id="batch-results" hidden aria-label="批次投稿結果">
-              <h2>批次投稿結果</h2>
+              <h2 id="batch-title">批次投稿結果</h2>
               <p id="batch-summary" role="status" aria-live="polite"></p>
+              <p id="batch-counts" class="batch-counts"></p>
               <div id="batch-items" class="list"></div>
+              <button type="button" class="btn btn-primary" id="batch-new" hidden>開始新投稿</button>
               <p class="tiny">
                 每張圖片各自審核，點數依活動規則計算。會員可在「我的案件」查看；匿名投稿若之後想查詢，再保存資訊。
               </p>

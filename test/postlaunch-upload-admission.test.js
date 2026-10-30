@@ -164,7 +164,8 @@ for(const member of [false,true])for(const count of [1,3,20])test((member?'membe
   }});
  flow.start({campaign_id:'ADMIT-LOCAL',vote_date:new Date().toISOString().slice(0,10)},Array.from({length:count},(_,i)=>({name:i+'.png',type:'image/png',size:image.length,arrayBuffer:async()=>image.slice().buffer})),{caseApi:api});
  const result=await flow.attempt();assert.equal(result.complete,true);assert.equal(result.succeeded,count);assert.equal(tokens,1);assert.equal(siteverifyCalls-verifiedBefore,1);
- assert.equal(sleeps,1);assert.equal(denied,1);assert.equal(f.counts().puts,count);assert.equal(f.counts().deletes,0);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,count);
+ // Both admitted client lanes can see the same scan; they share a single wait.
+ assert.equal(sleeps,1);assert.equal(denied,Math.min(count,2));assert.equal(f.counts().puts,count);assert.equal(f.counts().deletes,0);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,count);
  assert.equal(new Set(result.items.map(i=>i.result.case_id)).size,count);assert.deepEqual(f.state(),{pins:0,reserved:0,unknown:0,active:0,permit:0});
  const writes=f.counts().puts;await flow.attempt();assert.equal(f.counts().puts,writes);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,count);
 });

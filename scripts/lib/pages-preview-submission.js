@@ -28,6 +28,9 @@ export function submissionFixture() {
     total: items.length,
     succeeded: items.filter((i) => i.result).length,
     failed: state.submission === "failed" ? 1 : 0,
+    unknown: 0,
+    processing: state.submission === "uploading" ? 1 : 0,
+    retryable: state.submission === "failed" ? 2 : 0,
     queued: state.submission === "uploading" ? 1 : 0,
     complete: active && state.submission === "success",
   };

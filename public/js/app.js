@@ -48,22 +48,29 @@ let voteDateEdited = false;
 setDefaultVoteDate($("vote-date"));
 $("vote-date").addEventListener("input", () => { voteDateEdited = true; });
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
+const batchRows = new Map();
+let inventoryCountdown = null;
 const submission = new BatchSubmission({ directIntent:()=>submissionFlow==='direct'||directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
 changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
   await gateRequest;
   assertSubmissionOpen();
   await challenge.mount();
+  await gateRequest;
   assertSubmissionOpen();
   const token = await challenge.waitForToken();
+  // Focus/visibility can begin a fresh fail-closed check while the mobile
+  // callback resolves. Wait for that actual result, not its temporary OFF.
+  await gateRequest;
   assertSubmissionOpen(); return token;
 }, progress: renderSubmissionProgress });
 function renderSubmissionProgress(state) {
   const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", capacity_wait: "背景容量盤點中，安全等待後繼續…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
-    complete: "驗證已上傳的圖片…", case: "建立案件，請勿關閉分頁…" };
+    complete: "正在確認圖片…", case: "正在建立案件，請勿關閉分頁…" };
   $("upload-progress").hidden = false;
   $("progress").value = Math.round(state.fraction * 100);
-  $("progress-label").textContent = `圖片 ${state.file}／${state.count} · ${labels[state.phase]}`;
+  const waiting=submission.summary.items.some(i=>i.status==='capacity_wait');
+  $("progress-label").textContent = `圖片 ${state.file}／${state.count} · ${waiting?labels.capacity_wait:labels[state.phase]}`;
 }
 let admin;
 const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
@@ -111,11 +118,15 @@ const scoringLabel = c => c.daily_limit === 0 ? "本活動不計分" :
   `每次有效投稿：${c.points_per_proof} 點 · ${c.daily_limit === null ? "每日計分：不限次數" : `每日最多 ${c.daily_limit} 次計分`}`;
 function syncForm() {
   const ready = submissionReady();
+  const canStart = ready || (gateChecking && selectionWasReady);
   syncOwnership();
   $("submission-fields").disabled = !selectionReady() || submission.pending || submissionStarting;
-  $("submit-button").disabled = !ready || selectionPending > 0 || submissionStarting || submission.busy || (!submission.pending && !campaignLoaded);
-  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !ready ? "投稿暫停" : selectionPending ? "正在載入圖片…" : submission.busy ? "正在送出…" : submission.pending ? "重試本次投稿" : submitLabel;
+  $("submit-button").disabled = !canStart || selectionPending > 0 || submissionStarting || submission.busy ||
+    (submission.pending && !submission.summary.retryable) || (!submission.pending && !campaignLoaded);
+  $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !canStart ? "投稿暫停" : selectionPending ? "正在載入圖片…" : submission.busy ? "正在送出…" : submission.pending ?
+    (submission.summary.retryable ? "安全接續未完成項目" : "結果待確認，請聯絡管理員") : submitLabel;
   $("submission-form").setAttribute("aria-busy", String(submission.busy || submissionStarting));
+  $("submission-form").classList.toggle('submission-in-progress',submission.pending||submission.busy);
   $("abandon-button").hidden = !submission.pending;
   $("abandon-button").disabled = submission.busy;
   $("challenge-retry").disabled = !ready || submission.busy;
@@ -128,7 +139,9 @@ function syncForm() {
   $("home-submission-state").textContent = $("quick-submission-state").textContent = ready ? "開放投稿" : "投稿暫停";
   $("submit-state").textContent = ready ? "提交投票證明" : "目前暫停投稿";
   $("submit-alternatives").hidden = ready;
-  $("submission-verification").hidden = !ready;
+  // A fresh status read is fail-closed for requests, not a reason to hide or
+  // reset an already completed mobile challenge while awaiting its response.
+  $("submission-verification").hidden = !ready && !(gateChecking && selectionWasReady);
   $("proof-dropzone").setAttribute("aria-disabled", String(!selectionReady() || submission.pending || submissionStarting));
   if (!ready && !gateChecking) { challenge.clear(); $("challenge-status").textContent = "投稿開放後即可完成人機驗證。"; }
   $("submission-gate-message").hidden = submissionsEnabled;
@@ -280,28 +293,48 @@ $("campaign").addEventListener("change", campaignHint);
 $("campaign-refresh").addEventListener("click", () => { void loadCampaigns(); });
 
 function renderBatch(summary) {
-  const labels = { queued: "等待送出", verify: "等待人機驗證", prepare: "準備上傳", put: "上傳中",
-    complete: "驗證圖片中", case: "建立案件中", success: "已送出 · 待審核", failed: "未成功" };
-  $("batch-results").hidden = summary.total < 2;
-  $("batch-summary").textContent = summary.total ? `共 ${summary.total} 張 · 已送出 ${summary.succeeded} · 未成功 ${summary.failed} · 等待 ${summary.queued}` : "";
-  $("batch-items").replaceChildren();
+  const labels = { queued: "等待上傳", verify: "等待人機驗證", prepare: "準備上傳", put: "正在上傳",
+    complete: "圖片傳輸完成 · 正在確認圖片", case: "正在建立案件", success: "投稿成功 · 等待人工審核",
+    capacity_wait: "背景容量盤點中，正在等待恢復上傳。", failed: "投稿失敗", unknown: "⚠ 結果待確認，不會直接重新傳送圖片" };
+  $("batch-results").hidden = summary.total === 0;
+  $("batch-title").textContent = summary.complete ? "本次投稿全部完成" :
+    submission.busy ? "批次投稿進度" : summary.succeeded ? "本次投稿部分完成" : "批次投稿狀態";
+  $("batch-summary").textContent = summary.total ? `共 ${summary.total} 張 · 已送出 ${summary.succeeded} · 未成功 ${summary.failed+summary.unknown} · 等待 ${summary.queued}` : "";
+  $("batch-counts").textContent = summary.total ? `成功：${summary.succeeded} · 處理中：${summary.processing} · 等待上傳：${summary.queued} · 失敗：${summary.failed} · 結果待確認：${summary.unknown}。已成功建立 ${summary.succeeded} / ${summary.total} 個案件。` : "";
+  $("batch-new").hidden = !summary.complete;
+  if(!summary.total){batchRows.clear();$("batch-items").replaceChildren();}
   for (const [index, item] of summary.items.entries()) {
-    const status = item.error ? errorMessage({ code: item.error }) : labels[item.status];
+    const phaseLabel=item.status==='put' ? (item.state?.fraction===1 ? '圖片傳輸完成，等待確認' : `正在上傳（${Math.round((item.state?.fraction??0)*100)}%）`) : labels[item.status];
+    const status = item.error ? `${phaseLabel}：${errorMessage({ code: item.error })}` : phaseLabel;
     const previewStatus = document.querySelector(`[data-image-status="${index}"]`);
-    if (previewStatus) previewStatus.textContent = status;
-    const row = node("article", undefined, "batch-item");
-    row.append(node("strong", `${index + 1}. ${item.name}`), node("p", status));
-    if (item.result) {
+    if (previewStatus&&previewStatus.textContent!==status) previewStatus.textContent = status;
+    let parts=batchRows.get(index);
+    if(!parts){
+      const row=node('article',undefined,'batch-item'),text=node('p'),wait=node('p',undefined,'tiny');
+      row.append(node('strong',`${index+1}. ${item.name}`),text,wait);$("batch-items").append(row);
+      parts={row,text,wait};batchRows.set(index,parts);
+    }
+    const {row,text,wait}=parts;
+    row.dataset.state=item.status;
+    if(text.textContent!==status)text.textContent=status;
+    wait.hidden=item.status!=='capacity_wait';
+    if(!wait.hidden){
+      const elapsed=Math.max(0,Math.floor((Date.now()-item.state.waitStartedAt)/1000)),next=Math.max(0,Math.ceil((item.state.nextRetryAt-Date.now())/1000));
+      wait.textContent=`已等待 ${elapsed} 秒 · 下次重試 ${next} 秒 · 已成功 ${summary.succeeded} 個案件`;
+    }
+    if (item.result&&!parts.receipt) {
       const details = node("dl", undefined, "credentials");
       details.append(node("dt", "案件編號"), node("dd", item.result.case_id), node("dt", "查詢碼"), node("dd", "已隱藏 · 請複製或下載保存"));
       const lookup = node("button", "查詢這個案件", "btn btn-soft"); lookup.type = "button";
       lookup.addEventListener("click", () => {
         $("lookup-id").value = item.result.case_id; $("lookup-key").value = item.result.query_key; location.hash = "lookup";
       });
-      const disclosure=node("details"),caption=node("summary","其他查詢方式");disclosure.append(caption,details,lookup);row.append(disclosure);
+      const disclosure=node("details"),caption=node("summary","其他查詢方式");disclosure.append(caption,details,lookup);row.append(disclosure);parts.receipt=true;
     }
-    $("batch-items").append(row);
   }
+  const waiting=summary.items.some(i=>i.status==='capacity_wait')&&document.visibilityState==='visible';
+  if(waiting&&!inventoryCountdown)inventoryCountdown=setInterval(()=>renderBatch(submission.summary),1000);
+  if(!waiting&&inventoryCountdown){clearInterval(inventoryCountdown);inventoryCountdown=null;}
   $("batch-copy").disabled = summary.succeeded === 0;
 }
 function downloadReceipts(results) {
@@ -317,7 +350,7 @@ function renderSubmissionReceipt(batch) {
   $("success-owned-cases").hidden=!member.session.member;
   $("submission-success-message").textContent=member.session.member?"投稿完成，可至『我的案件』查看進度。":"如果只是快速投稿，不需要特別記錄。若之後想查詢審核進度，再保存以下查詢資訊。";
   $("query-info-hint").textContent="查詢碼只保留在此分頁記憶體；需要時可主動複製或下載，請勿公開分享。";
-  $("success-title").textContent = batch.total > 1 ? `${batch.total} 個案件已送出` : "投稿成功";
+  $("success-title").textContent = batch.total > 1 ? `本次投稿全部完成 · 成功 ${batch.total} / ${batch.total}` : "投稿成功";
   $("submission-success").querySelector(".credentials").hidden = batch.total > 1;
   for (const id of ["copy-case", "copy-key", "copy-all", "lookup-created"]) $(id).hidden = batch.total > 1;
   clearImages(); $("success-title").focus();
@@ -325,6 +358,9 @@ function renderSubmissionReceipt(batch) {
 function renderSubmissionFailure(error) {
   $("submission-error").textContent = error.code?.startsWith("AUTH_") || ["MEMBER_SUSPENDED", "CSRF_REJECTED"].includes(error.code) ? authMessage(error) : errorMessage(error);
   $("retry-note").hidden = false;
+  $("retry-note").textContent = submission.summary.retryable ?
+    "已成功案件會保留。接續只處理安全項目；結果待確認時只核對原上傳／原案件，不直接重傳。請保持此分頁開啟。" :
+    "結果無法安全確認，已停止自動重送。請保存成功案件資訊並聯絡管理員，不要另建重複投稿。";
 }
 $("batch-download").addEventListener('click',()=>downloadReceipts(submission.summary.items.filter(i=>i.result).map(i=>i.result)));
 $("receipt-download").addEventListener('click',()=>downloadReceipts(success?[success]:[]));
@@ -339,7 +375,10 @@ $("batch-copy").addEventListener("click", async () => {
 
 $("submission-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!submissionReady() || selectionPending > 0 || submission.busy || submissionStarting) return;
+  // Accept a click during a foreground status refresh, but dispatch nothing
+  // until its authoritative result is available. Mobile focus must not eat
+  // the user's only tap by disabling the button between pointer and submit.
+  if (!selectionReady() || selectionPending > 0 || submission.busy || submissionStarting) return;
   submissionStarting = true; syncForm();
   await member.ready;
   await loadSubmissionStatus();
@@ -369,7 +408,7 @@ $("submission-form").addEventListener("submit", async (event) => {
   } catch (e) {
     renderSubmissionFailure(e);
     if (["SUBMISSIONS_DISABLED", "SUBMISSIONS_UNAVAILABLE"].includes(e.code)) await loadSubmissionStatus();
-  } finally { syncForm(); }
+  } finally { syncForm(); renderBatch(submission.summary); }
 });
 function resetSubmission() {
   submission.abandon(); success = null; clearImages(); $("submission-form").reset();
@@ -388,6 +427,7 @@ $("abandon-button").addEventListener("click", () => {
   if (submission.busy) return;
   if (window.confirm("確定放棄未完成項目？已成功案件不會刪除；請先保存查詢資訊，包含可能已送出但未收到回應的案件。")) resetSubmission();
 });
+$("batch-new").addEventListener('click',resetSubmission);
 $("new-submission").addEventListener("click", () => {
   if (window.confirm("請先保存案件編號與查詢碼。確定開始另一筆投稿？")) resetSubmission();
 });
@@ -639,7 +679,7 @@ window.addEventListener('popstate',()=>navigate());
 window.addEventListener("hashchange", () => navigate());
 function refreshAvailability() { void loadSubmissionStatus().then(mountChallenge); }
 window.addEventListener("focus", refreshAvailability);
-document.addEventListener("visibilitychange", () => { boardRefresh.visibility(document.visibilityState==='visible');if (document.visibilityState === "visible") refreshAvailability(); });
+document.addEventListener("visibilitychange", () => { boardRefresh.visibility(document.visibilityState==='visible');renderBatch(submission.summary);if (document.visibilityState === "visible") refreshAvailability(); });
 window.addEventListener('pagehide',()=>boardRefresh.enter(false));
 window.addEventListener('pageshow',()=>boardRefresh.enter(document.documentElement.dataset.route==='leaderboards'));
 document.addEventListener("voteproof-submissions-updated", refreshAvailability);

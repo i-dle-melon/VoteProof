@@ -25,7 +25,7 @@ function fixture(count = 3) {
     if (lost && receipts.size === 2) { lost = false; throw new PublicError("NETWORK_ERROR"); }
     return receipts.get(key);
   };
-  const batch = new BatchSubmission({ api, put: async (_upload, file) => {
+  const batch = new BatchSubmission({ concurrency:1, api, put: async (_upload, file) => {
     puts.push(file.name); if (failPut && file.name === "proof-1.png") { failPut = false; throw new PublicError("UPLOAD_VALIDATION_FAILED",400); }
   }, token: async () => randomUUID(), changed: summary => states.push(summary) });
   return { batch, calls, puts, receipts, states, api, start: () => batch.start(metadata, files(count)), off: () => { enabled = false; } };
@@ -40,7 +40,8 @@ test("batch accepts 20 independent 5 MiB files; rejects 21, empty, invalid MIME 
 
 test("partial batch retries only failed items and replays a lost case response with the same payload/key", async () => {
   const h = fixture(); h.start(); const first = await h.batch.attempt();
-  assert.deepEqual([first.total, first.succeeded, first.failed], [3, 1, 2]);
+  assert.deepEqual([first.total, first.succeeded, first.failed], [3, 1, 1]);
+  assert.equal(first.unknown,1);
   assert.equal(first.items[0].status, "success"); assert.equal(first.items[1].error, "UPLOAD_VALIDATION_FAILED");
   assert.equal(first.items[2].error, "NETWORK_ERROR"); assert.equal(h.receipts.size, 2);
   const second = await h.batch.attempt(); assert.equal(second.complete, true); assert.equal(h.receipts.size, 3);
@@ -101,16 +102,13 @@ test("duplicate batch attempts share one run; abandoning while busy cannot disca
   await a; assert.equal(h.receipts.size, 1); h.batch.abandon(); assert.equal(h.batch.summary.total, 0);
 });
 
-test('expired batch authorization explicitly requests re-verification for only the never-written item',async()=>{
+test('one explicit retry renews expired authorization only for the never-written item',async()=>{
  let clock=Date.now(),tokens=0;const h=fixture(),send=h.api;
  h.batch.dependencies.now=()=>clock;h.batch.dependencies.token=async()=>{tokens++;return randomUUID();};
  // First attempt: one deterministic validation failure and one lost Case ACK.
  h.start();assert.equal((await h.batch.attempt()).succeeded,1);
  clock+=301000;
  const before=h.calls.length;
- await assert.rejects(h.batch.attempt(),{code:'BATCH_AUTH_EXPIRED'});
- assert.equal(tokens,1);assert.equal(h.puts.length,3);
- assert.equal(h.calls.slice(before).filter(c=>c.path.includes('uploads')).length,0);
  const done=await h.batch.attempt();assert.equal(done.complete,true);assert.equal(tokens,2);
  const auth=h.calls.filter(c=>c.path==='/api/uploads/batch/authorize');
  assert.deepEqual(auth.map(c=>c.body.files.length),[3,1]);

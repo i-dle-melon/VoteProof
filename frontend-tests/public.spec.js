@@ -13,7 +13,7 @@ async function fixture(page, options = {}) {
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
   const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, grantRejects:0,putPending:false,uploadStates:new Map(),prepareSessions:[],batchTickets:new Map(), failBoards: 0 };
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
-    `let widget;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}));}};` }));
+    `let widget,issued=0;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}+'-'+(++issued)));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}+'-'+(++issued)));}};` }));
   await page.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     if(path.startsWith('/api/uploads/put/')){
@@ -313,7 +313,12 @@ test("full upload success shows query warning, copy controls and safe lookup", a
   // WebKit's interception protocol can omit Blob/File request bodies. Check
   // exposed bodies, while real transport bytes/HEAD are covered by smoke.
   expect(state.puts.every((p) => p.bytes === undefined || p.bytes > 0)).toBe(true);
-  expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path)).toEqual(["/api/uploads/batch/authorize", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases"]);
+  expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path).sort()).toEqual(["/api/uploads/batch/authorize", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases"].sort());
+  for(const session of state.prepareSessions){
+    const complete=state.calls.findIndex(c=>c.path.endsWith('/complete')&&JSON.parse(c.body).session_id===session);
+    const created=state.calls.findIndex(c=>c.path==='/api/cases'&&JSON.parse(c.body).upload_session.session_id===session);
+    expect(complete).toBeGreaterThan(0);expect(created).toBeGreaterThan(complete);
+  }
   expect(state.receipts.size).toBe(2);
   await page.locator("#batch-items details summary").first().click();await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click();
   await expect(page.locator("#lookup-result")).toContainText("待審核");
@@ -324,7 +329,7 @@ test("full upload success shows query warning, copy controls and safe lookup", a
 test("network case retry reuses exact payload and key without another upload", async ({ page }) => {
   const state = await fixture(page); state.failCase = 1; await form(page);
   await page.locator("#submit-button").click(); await expect(page.locator("#retry-note")).toBeVisible();
-  await expect(page.locator("#nickname")).toBeDisabled(); await expect(page.locator("#submit-button")).toHaveText("重試本次投稿");
+  await expect(page.locator("#nickname")).toBeDisabled(); await expect(page.locator("#submit-button")).toHaveText("安全接續未完成項目");
   await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
   const creates = state.calls.filter((c) => c.path === "/api/cases");
   expect(creates.length).toBe(2); expect(creates[0].body === creates[1].body).toBe(true); expect(creates[0].idempotency === creates[1].idempotency).toBe(true);
@@ -361,7 +366,7 @@ test('known rejected Grant renews only failed batch item and keeps successful Ca
 test('unknown pending PUT keeps original Intent through missing Complete and late completion',async({page})=>{
  const state=await fixture(page);state.putFailures=1;state.putPending=true;await form(page);await page.locator('#submit-button').click();
  await expect(page.locator('#submission-error')).toContainText('上傳回覆尚未確認');await page.locator('#submit-button').click();
- await expect(page.locator('#submission-error')).toContainText('尚未完成上傳');expect(state.puts.length).toBe(1);expect(state.prepareSessions.length).toBe(1);expect(state.receipts.size).toBe(0);
+ await expect(page.locator('#submission-error')).toContainText('只核對原上傳');expect(state.puts.length).toBe(1);expect(state.prepareSessions.length).toBe(1);expect(state.receipts.size).toBe(0);
  await expect(page.locator('#image-list .image-item')).toHaveCount(1);state.uploadStates.get(state.prepareSessions[0]).present=true;
  await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();expect(state.puts.length).toBe(1);expect(state.receipts.size).toBe(1);
  const completed=state.calls.filter(c=>c.path.endsWith('/complete'));expect(completed.length).toBe(2);expect(completed[0].body).toEqual(completed[1].body);

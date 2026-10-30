@@ -87,7 +87,7 @@ export class Submission {
   needsBatchTicket() {
     const c=this.#context;
     if(!c || c.payload || c.completed || c.uploaded.size || c.uncertainPuts.size || c.putHold)return false;
-    if(c.batchTicket && this.now()>=c.batchExpiresAt){c.batchTicket=null;c.prepared=null;}
+    if(c.batchTicket && (this.now()>=c.batchExpiresAt||c.prepared&&this.now()>=c.expiresAt)){c.batchTicket=null;c.prepared=null;}
     return !c.batchTicket;
   }
   setBatchTicket(ticket,expiresAt) {
@@ -95,6 +95,14 @@ export class Submission {
     this.#context.batchTicket=ticket;this.#context.batchExpiresAt=expiresAt;
   }
   get pending() { return this.#context !== null; }
+  get recovery() {
+    const c=this.#context;
+    if(!c)return 'none';
+    if(c.putHold)return 'hold';
+    if(c.payload||c.uncertainPuts.size)return 'confirm';
+    if(c.uploaded.size||c.completed)return 'continue';
+    return 'upload';
+  }
   get busy() { return this.#running !== null; }
   start(metadata, files, { caseApi } = {}) {
     if (this.pending) throw new PublicError("SUBMISSION_PENDING");
@@ -116,6 +124,10 @@ export class Submission {
   async #attempt() {
     const c = this.#context;
     if(c.putHold)throw new PublicError('PUT_RESULT_UNCONFIRMED');
+    // Expired batch tickets can only be replaced before any possible PUT.
+    if(c.batchTicket&&this.now()>=c.batchExpiresAt&&!c.payload&&!c.completed&&!c.uploaded.size&&!c.uncertainPuts.size){
+      c.batchTicket=null;c.prepared=null;throw new PublicError('BATCH_AUTH_EXPIRED',403);
+    }
     // Before case creation is attempted, expired PUT grants can safely be
     // replaced. Once payload exists, it is immutable, including upload refs.
     if (!c.payload && !c.completed && !c.uploaded.size && !c.uncertainPuts.size && c.prepared && this.now() >= c.expiresAt) {
@@ -154,7 +166,8 @@ export class Submission {
               at+INVENTORY_WAIT_MS>=c.expiresAt||deadline!==null&&at+INVENTORY_WAIT_MS>deadline)throw error;
             deadline??=at+INVENTORY_WAIT_BUDGET_MS;
             waits++;
-            this.progress({phase:'capacity_wait',file:i+1,count:c.files.length,fraction:c.uploaded.size/c.files.length});
+            this.progress({phase:'capacity_wait',file:i+1,count:c.files.length,fraction:c.uploaded.size/c.files.length,
+              waitStartedAt:deadline-INVENTORY_WAIT_BUDGET_MS,nextRetryAt:at+INVENTORY_WAIT_MS,waits});
             retryGateFailed=true;
             await this.sleep(INVENTORY_WAIT_MS);
             if(this.now()>=c.expiresAt||this.now()>deadline)throw error;
@@ -171,7 +184,7 @@ export class Submission {
         // A rejected Grant cannot have reached native R2. Never turn a 403 into
         // a successful upload flag or a speculative Direct Case submission.
         if(error.code==='UPLOAD_GRANT_INVALID'&&error.status===403){
-          if(!c.payload&&!c.uncertainPuts.size){c.prepared=null;c.uploaded.clear();}
+          if(!c.payload&&!c.uncertainPuts.size&&!c.uploaded.size){c.prepared=null;}
           else {c.putHold=true;error.pauseBatch=true;}
           throw error;
         }
@@ -195,8 +208,9 @@ export class Submission {
       ...(c.prepared.capability?{capability:c.prepared.capability}:{}) };
     if (!c.completed && !this.directIntent) {
       this.progress({ phase: "complete", fraction: 1 });
-      try { await (c.caseApi??this.api)("/api/uploads/complete", { method: "POST", body: reference }); }
-      catch (e) { if (e.code === "UPLOAD_INCOMPLETE"&&!c.uncertainPuts.size) c.uploaded.clear(); throw e; }
+      // A missing/failed Complete response is never evidence that the original
+      // PUT did not happen. Verify this same reference on retry; never re-PUT.
+      await (c.caseApi??this.api)("/api/uploads/complete", { method: "POST", body: reference });
       c.completed = true;
     }
     if(this.directIntent)c.completed=true;
@@ -222,7 +236,13 @@ export class BatchSubmission {
   #caseApi = null;
   #mode = false;
   #authorizationExpiresAt = null;
-  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now, sleep, directIntent = false }) {
+  #gateCheck = null;
+  #inventoryWait = null;
+  #inventoryRetryAt = 0;
+  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now = Date.now,
+    sleep = ms => new Promise(resolve=>setTimeout(resolve,ms)), directIntent = false, concurrency = 2 }) {
+    if(![1,2].includes(concurrency))throw new PublicError('INVALID_CASE_REQUEST');
+    this.concurrency=concurrency;
     this.dependencies = { api, put, token, now, sleep, directIntent };
     this.progress = progress; this.changed = changed;
     this.gate = gate ?? (async () => {
@@ -234,11 +254,29 @@ export class BatchSubmission {
   get busy() { return this.#running !== null; }
   get error() { return this.#error; }
   get summary() {
-    const items = this.#items.map(({ file, status, result, error }) => ({ name: file.name, status,
-      result: result ? { ...result } : null, error: error?.code ?? null }));
+    const items = this.#items.map(({ file, status, result, error, flow, state }) => ({ name: file.name, status,
+      result: result ? { ...result } : null, error: error?.code ?? null,
+      recovery:result?'none':flow.recovery, state:state?{...state}:null }));
     const succeeded = items.filter(item => item.result).length;
+    const unknown = items.filter(item=>item.status==='unknown').length;
+    const failed = items.filter(item=>item.status==='failed').length;
+    const queued = items.filter(item=>item.status==='queued').length;
+    const processing=items.length-succeeded-unknown-failed-queued;
     return { items, total: items.length, succeeded, failed: items.filter(item => item.status === "failed").length,
-      queued: items.filter(item => item.status === "queued").length, complete: items.length > 0 && succeeded === items.length };
+      queued, processing, unknown, retryable:items.some(i=>i.recovery==='hold')?0:items.filter(i=>!i.result).length,
+      fraction:items.length?items.reduce((n,i)=>n+(i.result?1:Math.min(.95,i.state?.fraction??0)*.95),0)/items.length:0,
+      complete: items.length > 0 && succeeded === items.length };
+  }
+  #checkGate() {
+    // Share only simultaneous checks; no stale ON cache or identity downgrade.
+    return this.#gateCheck??=(Promise.resolve().then(()=>this.gate()).finally(()=>{this.#gateCheck=null;}));
+  }
+  #waitInventory(ms) {
+    // Two independently rejected zero-write admissions share one wait and one
+    // fresh gate/identity check. No cancellation of an already-started PUT.
+    if(!this.#inventoryWait)this.#inventoryRetryAt=this.dependencies.now()+ms;
+    return this.#inventoryWait??=(Promise.resolve().then(()=>this.dependencies.sleep(ms))
+      .finally(()=>{this.#inventoryWait=null;}));
   }
   start(metadata, files, options = {}) {
     if (this.#items.length) throw new PublicError("SUBMISSION_PENDING");
@@ -248,11 +286,13 @@ export class BatchSubmission {
     this.#mode=typeof this.dependencies.directIntent==='function'?Boolean(this.dependencies.directIntent()):Boolean(this.dependencies.directIntent);
     this.#authorizationExpiresAt=null;
     this.#items = files.map((file, index) => {
-      const item = { file, status: "queued", result: null, error: null };
-      item.flow = new Submission({ ...this.dependencies,directIntent:this.#mode,retryGate:()=>this.gate(), progress: state => {
-        item.status = state.phase; this.changed(this.summary);
+      const item = { file, status: "queued", result: null, error: null, state:null };
+      item.flow = new Submission({ ...this.dependencies,directIntent:this.#mode,
+        sleep:ms=>this.#waitInventory(ms),retryGate:()=>this.#checkGate(),progress: state => {
+        if(state.phase==='capacity_wait'&&this.#inventoryWait)state={...state,nextRetryAt:this.#inventoryRetryAt};
+        item.status = state.phase; item.state=state; this.changed(this.summary);
         this.progress({ ...state, file: index + 1, count: files.length,
-          fraction: (this.summary.succeeded + state.fraction) / files.length });
+          fraction: this.summary.fraction });
       } });
       item.flow.start(input, [file], options);
       return item;
@@ -278,22 +318,23 @@ export class BatchSubmission {
   }
   async #attempt() {
     // No prepare/PUT/complete/case happens before a fresh, fail-closed gate.
-    await this.gate(); this.#error = null;
+    await this.#checkGate(); this.#error = null;
+    if(this.#items.some(i=>!i.result&&i.flow.recovery==='hold')){
+      this.#error=new PublicError('PUT_RESULT_UNCONFIRMED');
+      this.changed(this.summary);return this.summary;
+    }
     const needs=this.#items.filter(item=>!item.result&&item.flow.needsBatchTicket());
     if(this.#items.length>1&&needs.length){
-      // An expired ticket cannot silently become a fresh authorization. The UI
-      // shows the reason; a later explicit retry obtains a new challenge only
-      // for items that have never reached an ambiguous write or Case request.
+      // An explicit retry obtains a fresh challenge only for never-written
+      // items. Confirmed/uncertain PUTs and immutable Case requests keep their
+      // original intent; no fresh ticket can authorize a blind re-upload.
       const now=this.dependencies.now??Date.now;
-      if(this.#authorizationExpiresAt!==null&&now()>=this.#authorizationExpiresAt){
-        this.#authorizationExpiresAt=null;this.#error=new PublicError('BATCH_AUTH_EXPIRED',403);throw this.#error;
-      }
       for(const item of needs)item.status='verify';this.changed(this.summary);
       const files=[];
       for(const item of needs)files.push(await item.flow.batchFile());
       const challenge=await this.dependencies.token();
       if(!challenge)throw new PublicError('TURNSTILE_REQUIRED');
-      await this.gate();
+      await this.#checkGate();
       const started=now();
       const data=await this.#caseApi('/api/uploads/batch/authorize',{method:'POST',body:{
         turnstile_token:challenge,campaign_id:this.#metadata.campaign_id,
@@ -305,21 +346,32 @@ export class BatchSubmission {
       this.#authorizationExpiresAt=started+data.expires_in*1000;
       for(let i=0;i<needs.length;i++){needs[i].flow.setBatchTicket(data.tickets[i],this.#authorizationExpiresAt);needs[i].status='queued';}
     }
-    for (const item of this.#items.filter(item => !item.result)) {
+    const pending=this.#items.filter(item=>!item.result&&item.flow.recovery!=='hold');
+    let cursor=0,paused=false;
+    const run=async()=>{while(!paused&&cursor<pending.length){
+      // An inventory wait blocks starting further items, not the other active
+      // PUT. All started lanes settle before attempt() reports a final result.
+      if(this.#inventoryWait){try{await this.#inventoryWait;}catch{paused=true;break;}}
+      if(paused||cursor>=pending.length)break;
+      const item=pending[cursor++];
       try {
-        await this.gate();
+        await this.#checkGate();
+        if(paused)break;
         item.error = null; item.result = await item.flow.attempt(); item.status = "success";
       } catch (error) {
-        item.error = error; item.status = "failed"; this.#error = error;
+        item.error = error;
+        item.status = item.flow.recovery==='confirm'||item.flow.recovery==='hold'?'unknown':'failed';
+        this.#error = error;
         // Global auth, campaign, gate or challenge failures pause the queue.
         if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||error.code==='UPLOAD_OWNER_MISMATCH'||
             /^R2_STORAGE_(?:CAPACITY_EXCEEDED|INVENTORY_BUSY|SNAPSHOT_STALE)$/.test(error.code??'')||
             /^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|BATCH_AUTH_|DIRECT_INTENT_)/.test(error.code ?? "")) {
-          this.changed(this.summary); break;
+          paused=true;
         }
       }
       this.changed(this.summary);
-    }
+    }};
+    await Promise.all(Array.from({length:Math.min(this.concurrency,pending.length)},run));
     return this.summary;
   }
 }

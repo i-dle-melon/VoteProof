@@ -140,7 +140,7 @@ test("mode mismatch stays fail closed on every retry", async () => {
   assert.equal(h.puts.length, 0);
   assert.equal(h.calls.length, 1);
 });
-test("direct Submission accepts exactly one proof; BatchSubmission sequences 20 independent cases", async () => {
+test("direct Submission accepts exactly one proof; BatchSubmission runs at most two of 20 independent cases", async () => {
   const h = harness();
   h.flow.abandon();
   assert.throws(() => h.flow.start(metadata, [file(), file()]), {
@@ -170,7 +170,7 @@ test("direct Submission accepts exactly one proof; BatchSubmission sequences 20 
   b.start(metadata, Array.from({ length: 20 }, file));
   assert.equal((await b.attempt()).succeeded, 20);
   assert.equal(n, 20);
-  assert.equal(maxActive, 1);
+  assert.equal(maxActive, 2);
   assert.equal(
     h.calls.some((x) => x.path.endsWith("complete")),
     false,

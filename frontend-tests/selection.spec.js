@@ -20,7 +20,7 @@ async function setup(page) {
   return state;
 }
 
-async function holdGate(page, { enabled = true, fail = false } = {}) {
+async function holdGate(page, { enabled = true, fail = false } = {}, state) {
   let release, entered;
   const pending = new Promise(resolve => { release = resolve; });
   const requested = new Promise(resolve => { entered = resolve; });
@@ -33,7 +33,10 @@ async function holdGate(page, { enabled = true, fail = false } = {}) {
   });
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await requested;
-  await expect(page.locator("#submit-button")).toBeDisabled();
+  // A foreground refresh must not swallow the mobile user's tap. A click can
+  // queue intent, but no authorization or write may precede the fresh result.
+  await expect(page.locator("#submit-button")).toBeEnabled();
+  noUploads(state);
   return release;
 }
 
@@ -51,7 +54,7 @@ function noUploads(state) {
 }
 
 test("picker preserves all 20 files across focus revalidation before human verification", async ({ page }) => {
-  const state = await setup(page), release = await holdGate(page);
+  const state = await setup(page), release = await holdGate(page,{},state);
   try {
     // Keeping the existing picker enabled also avoids browser-suppressed change events.
     await expect(page.locator("#proof-images")).toBeEnabled();
@@ -70,7 +73,7 @@ test("picker preserves all 20 files across focus revalidation before human verif
 });
 
 test("dropping files during a visibility recheck loads them after ON without waiting for a challenge", async ({ page }) => {
-  const state = await setup(page), release = await holdGate(page);
+  const state = await setup(page), release = await holdGate(page,{},state);
   try {
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await drop(page, 20);
@@ -82,7 +85,7 @@ test("dropping files during a visibility recheck loads them after ON without wai
 });
 
 test("rapid 16 plus 4 selections are serialized; a genuine 21st file gives count context", async ({ page }) => {
-  const state = await setup(page), release = await holdGate(page);
+  const state = await setup(page), release = await holdGate(page,{},state);
   try {
     await page.locator("#proof-images").setInputFiles(files(16));
     await page.locator("#proof-images").setInputFiles(files(4, 16));
@@ -101,7 +104,7 @@ for (const fail of [false, true]) test(`${fail ? "failed" : "OFF"} recheck disca
   const state = await setup(page);
   await page.locator("#proof-images").setInputFiles(files(1));
   await expect(page.locator("#image-list .image-item")).toHaveCount(1);
-  const release = await holdGate(page, { enabled: false, fail });
+  const release = await holdGate(page, { enabled: false, fail },state);
   try {
     await drop(page, 1);
     await page.locator("#proof-images").setInputFiles(files(1, 1));

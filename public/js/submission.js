@@ -59,11 +59,21 @@ export function queryInformation(result) {
   return `VoteProof\n案件編號：${result.case_id}\n查詢碼：${result.query_key}`;
 }
 
+const INVENTORY_WAIT_MS = 5000, INVENTORY_WAIT_LIMIT = 12, INVENTORY_WAIT_BUDGET_MS = 60000;
+export function canWaitForInventory(error) {
+  // Only the server's acknowledged zero-row admission can authorize another
+  // HTTP attempt. A stale snapshot or any ambiguous/native PUT is not retryable.
+  return error?.code==='R2_STORAGE_INVENTORY_BUSY'&&error.status===503&&
+    error.putRejected===true&&error.uploadStage==='capacity_admission'&&error.putState==='not_started';
+}
+
 export class Submission {
   #context = null;
   #running = null;
-  constructor({ api, put, token, progress = () => {}, now = () => Date.now(), directIntent = false }) {
+  constructor({ api, put, token, progress = () => {}, now = () => Date.now(),
+    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), retryGate = async () => {}, directIntent = false }) {
     this.api = api; this.put = put; this.token = token; this.progress = progress; this.now = now;
+    this.sleep = sleep; this.retryGate = retryGate;
     // Snapshot the server-advertised mode for this logical item. A later gate
     // refresh must never change the payload/endpoint of an in-flight retry.
     this.directIntent = typeof directIntent==='function'?Boolean(directIntent()):Boolean(directIntent);
@@ -133,8 +143,31 @@ export class Submission {
       const update = (fraction) => this.progress({ phase: "put", file: i + 1, count: c.files.length,
         fraction: (c.uploaded.size + fraction) / c.files.length });
       update(0);
-      try {await this.put(c.prepared.uploads[i], c.files[i], update);}
+      let retryGateFailed = false;
+      try {
+        let waits=0,deadline=null;
+        for (;;) {
+          try { await this.put(c.prepared.uploads[i], c.files[i], update); break; }
+          catch (error) {
+            const at=this.now();
+            if(!canWaitForInventory(error)||waits>=INVENTORY_WAIT_LIMIT||
+              at+INVENTORY_WAIT_MS>=c.expiresAt||deadline!==null&&at+INVENTORY_WAIT_MS>deadline)throw error;
+            deadline??=at+INVENTORY_WAIT_BUDGET_MS;
+            waits++;
+            this.progress({phase:'capacity_wait',file:i+1,count:c.files.length,fraction:c.uploaded.size/c.files.length});
+            retryGateFailed=true;
+            await this.sleep(INVENTORY_WAIT_MS);
+            if(this.now()>=c.expiresAt||this.now()>deadline)throw error;
+            // The application gate also revalidates the captured member/guest
+            // identity. Gate failures happened before PUT, not an unknown PUT.
+            await this.retryGate();
+            if(this.now()>=c.expiresAt||this.now()>deadline)throw error;
+            retryGateFailed=false;
+          }
+        }
+      }
       catch(error) {
+        if(retryGateFailed){error.pauseBatch=true;throw error;}
         // A rejected Grant cannot have reached native R2. Never turn a 403 into
         // a successful upload flag or a speculative Direct Case submission.
         if(error.code==='UPLOAD_GRANT_INVALID'&&error.status===403){
@@ -189,8 +222,8 @@ export class BatchSubmission {
   #caseApi = null;
   #mode = false;
   #authorizationExpiresAt = null;
-  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now, directIntent = false }) {
-    this.dependencies = { api, put, token, now, directIntent };
+  constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now, sleep, directIntent = false }) {
+    this.dependencies = { api, put, token, now, sleep, directIntent };
     this.progress = progress; this.changed = changed;
     this.gate = gate ?? (async () => {
       const status = await api("/api/submissions/status");
@@ -216,7 +249,7 @@ export class BatchSubmission {
     this.#authorizationExpiresAt=null;
     this.#items = files.map((file, index) => {
       const item = { file, status: "queued", result: null, error: null };
-      item.flow = new Submission({ ...this.dependencies,directIntent:this.#mode, progress: state => {
+      item.flow = new Submission({ ...this.dependencies,directIntent:this.#mode,retryGate:()=>this.gate(), progress: state => {
         item.status = state.phase; this.changed(this.summary);
         this.progress({ ...state, file: index + 1, count: files.length,
           fraction: (this.summary.succeeded + state.fraction) / files.length });
@@ -279,7 +312,9 @@ export class BatchSubmission {
       } catch (error) {
         item.error = error; item.status = "failed"; this.#error = error;
         // Global auth, campaign, gate or challenge failures pause the queue.
-        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||error.code==='UPLOAD_OWNER_MISMATCH'||/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|BATCH_AUTH_|DIRECT_INTENT_)/.test(error.code ?? "")) {
+        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||error.code==='UPLOAD_OWNER_MISMATCH'||
+            /^R2_STORAGE_(?:CAPACITY_EXCEEDED|INVENTORY_BUSY|SNAPSHOT_STALE)$/.test(error.code??'')||
+            /^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|BATCH_AUTH_|DIRECT_INTENT_)/.test(error.code ?? "")) {
           this.changed(this.summary); break;
         }
       }

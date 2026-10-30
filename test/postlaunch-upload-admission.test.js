@@ -3,7 +3,9 @@ import worker from'../src/index.js';import{fencedRequest}from'../src/lib/prelaun
 import{memberSession,csrfToken}from'../src/lib/auth-session.js';
 import{embeddedCaseRuntime,origin,image}from'./helpers/embedded-case-runtime.mjs';
 import{installResetExtensionLocal}from'../scripts/lib/prelaunch-selective-reset.mjs';
-globalThis.fetch=async url=>{if(String(url)!=='https://challenges.cloudflare.com/turnstile/v0/siteverify')throw Error('OFFLINE_ONLY');return Response.json({success:true});};
+import{BatchSubmission}from'../public/js/submission.js';import{PublicError}from'../public/js/api.js';
+let siteverifyCalls=0;
+globalThis.fetch=async url=>{if(String(url)!=='https://challenges.cloudflare.com/turnstile/v0/siteverify')throw Error('OFFLINE_ONLY');siteverifyCalls++;return Response.json({success:true});};
 const kind={legacy:{storageVersion:1,direct:false,files:2},v2:{storageVersion:2,direct:false,files:1},direct:{storageVersion:2,direct:true,files:1}};
 const latch=()=>{let arrive,release;return{arrived:new Promise(r=>arrive=r),held:new Promise(r=>release=r),arrive:()=>arrive(),release:()=>release()};};
 async function setup(t){
@@ -33,9 +35,9 @@ for(const mode of Object.keys(kind))test(mode+': actual prepare, PUT, complete a
  assert.equal(r.status,201,await r.clone().text());assert.equal(f.read('SELECT COUNT(*) n FROM case_files').n,kind[mode].files);
  assert.deepEqual(f.state(),{pins:0,reserved:0,unknown:0,active:0,permit:0});
 });
-for(const mode of Object.keys(kind))test(mode+': inventory first rejects PUT without native IO, leaked pin, reservation or UNKNOWN; finalize permits same-grant retry',async t=>{
- const f=await setup(t),p=await f.prepare(mode);assert.equal((await f.scan()).status,200);
- const before=f.counts().puts,r=await f.put(p);assert.equal(r.status,503,await r.clone().text());assert.equal((await r.json()).error.code,'R2_STORAGE_CAPACITY_EXCEEDED');
+for(const member of [false,true])for(const mode of Object.keys(kind))test((member?'member ':'guest ')+mode+': inventory first rejects PUT without native IO, leaked pin, reservation or UNKNOWN; finalize permits same-grant retry',async t=>{
+ const f=await setup(t),p=await f.prepare(mode,{member});assert.equal((await f.scan()).status,200);
+ const before=f.counts().puts,r=await f.put(p);assert.equal(r.status,503,await r.clone().text());assert.equal((await r.json()).error.code,'R2_STORAGE_INVENTORY_BUSY');
  assert.equal(f.counts().puts,before);assert.deepEqual(f.state(),{pins:0,reserved:0,unknown:0,active:0,permit:0});
  assert.equal((await f.finish()).status,200);assert.equal((await f.put(p)).status,200);
 });
@@ -116,4 +118,53 @@ test('changed admission result after a real commit is UNKNOWN and cannot clear P
  f.env.DB={...raw,batch:async xs=>{const r=await raw.batch(xs);if(xs.some(s=>s.sql.startsWith('UPDATE proof_upload_intents SET write_token=')))r[2].results[0].id=randomUUID();return r;}};
  const r=await f.put(p);assert.equal(r.status,503);const text=await r.text();assert.equal(text.includes('proofs/'),false);
  assert.equal(f.state().unknown,1);assert.equal(f.state().pins,1);assert.equal(f.state().reserved,1);assert.equal(f.counts().puts,0);
+});
+
+for(const change of ["blocked=1","anomaly='SYNTHETIC_ANOMALY'",'used_bytes=9500000000'])test(change+': active inventory never masks a real safety stop as Busy',async t=>{
+ const f=await setup(t),p=await f.prepare('direct');assert.equal((await f.scan()).status,200);
+ await fencedRequest(f.env,new Request(origin+'/api/local-fixture',{method:'POST'}),async env=>{await env.DB.prepare('UPDATE storage_capacity SET '+change).run();return Response.json({ok:true});});
+ const r=await f.put(p);assert.equal(r.status,503);assert.equal((await r.json()).error.code,'R2_STORAGE_CAPACITY_EXCEEDED');
+ assert.equal(f.counts().puts,0);assert.equal(f.state().pins,0);assert.equal(f.state().reserved,0);assert.equal(f.state().unknown,0);
+});
+
+test('same-intent existing UNKNOWN pin/reservation cannot be labeled retryable stale capacity',async t=>{
+ const f=await setup(t),p=await f.prepare('direct'),original=f.bucket.put;
+ f.bucket.put=async(...args)=>{await original(...args);throw Error('synthetic lost native ACK');};
+ assert.equal((await f.put(p)).status,502);const before=f.state();assert.equal(before.unknown,1);assert.equal(before.pins,1);assert.equal(before.reserved,1);
+ await fencedRequest(f.env,new Request(origin+'/api/local-fixture',{method:'POST'}),async env=>{await env.DB.prepare('UPDATE storage_capacity SET trusted_until=0').run();return Response.json({ok:true});});
+ const r=await f.put(p);assert.equal(r.status,503);assert.equal((await r.json()).error.code,'R2_STORAGE_CAPACITY_EXCEEDED');
+ assert.deepEqual(f.state(),before);assert.equal(f.counts().puts,1);assert.equal(f.counts().deletes,0);
+});
+
+test('known denial adds one indexed diagnostic read; normal success and unknown admission ACK do not',async t=>{
+ const f=await setup(t),p=await f.prepare('direct'),raw=f.env.DB;let diagnostics=0,diagnosticSQL;
+ f.env.DB={...raw,prepare:sql=>{if(sql.includes(' AS object_reserved')){diagnostics++;diagnosticSQL=sql;}return raw.prepare(sql);}};
+ assert.equal((await f.scan()).status,200);assert.equal((await f.put(p)).status,503);assert.equal(diagnostics,1);
+ const plan=f.sqlite.prepare('EXPLAIN QUERY PLAN '+diagnosticSQL).all(p.data.uploads[0].key,p.data.uploads[0].key).map(x=>x.detail);
+ assert.ok(plan.some(x=>/storage_reservations.*USING COVERING INDEX storage_object_writers/.test(x)),plan.join('\n'));
+ assert.ok(plan.some(x=>/proof_upload_intents.*USING INDEX/.test(x)),plan.join('\n'));
+ assert.equal((await f.finish()).status,200);assert.equal((await f.put(p)).status,200);assert.equal(diagnostics,1);
+ const next=await f.prepare('direct');
+ f.env.DB={...f.env.DB,batch:async xs=>{if(xs.some(s=>s.sql.startsWith('INSERT INTO storage_reservations(')))throw Error('synthetic unknown admission ACK');return raw.batch(xs);}};
+ assert.equal((await f.put(next)).status,502);assert.equal(diagnostics,1);assert.equal(f.state().unknown,1);
+});
+
+for(const member of [false,true])for(const count of [1,3,20])test((member?'member':'guest')+' real '+count+'-image batch resumes after Inventory with one verification and independent cases',async t=>{
+ const previous=globalThis.location;globalThis.location={origin};t.after(()=>{globalThis.location=previous;});
+ const f=await setup(t),verifiedBefore=siteverifyCalls,headers=member?f.actor.headers:{Origin:origin};
+ let clock=Date.now(),started=false,sleeps=0,tokens=0,denied=0;
+ const api=async(path,options={})=>{const r=await f.fetch(path,options.method??'GET',typeof options.body==='string'?JSON.parse(options.body):options.body,headers);const b=await r.json();if(!r.ok||!b.ok)throw new PublicError(b.error?.code??'SERVICE_UNAVAILABLE',r.status);return b.data;};
+ const flow=new BatchSubmission({api,now:()=>clock,token:async()=>{tokens++;return'synthetic';},sleep:async ms=>{sleeps++;clock+=ms;assert.equal((await f.finish()).status,200);},
+  put:async upload=>{
+   if(!started){started=true;assert.equal((await f.scan()).status,200);}
+   const r=await worker.fetch(new Request(upload.upload_url,{method:'PUT',headers:{...upload.headers,...headers,'Content-Length':String(image.length)},body:image}),f.env);
+   if(r.ok)return;
+   denied++;const b=await r.json();assert.equal(b.error.code,'R2_STORAGE_INVENTORY_BUSY');assert.equal(f.counts().puts,0);
+   throw Object.assign(new PublicError(b.error.code,r.status),{putRejected:r.headers.get('X-VoteProof-Upload-Rejected')==='1',putState:r.headers.get('X-VoteProof-Put-State'),uploadStage:r.headers.get('X-VoteProof-Upload-Stage')});
+  }});
+ flow.start({campaign_id:'ADMIT-LOCAL',vote_date:new Date().toISOString().slice(0,10)},Array.from({length:count},(_,i)=>({name:i+'.png',type:'image/png',size:image.length,arrayBuffer:async()=>image.slice().buffer})),{caseApi:api});
+ const result=await flow.attempt();assert.equal(result.complete,true);assert.equal(result.succeeded,count);assert.equal(tokens,1);assert.equal(siteverifyCalls-verifiedBefore,1);
+ assert.equal(sleeps,1);assert.equal(denied,1);assert.equal(f.counts().puts,count);assert.equal(f.counts().deletes,0);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,count);
+ assert.equal(new Set(result.items.map(i=>i.result.case_id)).size,count);assert.deepEqual(f.state(),{pins:0,reserved:0,unknown:0,active:0,permit:0});
+ const writes=f.counts().puts;await flow.attempt();assert.equal(f.counts().puts,writes);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,count);
 });

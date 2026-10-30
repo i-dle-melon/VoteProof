@@ -44,7 +44,31 @@ export async function reserveStorage(env, key, size, claim=null,diagnostic) {
     if(allowed?.length!==1||![0,1].includes(allowed[0].capacity_allowed))throw new StorageCapacityError();
     if(allowed[0].capacity_allowed===1)return null;
   }
-  const error=new StorageCapacityError();error.noWrite=true;throw error;
+  // The exact zero-row admission proves this request did not dispatch an R2 PUT.
+  // Diagnose a concurrent inventory only AFTER that receipt. Never classify
+  // thrown D1 acknowledgements or ambiguous native writes as safe-to-retry.
+  let current;
+  try { current=await env.DB.prepare(`SELECT c.*,
+      EXISTS(SELECT 1 FROM storage_reservations WHERE object_key=? AND state='reserved') AS object_reserved,
+      EXISTS(SELECT 1 FROM proof_upload_intents WHERE object_key=? AND write_token IS NOT NULL) AS object_pinned
+      FROM storage_capacity c WHERE c.id=1`).bind(key,key).first(); } catch { /* Keep the conservative code. */ }
+  const error=new StorageCapacityError();
+  // An admission failure caused by real capacity, anomaly, or blocked state
+  // must never be mislabeled transient even if a scan is also in progress.
+  const safelyBelowLimit=current && current.blocked===0 && current.anomaly===null &&
+    Number.isSafeInteger(current.used_bytes)&&Number.isSafeInteger(current.reserved_bytes)&&
+    current.used_bytes>=0&&current.reserved_bytes>=0&&
+    current.used_bytes+current.reserved_bytes+size<STORAGE.stop&&
+    current.object_reserved===0&&current.object_pinned===0;
+  if(safelyBelowLimit && current.inventory_id && ['scan','ready'].includes(current.inventory_phase)){
+    error.code='R2_STORAGE_INVENTORY_BUSY';
+    error.message='Background capacity inventory is temporarily blocking upload admission';
+  }else if(safelyBelowLimit && current.trusted_until<=nowSeconds()){
+    error.code='R2_STORAGE_SNAPSHOT_STALE';
+    error.message='Capacity snapshot is not fresh';
+  }
+  error.noWrite=true;
+  throw error;
 }
 export async function capacityPut(env, key, body, options, size,diagnostic) {
   const id = await reserveStorage(env, key, size,null,diagnostic);

@@ -21,6 +21,12 @@ async function fixture(page, options = {}) {
   });
   await page.route('**/api/uploads/put/**', async route => {
     const index = sessions.get(new URL(route.request().url()).pathname.split('/')[4]); puts.push(index);
+    if (options.inventoryBusy && index === 0 && !failedPut) {
+      failedPut = true;
+      await route.fulfill({status:503,contentType:'application/json',headers:{
+        'X-VoteProof-Upload-Rejected':'1','X-VoteProof-Upload-Stage':'capacity_admission','X-VoteProof-Put-State':'not_started'},
+        body:JSON.stringify({ok:false,error:{code:'R2_STORAGE_INVENTORY_BUSY'}})});return;
+    }
     if (options.partial && index === 1 && !failedPut) { failedPut = true; await route.abort(); return; }
     await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
   });
@@ -69,6 +75,15 @@ test("20-image member batch creates 20 independent cases, status/receipts and mo
   }
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(1); // theme preference only
+});
+
+for(const authenticated of [false,true])test(`inventory Busy waits and resumes the ${authenticated?'member':'guest'} batch without another challenge`,async({page})=>{
+  const state=await fixture(page,{authenticated,inventoryBusy:true});await form(page,3);await page.locator('#submit-button').click();
+  await expect(page.locator('#progress-label')).toContainText('背景容量盤點');
+  await expect(page.locator('#submission-success')).toBeVisible({timeout:15000});
+  expect(state.authorizations.length).toBe(1);expect(state.prepares.length).toBe(3);
+  expect(state.puts).toEqual([0,0,1,2]);expect(state.receipts.size).toBe(3);
+  expect(new Set(state.posts.map(p=>p.key)).size).toBe(3);expect(state.posts.length).toBe(3);
 });
 
 test("partial batch keeps successes and retries only failed PUT/lost case items", async ({ page }) => {

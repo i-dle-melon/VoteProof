@@ -77,7 +77,7 @@ test("decimal budget and unknown default, expired snapshot and D1 failure all bl
   await db.prepare("UPDATE storage_capacity SET trusted_until=0 WHERE id=1").run();
   await assert.rejects(
     write("expired", 3, bucket),
-    (e) => e.code === "R2_STORAGE_CAPACITY_EXCEEDED",
+    (e) => e.code === "R2_STORAGE_SNAPSHOT_STALE",
   );
   await assert.rejects(
     capacityPut(
@@ -521,7 +521,7 @@ test("real legacy/final/member/guest and Admin image HTTP paths return fixed cap
   }
   assert.equal(
     errorMessage({ code: "R2_STORAGE_CAPACITY_EXCEEDED" }),
-    "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。",
+    "容量保護目前停止上傳；可能已達容量限制或狀態無法確認，請稍後再試。",
   );
   for (const path of [
     "/api/admin/storage",

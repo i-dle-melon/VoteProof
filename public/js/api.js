@@ -3,7 +3,7 @@ import { PREVIEW, previewFetch } from "./preview.js";
 export class PublicError extends Error {
   constructor(code, status = 0) { super(code); this.code = code; this.status = status; }
 }
-const putCodes=new Set(['UPLOAD_GRANT_INVALID','UPLOAD_VALIDATION_FAILED','UPLOAD_INTENT_INVALID','UPLOAD_OWNER_MISMATCH','UPLOAD_SESSION_EXPIRED','UPLOAD_CHANGED','UPLOAD_CHECKSUM_FAILED','UPLOAD_REPREPARE_REQUIRED','UPLOAD_ALREADY_UPLOADED','R2_UPLOAD_ERROR','R2_UPLOAD_NOT_CONFIGURED','R2_STORAGE_CAPACITY_EXCEEDED','SUBMISSIONS_DISABLED','SUBMISSIONS_UNAVAILABLE','PRELAUNCH_MAINTENANCE','PRELAUNCH_EPOCH_CHANGED','PRELAUNCH_UPLOAD_RETIRED','PRELAUNCH_PROOF_RETIRED','PRELAUNCH_PROOF_GENERATION_RETIRED','AUTH_REQUIRED','AUTH_IDENTITY_CHANGED','MEMBER_BLOCKED','CSRF_INVALID']);
+const putCodes=new Set(['UPLOAD_GRANT_INVALID','UPLOAD_VALIDATION_FAILED','UPLOAD_INTENT_INVALID','UPLOAD_OWNER_MISMATCH','UPLOAD_SESSION_EXPIRED','UPLOAD_CHANGED','UPLOAD_CHECKSUM_FAILED','UPLOAD_REPREPARE_REQUIRED','UPLOAD_ALREADY_UPLOADED','R2_UPLOAD_ERROR','R2_UPLOAD_NOT_CONFIGURED','R2_STORAGE_CAPACITY_EXCEEDED','R2_STORAGE_INVENTORY_BUSY','R2_STORAGE_SNAPSHOT_STALE','SUBMISSIONS_DISABLED','SUBMISSIONS_UNAVAILABLE','PRELAUNCH_MAINTENANCE','PRELAUNCH_EPOCH_CHANGED','PRELAUNCH_UPLOAD_RETIRED','PRELAUNCH_PROOF_RETIRED','PRELAUNCH_PROOF_GENERATION_RETIRED','AUTH_REQUIRED','AUTH_IDENTITY_CHANGED','MEMBER_BLOCKED','CSRF_INVALID']);
 const putStages=new Set(['origin','grant','reset_issuance','request_validation','submission_gate','intent_read','intent_validation','intent_owner','capacity_admission','r2_fence','r2_dispatch','r2_put','r2_receipt','r2_head','r2_head_fence','reservation_receipt','capacity_evaluation','r2_verify','intent_receipt','replay_head']);
 function putError(xhr,code){
   const error=new PublicError(putCodes.has(code)?code:'PUT_RESULT_UNCONFIRMED',xhr.status);
@@ -67,7 +67,9 @@ const messages = {
   PUT_RESULT_UNCONFIRMED: "上傳結果無法確認，已停止重送。請保留目前資料並聯絡管理員。",
   R2_UPLOAD_ERROR: "上傳服務發生錯誤，結果尚未確認；請保留目前資料，不要重複投稿。",
   DIRECT_INTENT_DISABLED: "投稿服務尚未完成啟用，請稍後重試；已送出的案件不會重複建立。",
-  R2_STORAGE_CAPACITY_EXCEEDED: "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。",
+  R2_STORAGE_CAPACITY_EXCEEDED: "容量保護目前停止上傳；可能已達容量限制或狀態無法確認，請稍後再試。",
+  R2_STORAGE_INVENTORY_BUSY: "正在更新儲存容量盤點，暫時等待上傳；已成功案件不會重送。",
+  R2_STORAGE_SNAPSHOT_STALE: "容量快照已過期，目前無法安全接受新上傳，請管理員確認自動盤點。",
   UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認；重試只會核對原上傳，不會重新傳送圖片。",
   SUBMISSIONS_IMMUTABLE_DISABLED: "安全上傳目前暫停開放，請稍後重試。",
   UI_PREVIEW_ONLY: "這是 UI 預覽，無法登入、投稿或保存變更。",

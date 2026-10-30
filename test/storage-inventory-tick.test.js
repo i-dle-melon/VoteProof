@@ -95,7 +95,7 @@ test('bounded scheduled pages still account for every object and expire trust un
   assert.equal((await call(e)).data.inventory.complete,false);
   const pin=(await capacityRow(db)).inventory_id;
   assert.ok(pin);assert.equal((await capacityRow(db)).trusted_until,0);
-  await assert.rejects(reserveStorage(e,'synthetic-write',1),e=>e.code==='R2_STORAGE_CAPACITY_EXCEEDED');
+  await assert.rejects(reserveStorage(e,'synthetic-write',1),e=>e.code==='R2_STORAGE_CAPACITY_EXCEEDED'&&e.noWrite===true);
   assert.equal((await call(e)).data.inventory.complete,false);
   assert.equal((await capacityRow(db)).inventory_id,pin);
   const done=await call(e);assert.equal(done.data.inventory.complete,true);
@@ -104,6 +104,18 @@ test('bounded scheduled pages still account for every object and expire trust un
   assert.equal(row.trusted_until-row.observed_at,600);assert.deepEqual(cursors,[0,50,100]);
   assert.equal((await db.prepare('SELECT COUNT(*) n FROM storage_history').first()).n,1);
   assert.equal((await db.prepare("SELECT COUNT(*) n FROM storage_audit WHERE target=?").bind(pin).first()).n,1);
+});
+
+test('normal scheduled refresh is retryable Busy; cold bootstrap remains explicitly blocked',async()=>{
+  const at=nowSeconds();
+  await db.prepare('UPDATE storage_capacity SET used_bytes=3,blocked=0,observed_at=?,trusted_until=? WHERE id=1').bind(at,at+600).run();
+  const e=env({PROOFS_BUCKET:bucket([{key:'synthetic/known',size:3}])});
+  const scanned=await step(e);assert.equal(scanned.status,200);assert.equal(scanned.data.inventory.phase,'finalize');
+  const row=await capacityRow(db);assert.equal(row.blocked,0);assert.equal(row.trusted_until,0);assert.ok(row.inventory_id);
+  await assert.rejects(reserveStorage(e,'synthetic-write',1),error=>error.code==='R2_STORAGE_INVENTORY_BUSY'&&error.noWrite===true);
+  const finalized=await step(e,readyBody(scanned),{},finalPath);assert.equal(finalized.status,200);
+  assert.equal((await capacityRow(db)).anomaly,null);
+  const reservation=await reserveStorage(e,'synthetic-write',1);assert.equal(typeof reservation,'string');
 });
 
 test('legacy page bound stays 200 and scheduled inventory never bypasses the 95 percent guard',async()=>{

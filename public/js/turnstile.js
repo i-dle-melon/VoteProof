@@ -22,6 +22,7 @@ export class Challenge {
   #mounting;
   #active = false;
   #waiting;
+  #needsReset = false;
   constructor(container, changed) { this.container = container; this.changed = changed; }
   mount() {
     if (PREVIEW) return Promise.reject(new PublicError("UI_PREVIEW_ONLY", 403));
@@ -47,27 +48,35 @@ export class Challenge {
       "error-callback": () => { this.#token = ""; this.changed("人機驗證暫時無法完成，請重試驗證。"); this.#waiting?.reject(new PublicError("TURNSTILE_UPSTREAM_ERROR")); } });
   }
   waitForToken(timeout = 120000) {
-    if (this.#token) return Promise.resolve(this.take());
+    if (this.#token) return Promise.resolve(this.take({ reset: false }));
     if (!this.#active || this.#waiting) return Promise.reject(new PublicError("TURNSTILE_REQUIRED"));
+    if(this.#needsReset){this.#needsReset=false;globalThis.turnstile.reset(this.#id);}
     this.changed("請完成人機驗證，批次投稿會接著繼續。");
     return new Promise((resolve, reject) => {
       const finish = callback => value => { clearTimeout(timer); this.#waiting = null; callback(value); };
       const timer = setTimeout(() => this.#waiting?.reject(new PublicError("TURNSTILE_REQUIRED")), timeout);
-      this.#waiting = { resolve: finish(() => resolve(this.take())), reject: finish(reject) };
+      this.#waiting = { resolve: finish(() => resolve(this.take({ reset: false }))), reject: finish(reject) };
     });
   }
-  take() {
+  take({ reset = true } = {}) {
     const token = this.#token;
     this.#token = "";
-    // Tokens are single-use. Reset only after reading one into this request.
-    if (token && this.#id !== undefined) globalThis.turnstile.reset(this.#id);
+    // Batch upload consumes this token once. Ask for the next challenge only
+    // when a later authorization needs one, not while its images are uploading.
+    // Registration's synchronous take() retains its existing reset behavior.
+    if (token && this.#id !== undefined) {
+      this.#needsReset=!reset;
+      if(reset)globalThis.turnstile.reset(this.#id);
+    }
     return token;
   }
   reset() {
+    this.#needsReset = false;
     this.#token = "";
     if (this.#id !== undefined) globalThis.turnstile.reset(this.#id);
   }
   clear() {
+    this.#needsReset = false;
     // Clear a registration response without requesting another challenge.
     this.#token = "";
     this.#active = false;

@@ -36,6 +36,7 @@ function harness({
     },
     api: async (path, options) => {
       calls.push({ path, ...options });
+      if(path==='/api/uploads/batch/authorize')return{tickets:options.body.files.map(()=>randomBytes(48).toString('base64url')),expires_in:300};
       if (path.endsWith("prepare")) {
         const s = randomUUID(),
           p = randomUUID();

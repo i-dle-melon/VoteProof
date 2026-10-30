@@ -15,6 +15,7 @@ function fixture(count = 3) {
   const api = async (path, options) => {
     calls.push({ path, ...options });
     if (path.endsWith("status")) return { submissions_enabled: enabled };
+    if (path === '/api/uploads/batch/authorize') return {tickets:options.body.files.map(()=>randomBytes(48).toString('base64url')),expires_in:300};
     if (path.endsWith("prepare")) return { session_id: randomUUID(), expires_in: 300, uploads: options.body.files.map(() => ({
       key: randomUUID(), method: "PUT", headers: { 'Content-Type':'image/png','X-Upload-Grant':randomBytes(48).toString('base64url') },
       upload_url: `https://voteproof.example/api/uploads/put/${randomUUID()}/${randomUUID()}` })) };
@@ -100,14 +101,53 @@ test("duplicate batch attempts share one run; abandoning while busy cannot disca
   await a; assert.equal(h.receipts.size, 1); h.batch.abandon(); assert.equal(h.batch.summary.total, 0);
 });
 
+test('expired batch authorization explicitly requests re-verification for only the never-written item',async()=>{
+ let clock=Date.now(),tokens=0;const h=fixture(),send=h.api;
+ h.batch.dependencies.now=()=>clock;h.batch.dependencies.token=async()=>{tokens++;return randomUUID();};
+ // First attempt: one deterministic validation failure and one lost Case ACK.
+ h.start();assert.equal((await h.batch.attempt()).succeeded,1);
+ clock+=301000;
+ const before=h.calls.length;
+ await assert.rejects(h.batch.attempt(),{code:'BATCH_AUTH_EXPIRED'});
+ assert.equal(tokens,1);assert.equal(h.puts.length,3);
+ assert.equal(h.calls.slice(before).filter(c=>c.path.includes('uploads')).length,0);
+ const done=await h.batch.attempt();assert.equal(done.complete,true);assert.equal(tokens,2);
+ const auth=h.calls.filter(c=>c.path==='/api/uploads/batch/authorize');
+ assert.deepEqual(auth.map(c=>c.body.files.length),[3,1]);
+ assert.equal(h.receipts.size,3);assert.deepEqual(h.puts,['proof-0.png','proof-1.png','proof-2.png','proof-1.png']);
+ const posts=h.calls.filter(c=>c.path==='/api/cases');
+ assert.equal(posts[1].body,posts[3].body);assert.equal(posts[1].headers['Idempotency-Key'],posts[3].headers['Idempotency-Key']);
+});
+
+for(const count of [1,3,10,20])test(`${count}-image batch: ambiguous 502 never re-PUTs or invents a Case success`,async()=>{
+ const h=fixture(count);let first=true,firstSession;
+ h.batch.dependencies.api=async(path,options)=>{
+  const data=await h.api(path,options);
+  if(path.endsWith('prepare')&&!firstSession)firstSession=data.session_id;
+  if(path.endsWith('complete')&&options.body.session_id===firstSession)throw new PublicError('UPLOAD_INCOMPLETE',400);
+  return data;
+ };
+ h.batch.dependencies.put=async(_upload,file)=>{
+  h.puts.push(file.name);if(first){first=false;const e=new PublicError('R2_UPLOAD_ERROR',502);e.putState='unknown';throw e;}
+ };
+ h.start();const initial=await h.batch.attempt();
+ assert.equal(initial.items[0].result,null);assert.equal(h.receipts.size,count-1);
+ const before=h.puts.length;await h.batch.attempt();
+ assert.equal(h.puts.length,before);assert.equal(h.puts.filter(x=>x==='proof-0.png').length,1);
+ assert.equal(h.calls.filter(c=>c.path==='/api/uploads/prepare').length,count);
+ assert.equal(h.batch.summary.items[0].result,null);
+ // Complete's authoritative missing-object response must not become success.
+ // The original intent is still retained for later receipt verification.
+});
+
 test("member identity change pauses the batch without downgrading to guest or another member", async () => {
   const h = fixture(), session = new MemberSession();
   session.accept({ member: { member_id: "LOCAL-MEMBER", nickname: "本機", status: "active" }, csrf_token: randomBytes(32).toString("hex"), expires_in: 600 });
   const sender = session.caseSender(); session.clear();
   h.batch.start(metadata, files(3), { caseApi: sender });
-  const result = await h.batch.attempt();
-  assert.equal(result.succeeded, 0); assert.equal(result.failed, 1); assert.equal(result.queued, 2);
-  assert.equal(h.receipts.size, 0); assert.equal(h.batch.error.code, "AUTH_IDENTITY_CHANGED");
+  await assert.rejects(h.batch.attempt(),{code:'AUTH_IDENTITY_CHANGED'});
+  assert.equal(h.batch.summary.succeeded, 0);
+  assert.equal(h.receipts.size, 0);assert.equal(h.calls.filter(c=>c.path==='/api/uploads/batch/authorize').length,0);
 });
 
 test("15 real local member proofs create 15 independent cases; 12 approvals produce 12 real campaign transactions", async () => {

@@ -4,9 +4,13 @@ import { memberFixture, png } from "./member-fixture.mjs";
 
 async function fixture(page, options = {}) {
   const member = await memberFixture(page, { authenticated: true, ...options });
-  const sessions = new Map(), receipts = new Map(), puts = [], posts = [], prepares = [],capabilities=[];
+  const sessions = new Map(), receipts = new Map(), puts = [], posts = [], prepares = [],capabilities=[],authorizations=[];
   let failedPut = false, lostCase = false;
   const reply = (route, data) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
+  await page.route('**/api/uploads/batch/authorize',route=>{
+    const body=route.request().postDataJSON();authorizations.push({body,headers:route.request().headers()});
+    return reply(route,{tickets:body.files.map(()=>randomBytes(48).toString('base64url')),expires_in:300});
+  });
   await page.route("**/api/uploads/prepare", route => {
     const body = route.request().postDataJSON(); prepares.push(body);
     const session_id = randomUUID(), index = sessions.size; sessions.set(session_id, index);
@@ -30,7 +34,7 @@ async function fixture(page, options = {}) {
     if (options.switchIdentity && index === 0) member.member = { ...member.member, member_id: "M-" + randomUUID() };
     await reply(route, receipts.get(key));
   });
-  return { member, prepares, receipts, puts, posts,capabilities };
+  return { member, prepares, receipts, puts, posts,capabilities,authorizations };
 }
 async function form(page, count = 20) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
@@ -47,6 +51,9 @@ test("20-image member batch creates 20 independent cases, status/receipts and mo
   await expect(page.locator("#submission-success")).toBeVisible();
   await expect(page.locator("#batch-items .credentials")).toHaveCount(20);
   expect(state.prepares.length).toBe(20); expect(state.prepares.every((body,i) => body.files.length === 1 && body.storage_version===2 && body.campaign_id===state.posts[i].body.campaign_id)).toBe(true);
+  expect(state.authorizations).toHaveLength(1);expect(state.authorizations[0].body.files).toHaveLength(20);
+  expect(state.authorizations[0].headers['x-csrf-token']).toBe(state.member.csrf);
+  expect(state.prepares.every(body=>typeof body.batch_ticket==='string'&&!Object.hasOwn(body,'turnstile_token'))).toBe(true);
   expect(state.posts.length).toBe(20); expect(new Set(state.posts.map(post => post.key)).size).toBe(20);
   expect(state.receipts.size).toBe(20); expect(new Set([...state.receipts.values()].map(row => row.case_id)).size).toBe(20);
   expect(state.posts.every(post => !Object.hasOwn(post.body, "member_id") && post.body.upload_session.keys.length === 1 && post.headers["x-csrf-token"] === state.member.csrf)).toBe(true);
@@ -104,14 +111,14 @@ test("account change between batch items stops before another member proof is pr
   expect(state.prepares.length).toBe(1); expect(state.posts.length).toBe(1);
 });
 
-test("batch waits for a fresh interactive challenge between images without reusing the prior token", async ({ page }) => {
+test("one interactive challenge authorizes the batch without reusing the consumed token", async ({ page }) => {
   const state = await fixture(page);
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", route => route.fulfill({ contentType: "text/javascript", body:
-    "let options;globalThis.turnstile={render(_,o){options=o;queueMicrotask(()=>o.callback('first-local-token'));return 'local';},reset(){}};globalThis.__batchVerification=()=>options.callback('second-local-token');" }));
+    "let options;globalThis.__batchResets=0;globalThis.turnstile={render(_,o){options=o;queueMicrotask(()=>o.callback('first-local-token'));return 'local';},reset(){globalThis.__batchResets++;}};globalThis.__batchVerification=()=>options.callback('second-local-token');" }));
   await form(page, 2); await page.locator("#submit-button").click();
-  await expect(page.locator("#challenge-status")).toContainText("請完成人機驗證");
-  expect(state.prepares.length).toBe(1); expect(state.posts.length).toBe(1);
-  await page.evaluate(() => globalThis.__batchVerification());
   await expect(page.locator("#submission-success")).toBeVisible();
-  expect(state.prepares.map(body => body.turnstile_token)).toEqual(["first-local-token", "second-local-token"]);
+  expect(state.authorizations.map(a=>a.body.turnstile_token)).toEqual(['first-local-token']);
+  expect(await page.evaluate(()=>globalThis.__batchResets)).toBe(0);
+  expect(state.prepares).toHaveLength(2);expect(state.posts).toHaveLength(2);
+  expect(state.prepares.every(body=>!Object.hasOwn(body,'turnstile_token')&&typeof body.batch_ticket==='string')).toBe(true);
 });

@@ -11,7 +11,7 @@ async function fixture(page, options = {}) {
   const boards = options.boards ?? [{ leaderboard_id: "system-history", name: "公開榜", generated_at: new Date().toISOString(),
     rankings: [{ rank: 7, nickname: options.nickname ?? "測試粉絲", points: 10, proof_count: 2, player_id: "not-for-display", email: "not-for-display" }] },
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
-  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, grantRejects:0,putPending:false,uploadStates:new Map(),prepareSessions:[], failBoards: 0 };
+  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, grantRejects:0,putPending:false,uploadStates:new Map(),prepareSessions:[],batchTickets:new Map(), failBoards: 0 };
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let widget;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}));}};` }));
   await page.route("**/api/**", async (route) => {
@@ -40,13 +40,19 @@ async function fixture(page, options = {}) {
       if (state.failBoards-- > 0) return route.abort();
       return reply({ leaderboards: options.emptyBoards ? [] : boards.filter((b) => !url.searchParams.has("id") || b.leaderboard_id === url.searchParams.get("id")) });
     }
+    if(path==='/api/uploads/batch/authorize'){
+      if(state.prepareReject)return error('TURNSTILE_INVALID',403);
+      return reply({tickets:body.files.map(()=>{const ticket=randomBytes(48).toString('base64url');state.batchTickets.set(ticket,{session:randomUUID(),proof:randomUUID()});return ticket;}),expires_in:300});
+    }
     if (path === "/api/uploads/prepare") {
       if (state.prepareReject) return error("TURNSTILE_INVALID", 403);
-      const session_id = randomUUID();
+      const bound=body.batch_ticket?state.batchTickets.get(body.batch_ticket):null;
+      if(body.batch_ticket&&!bound)return error('BATCH_AUTH_INVALID',403);
+      const session_id = bound?.session??randomUUID(),proof_id=bound?.proof??randomUUID();
       state.prepareSessions.push(session_id);state.uploadStates.set(session_id,{present:false});
       return reply({ session_id, expires_in: 300, uploads: body.files.map((file) => ({
-        key: `proofs/staging/${today().replaceAll("-", "/")}/${session_id}/${randomUUID()}.png`, method: "PUT",
-        upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${randomUUID()}`,
+        key: `proofs/staging/${today().replaceAll("-", "/")}/${session_id}/${proof_id}.png`, method: "PUT",
+        upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${proof_id}`,
         headers: { 'Content-Type':file.type,'X-Upload-Grant':randomBytes(48).toString('base64url') } })) });
     }
     if (path === "/api/uploads/complete") return state.uploadStates.get(body.session_id)?.present?reply({ session_id: body.session_id, files: [] }):error('UPLOAD_INCOMPLETE',400);
@@ -307,7 +313,7 @@ test("full upload success shows query warning, copy controls and safe lookup", a
   // WebKit's interception protocol can omit Blob/File request bodies. Check
   // exposed bodies, while real transport bytes/HEAD are covered by smoke.
   expect(state.puts.every((p) => p.bytes === undefined || p.bytes > 0)).toBe(true);
-  expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path)).toEqual(["/api/uploads/prepare", "/api/uploads/complete", "/api/cases", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases"]);
+  expect(state.calls.filter((c) => c.path.includes("uploads") || c.path === "/api/cases").map((c) => c.path)).toEqual(["/api/uploads/batch/authorize", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases", "/api/uploads/prepare", "/api/uploads/complete", "/api/cases"]);
   expect(state.receipts.size).toBe(2);
   await page.locator("#batch-items details summary").first().click();await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click();
   await expect(page.locator("#lookup-result")).toContainText("待審核");
@@ -344,10 +350,12 @@ test('known rejected Grant renews only failed batch item and keeps successful Ca
  await expect(page.locator('#batch-summary')).toHaveText('共 3 張 · 已送出 2 · 未成功 1 · 等待 0');
  expect(state.calls.filter(c=>c.path==='/api/cases').length).toBe(2);expect(state.receipts.size).toBe(2);const successfulKeys=[...state.receipts.keys()];
  await expect(page.locator('#image-list .image-item')).toHaveCount(3);await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();
- expect(state.prepareSessions.length).toBe(4);expect(state.puts.length).toBe(4);expect(state.prepareSessions[0]).not.toBe(state.prepareSessions[3]);expect(state.receipts.size).toBe(3);
+ expect(state.prepareSessions.length).toBe(4);expect(state.puts.length).toBe(4);expect(state.prepareSessions[0]).toBe(state.prepareSessions[3]);expect(state.receipts.size).toBe(3);
  for(const key of successfulKeys)expect(state.calls.filter(c=>c.path==='/api/cases'&&c.idempotency===key).length).toBe(1);
  expect(JSON.parse(state.calls.filter(c=>c.path==='/api/cases').at(-1).body).upload_session.session_id).toBe(state.prepareSessions[3]);
- expect(state.calls.filter(c=>c.path==='/api/cases').every(c=>JSON.parse(c.body).upload_session.session_id!==state.prepareSessions[0])).toBe(true);
+ // An unexpired batch ticket recovers its fixed never-written intent, rather
+ // than minting a new identity. Only the successful retry may create its Case.
+ expect(state.calls.filter(c=>c.path==='/api/cases'&&JSON.parse(c.body).upload_session.session_id===state.prepareSessions[0])).toHaveLength(1);
 });
 
 test('unknown pending PUT keeps original Intent through missing Complete and late completion',async({page})=>{

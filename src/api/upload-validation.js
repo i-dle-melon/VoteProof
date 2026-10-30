@@ -148,7 +148,7 @@ export function validateComplete(body) {
 
 export function validateBatchAuthorize(body) {
   if(!isRecord(body)||Object.keys(body).some(k=>!['turnstile_token','campaign_id','completion_mode','files'].includes(k))||
-    !Array.isArray(body.files)||body.files.length<2||body.files.length>20)invalid('Invalid batch size');
+    !Array.isArray(body.files)||body.files.length<1||body.files.length>20)invalid('Invalid batch size');
   let total=0;
   const files=body.files.map(file=>{
     const validated=validatePrepare({turnstile_token:body.turnstile_token,

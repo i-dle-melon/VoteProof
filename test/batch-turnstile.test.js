@@ -36,6 +36,16 @@ test('batch Turnstile tickets bind each distinct immutable proof',async()=>{
 });
 test('batch tickets reject excessive or missing files',async()=>{
  const config=await make();
- await invalid(()=>issueBatchTickets(config,{...source,files:[source.files[0]]}));
+ await invalid(()=>issueBatchTickets(config,{...source,files:[]}));
  await invalid(()=>issueBatchTickets(config,{...source,files:Array(21).fill(source.files[0])}));
+});
+
+test('batch tickets expire and cannot cross a reset generation',async()=>{
+ const config=await make(),data=await issueBatchTickets(config,{...source,generation:1});
+ const input={files:[source.files[0]],campaignId:'CAMPAIGN',completionMode:'direct',generation:1};
+ await readBatchTicket(config,data.tickets[0],input);
+ await invalid(()=>readBatchTicket(config,data.tickets[0],{...input,generation:2}));
+ await invalid(()=>readBatchTicket({...config,origin:'https://different.example'},data.tickets[0],input));
+ const other=await make();await invalid(()=>readBatchTicket(other,data.tickets[0],input));
+ const clock=Date.now;try{Date.now=()=>clock()+301000;await invalid(()=>readBatchTicket(config,data.tickets[0],input));}finally{Date.now=clock;}
 });

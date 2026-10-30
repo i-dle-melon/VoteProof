@@ -13,7 +13,7 @@ import { CaseError } from "./case-validation.js";
 import { requireSubmissionsEnabled, SubmissionError } from "../lib/submission-gate.js";
 import {prepareFinalUpload,putFinalUpload,sealFinalUpload,finalReference} from '../lib/immutable-uploads.js';
 import {issueResetSession,requireResetSession} from '../lib/prelaunch-reset-fence.js';
-import {proofKey} from '../lib/proof-generation.js';
+import {proofKey,proofGeneration} from '../lib/proof-generation.js';
 
 export async function prepareUpload(env, _url, request) {
   try {
@@ -24,7 +24,7 @@ export async function prepareUpload(env, _url, request) {
     const config = await uploadGrantConfig(env);
     if(input.batchTicket){
       if(input.storageVersion!==2)throw new UploadError(400,'INVALID_UPLOAD_REQUEST','Invalid batch proof');
-      const batch=await readBatchTicket(config,input.batchTicket,input);
+      const batch=await readBatchTicket(config,input.batchTicket,{...input,generation:proofGeneration(env)});
       await requireSubmissionsEnabled(env.DB);
       if(env.IMMUTABLE_FINAL_UPLOAD_ENABLED==='false')throw new UploadError(503,'SUBMISSIONS_IMMUTABLE_DISABLED','New immutable uploads are paused');
       if(input.completionMode==='direct'&&env.DIRECT_INTENT_CASE_ENABLED!=='true')throw new UploadError(503,'DIRECT_INTENT_DISABLED','Direct uploads are disabled');
@@ -69,7 +69,7 @@ export async function authorizeBatch(env,_url,request) {
     await verifyTurnstile(request,env,input.token);
     await requireSubmissionsEnabled(env.DB);
     return jsonSuccess(await issueBatchTickets(config,{files:input.files,campaignId:input.campaignId,
-      completionMode:input.completionMode,memberId:member?.member_id??null}));
+      completionMode:input.completionMode,memberId:member?.member_id??null,generation:proofGeneration(env)}));
   } catch(error) {
     if(error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError ||
       error instanceof SubmissionError || error instanceof AuthError)return jsonError(error.status,error.code,error.message);

@@ -9,6 +9,21 @@ import { PublicError } from "../public/js/api.js";
 
 const sessionData = (member_id = randomUUID()) => ({ member: { member_id, nickname: "會員", player_id: "player", status: "active", email: "hidden", token_hash: "hidden" },
   csrf_token: randomBytes(32).toString("hex"), expires_in: 600 });
+
+test('batch authorization uses pinned member identity and CSRF on only the exact Worker route',async()=>{
+ const identity=sessionData();const seen=[];
+ const session=new MemberSession({fetcher:async(path,options)=>{
+  seen.push({path,options});return Response.json({ok:true,data:path==='/api/auth/me'?identity:{tickets:[]}});
+ }});
+ session.accept(identity);const send=session.caseSender();
+ await send('/api/uploads/batch/authorize',{method:'POST',body:{turnstile_token:'synthetic'}});
+ const post=seen.find(c=>c.path==='/api/uploads/batch/authorize');assert.ok(post);
+ assert.equal(post.options.credentials,'same-origin');assert.equal(post.options.headers['X-CSRF-Token'],identity.csrf_token);
+ for(const path of ['/api/uploads/batch/authorize/extra','/api/uploads/batch/authorize?other=1','https://other.example/api/uploads/batch/authorize'])
+  await assert.rejects(session.request(path),{code:'INVALID_AUTH_REQUEST'});
+ session.clear();await assert.rejects(send('/api/uploads/batch/authorize',{method:'POST',body:{}}),{code:'AUTH_IDENTITY_CHANGED'});
+ assert.equal(seen.filter(c=>c.path==='/api/uploads/batch/authorize').length,1);
+});
 test("member transport uses Worker-relative cookies, CSRF, no-store and safe errors", async () => {
   let options;
   const session = new MemberSession({ fetcher: async (_path, opt) => { options = opt; return Response.json({ ok: true, data: {} }); } });

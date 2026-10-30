@@ -68,9 +68,21 @@ export class Submission {
     // refresh must never change the payload/endpoint of an in-flight retry.
     this.directIntent = typeof directIntent==='function'?Boolean(directIntent()):Boolean(directIntent);
   }
-  setBatchTicket(ticket) {
-    if(!this.#context || this.#context.prepared || this.#context.payload || this.#context.batchTicket)throw new PublicError('SUBMISSION_PENDING');
-    this.#context.batchTicket=ticket;
+  async batchFile() {
+    const c=this.#context;
+    c.digests ??= await Promise.all(c.files.map(async file => Array.from(new Uint8Array(
+      await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')));
+    return {name:`proof.${IMAGE_TYPES[c.files[0].type]}`,type:c.files[0].type,size:c.files[0].size,algorithm:'sha256',sha256:c.digests[0]};
+  }
+  needsBatchTicket() {
+    const c=this.#context;
+    if(!c || c.payload || c.completed || c.uploaded.size || c.uncertainPuts.size || c.putHold)return false;
+    if(c.batchTicket && this.now()>=c.batchExpiresAt){c.batchTicket=null;c.prepared=null;}
+    return !c.batchTicket;
+  }
+  setBatchTicket(ticket,expiresAt) {
+    if(!this.needsBatchTicket() || this.#context.prepared)throw new PublicError('SUBMISSION_PENDING');
+    this.#context.batchTicket=ticket;this.#context.batchExpiresAt=expiresAt;
   }
   get pending() { return this.#context !== null; }
   get busy() { return this.#running !== null; }
@@ -96,7 +108,7 @@ export class Submission {
     if(c.putHold)throw new PublicError('PUT_RESULT_UNCONFIRMED');
     // Before case creation is attempted, expired PUT grants can safely be
     // replaced. Once payload exists, it is immutable, including upload refs.
-    if (!c.payload && !c.completed && !c.uncertainPuts.size && c.prepared && this.now() >= c.expiresAt) {
+    if (!c.payload && !c.completed && !c.uploaded.size && !c.uncertainPuts.size && c.prepared && this.now() >= c.expiresAt) {
       c.prepared = null; c.uploaded.clear();
     }
     if (!c.prepared) {
@@ -106,13 +118,13 @@ export class Submission {
       this.progress({ phase: "prepare", fraction: 0 });
       // Browser claims are cached across technical retries. R2 is responsible
       // for verifying these against actual bytes; a browser claim is not proof.
-      c.digests ??= await Promise.all(c.files.map(async file => Array.from(new Uint8Array(
-        await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')));
+      if(!c.digests)await this.batchFile();
       const started = this.now();
-      c.prepared = checkedPrepare(await (c.caseApi??this.api)("/api/uploads/prepare", { method: "POST", body: {
+      try{c.prepared = checkedPrepare(await (c.caseApi??this.api)("/api/uploads/prepare", { method: "POST", body: {
         ...(c.files.length===1?{storage_version:2,campaign_id:c.metadata.campaign_id}:{}),
         ...(this.directIntent?{completion_mode:'direct'}:{}),
-        ...(c.batchTicket?{batch_ticket:c.batchTicket}:{turnstile_token:token}), files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);
+        ...(c.batchTicket?{batch_ticket:c.batchTicket}:{turnstile_token:token}), files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);}
+      catch(error){if(error.code==='BATCH_AUTH_INVALID'&&!c.uploaded.size&&!c.uncertainPuts.size&&!c.payload)c.batchTicket=null;throw error;}
       c.expiresAt = started + c.prepared.expires_in * 1000;
     }
     if(this.directIntent && c.prepared.completion_mode!=='direct')throw new PublicError('SERVICE_UNAVAILABLE');
@@ -173,8 +185,10 @@ export class BatchSubmission {
   #items = [];
   #running = null;
   #error = null;
-  #batchAuthorized = false;
   #metadata = null;
+  #caseApi = null;
+  #mode = false;
+  #authorizationExpiresAt = null;
   constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now, directIntent = false }) {
     this.dependencies = { api, put, token, now, directIntent };
     this.progress = progress; this.changed = changed;
@@ -197,10 +211,12 @@ export class BatchSubmission {
     if (this.#items.length) throw new PublicError("SUBMISSION_PENDING");
     validateBatchImages(files);
     const input = normalizedMetadata(metadata);
-    this.#error = null; this.#batchAuthorized = false; this.#metadata=input;
+    this.#error = null; this.#metadata=input;this.#caseApi=options.caseApi??this.dependencies.api;
+    this.#mode=typeof this.dependencies.directIntent==='function'?Boolean(this.dependencies.directIntent()):Boolean(this.dependencies.directIntent);
+    this.#authorizationExpiresAt=null;
     this.#items = files.map((file, index) => {
       const item = { file, status: "queued", result: null, error: null };
-      item.flow = new Submission({ ...this.dependencies, progress: state => {
+      item.flow = new Submission({ ...this.dependencies,directIntent:this.#mode, progress: state => {
         item.status = state.phase; this.changed(this.summary);
         this.progress({ ...state, file: index + 1, count: files.length,
           fraction: (this.summary.succeeded + state.fraction) / files.length });
@@ -212,35 +228,49 @@ export class BatchSubmission {
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
-    this.#items = []; this.#error = null; this.#batchAuthorized = false; this.#metadata = null; this.changed(this.summary);
+    this.#items = []; this.#error = null; this.#metadata = null;this.#caseApi=null;this.#authorizationExpiresAt=null; this.changed(this.summary);
   }
   attempt() {
     if (this.#running) return this.#running;
     if (!this.pending) return this.#items.length ? Promise.resolve(this.summary) : Promise.reject(new PublicError("SUBMISSION_MISSING"));
-    this.#running = this.#attempt().finally(() => { this.#running = null; });
+    this.#running = this.#attempt().catch(error=>{
+      this.#error=error;
+      const pending=this.#items.filter(item=>!item.result);
+      const verifying=pending.some(item=>item.status==='verify');
+      for(const item of pending)if(item.status==='verify')item.status='queued';
+      if(verifying&&pending[0]){pending[0].status='failed';pending[0].error=error;}
+      this.changed(this.summary);throw error;
+    }).finally(() => { this.#running = null; });
     return this.#running;
   }
   async #attempt() {
     // No prepare/PUT/complete/case happens before a fresh, fail-closed gate.
     await this.gate(); this.#error = null;
-    if(this.#items.length>1&&!this.#batchAuthorized){
+    const needs=this.#items.filter(item=>!item.result&&item.flow.needsBatchTicket());
+    if(this.#items.length>1&&needs.length){
+      // An expired ticket cannot silently become a fresh authorization. The UI
+      // shows the reason; a later explicit retry obtains a new challenge only
+      // for items that have never reached an ambiguous write or Case request.
+      const now=this.dependencies.now??Date.now;
+      if(this.#authorizationExpiresAt!==null&&now()>=this.#authorizationExpiresAt){
+        this.#authorizationExpiresAt=null;this.#error=new PublicError('BATCH_AUTH_EXPIRED',403);throw this.#error;
+      }
+      for(const item of needs)item.status='verify';this.changed(this.summary);
+      const files=[];
+      for(const item of needs)files.push(await item.flow.batchFile());
       const challenge=await this.dependencies.token();
       if(!challenge)throw new PublicError('TURNSTILE_REQUIRED');
-      const files=[];
-      for(const [index,{file}] of this.#items.entries()){
-        const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),
-          b=>b.toString(16).padStart(2,'0')).join('');
-        files.push({name:`proof-${index+1}.${IMAGE_TYPES[file.type]}`,type:file.type,size:file.size,algorithm:'sha256',sha256:digest});
-      }
-      const mode=typeof this.dependencies.directIntent==='function'?Boolean(this.dependencies.directIntent()):Boolean(this.dependencies.directIntent);
-      const data=await this.dependencies.api('/api/uploads/batch/authorize',{method:'POST',body:{
+      await this.gate();
+      const started=now();
+      const data=await this.#caseApi('/api/uploads/batch/authorize',{method:'POST',body:{
         turnstile_token:challenge,campaign_id:this.#metadata.campaign_id,
-        ...(mode?{completion_mode:'direct'}:{}),files}});
-      if(!Array.isArray(data?.tickets)||data.tickets.length!==this.#items.length||
-        data.tickets.some(x=>typeof x!=='string'||x.length>2048))
+        ...(this.#mode?{completion_mode:'direct'}:{}),files}});
+      if(!Array.isArray(data?.tickets)||data.tickets.length!==needs.length||
+        !Number.isInteger(data.expires_in)||data.expires_in<1||data.expires_in>300||
+        data.tickets.some(x=>typeof x!=='string'||!/^[A-Za-z0-9_-]{40,2048}$/.test(x)))
         throw new PublicError('SERVICE_UNAVAILABLE');
-      for(let i=0;i<this.#items.length;i++)this.#items[i].flow.setBatchTicket(data.tickets[i]);
-      this.#batchAuthorized=true;
+      this.#authorizationExpiresAt=started+data.expires_in*1000;
+      for(let i=0;i<needs.length;i++){needs[i].flow.setBatchTicket(data.tickets[i],this.#authorizationExpiresAt);needs[i].status='queued';}
     }
     for (const item of this.#items.filter(item => !item.result)) {
       try {
@@ -249,7 +279,7 @@ export class BatchSubmission {
       } catch (error) {
         item.error = error; item.status = "failed"; this.#error = error;
         // Global auth, campaign, gate or challenge failures pause the queue.
-        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|DIRECT_INTENT_)/.test(error.code ?? "")) {
+        if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||error.code==='UPLOAD_OWNER_MISMATCH'||/^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|BATCH_AUTH_|DIRECT_INTENT_)/.test(error.code ?? "")) {
           this.changed(this.summary); break;
         }
       }

@@ -59,6 +59,9 @@ export function putImage(upload, file, onProgress) {
 }
 
 const messages = {
+  BATCH_AUTH_EXPIRED: "批次授權已過期。請重新完成人機驗證後重試；已成功案件不會重送。",
+  BATCH_AUTH_INVALID: "批次授權無效或已過期，請重新驗證；未確認的上傳結果會保留。",
+  BATCH_AUTH_REPLAY: "此圖片授權已使用或結果尚未確認，請保留原投稿，不要另建重複案件。",
   UPLOAD_GRANT_INVALID: "未完成圖片的授權已失效；重試會取得新授權，已成功案件不會重送。",
   PUT_ACK_UNKNOWN: "上傳回覆尚未確認；保留原上傳並核對結果，不會直接重新傳送圖片。",
   PUT_RESULT_UNCONFIRMED: "上傳結果無法確認，已停止重送。請保留目前資料並聯絡管理員。",

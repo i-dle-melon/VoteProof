@@ -68,6 +68,10 @@ export class Submission {
     // refresh must never change the payload/endpoint of an in-flight retry.
     this.directIntent = typeof directIntent==='function'?Boolean(directIntent()):Boolean(directIntent);
   }
+  setBatchTicket(ticket) {
+    if(!this.#context || this.#context.prepared || this.#context.payload || this.#context.batchTicket)throw new PublicError('SUBMISSION_PENDING');
+    this.#context.batchTicket=ticket;
+  }
   get pending() { return this.#context !== null; }
   get busy() { return this.#running !== null; }
   start(metadata, files, { caseApi } = {}) {
@@ -97,8 +101,8 @@ export class Submission {
     }
     if (!c.prepared) {
       this.progress({ phase: "verify", fraction: 0 });
-      const token = await this.token();
-      if (!token) throw new PublicError("TURNSTILE_REQUIRED");
+      const token = c.batchTicket ? null : await this.token();
+      if (!c.batchTicket && !token) throw new PublicError("TURNSTILE_REQUIRED");
       this.progress({ phase: "prepare", fraction: 0 });
       // Browser claims are cached across technical retries. R2 is responsible
       // for verifying these against actual bytes; a browser claim is not proof.
@@ -108,7 +112,7 @@ export class Submission {
       c.prepared = checkedPrepare(await (c.caseApi??this.api)("/api/uploads/prepare", { method: "POST", body: {
         ...(c.files.length===1?{storage_version:2,campaign_id:c.metadata.campaign_id}:{}),
         ...(this.directIntent?{completion_mode:'direct'}:{}),
-        turnstile_token: token, files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);
+        ...(c.batchTicket?{batch_ticket:c.batchTicket}:{turnstile_token:token}), files: c.files.map((f, i) => ({ name: `proof-${i + 1}.${IMAGE_TYPES[f.type]}`, type: f.type, size: f.size, algorithm:'sha256',sha256:c.digests[i] })) } }), c.files);
       c.expiresAt = started + c.prepared.expires_in * 1000;
     }
     if(this.directIntent && c.prepared.completion_mode!=='direct')throw new PublicError('SERVICE_UNAVAILABLE');
@@ -169,6 +173,8 @@ export class BatchSubmission {
   #items = [];
   #running = null;
   #error = null;
+  #batchAuthorized = false;
+  #metadata = null;
   constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now, directIntent = false }) {
     this.dependencies = { api, put, token, now, directIntent };
     this.progress = progress; this.changed = changed;
@@ -191,7 +197,7 @@ export class BatchSubmission {
     if (this.#items.length) throw new PublicError("SUBMISSION_PENDING");
     validateBatchImages(files);
     const input = normalizedMetadata(metadata);
-    this.#error = null;
+    this.#error = null; this.#batchAuthorized = false; this.#metadata=input;
     this.#items = files.map((file, index) => {
       const item = { file, status: "queued", result: null, error: null };
       item.flow = new Submission({ ...this.dependencies, progress: state => {
@@ -206,7 +212,7 @@ export class BatchSubmission {
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
-    this.#items = []; this.#error = null; this.changed(this.summary);
+    this.#items = []; this.#error = null; this.#batchAuthorized = false; this.#metadata = null; this.changed(this.summary);
   }
   attempt() {
     if (this.#running) return this.#running;
@@ -217,6 +223,25 @@ export class BatchSubmission {
   async #attempt() {
     // No prepare/PUT/complete/case happens before a fresh, fail-closed gate.
     await this.gate(); this.#error = null;
+    if(this.#items.length>1&&!this.#batchAuthorized){
+      const challenge=await this.dependencies.token();
+      if(!challenge)throw new PublicError('TURNSTILE_REQUIRED');
+      const files=[];
+      for(const [index,{file}] of this.#items.entries()){
+        const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),
+          b=>b.toString(16).padStart(2,'0')).join('');
+        files.push({name:`proof-${index+1}.${IMAGE_TYPES[file.type]}`,type:file.type,size:file.size,algorithm:'sha256',sha256:digest});
+      }
+      const mode=typeof this.dependencies.directIntent==='function'?Boolean(this.dependencies.directIntent()):Boolean(this.dependencies.directIntent);
+      const data=await this.dependencies.api('/api/uploads/batch/authorize',{method:'POST',body:{
+        turnstile_token:challenge,campaign_id:this.#metadata.campaign_id,
+        ...(mode?{completion_mode:'direct'}:{}),files}});
+      if(!Array.isArray(data?.tickets)||data.tickets.length!==this.#items.length||
+        data.tickets.some(x=>typeof x!=='string'||x.length>2048))
+        throw new PublicError('SERVICE_UNAVAILABLE');
+      for(let i=0;i<this.#items.length;i++)this.#items[i].flow.setBatchTicket(data.tickets[i]);
+      this.#batchAuthorized=true;
+    }
     for (const item of this.#items.filter(item => !item.result)) {
       try {
         await this.gate();

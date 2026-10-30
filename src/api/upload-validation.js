@@ -67,10 +67,16 @@ export async function readUploadJson(request) {
 
 export function validatePrepare(body) {
   if (!isRecord(body)) invalid("Invalid upload request");
-  if (typeof body.turnstile_token !== "string" || !body.turnstile_token.trim()) {
-    throw new UploadError(400, "TURNSTILE_REQUIRED", "Turnstile verification is required");
+  const batchTicket=typeof body.batch_ticket==='string';
+  if(batchTicket){
+    if(Object.hasOwn(body,'turnstile_token')||body.batch_ticket.length>UPLOAD_LIMITS.maxTokenLength||
+      !body.batch_ticket.trim())invalid('Invalid batch verification');
+  }else{
+    if (typeof body.turnstile_token !== "string" || !body.turnstile_token.trim()) {
+      throw new UploadError(400, "TURNSTILE_REQUIRED", "Turnstile verification is required");
+    }
+    if (body.turnstile_token.length > UPLOAD_LIMITS.maxTokenLength) invalid("Invalid verification token");
   }
-  if (body.turnstile_token.length > UPLOAD_LIMITS.maxTokenLength) invalid("Invalid verification token");
   if (!Array.isArray(body.files) || !body.files.length) invalid("At least one file is required");
   if (body.files.length > UPLOAD_LIMITS.maxFiles) {
     throw new UploadError(400, "TOO_MANY_FILES", "At most five files are allowed");
@@ -102,8 +108,10 @@ export function validatePrepare(body) {
   if(body.completion_mode==='direct' && body.storage_version!==2) invalid('Direct completion requires an immutable proof');
   if(body.storage_version===2) {
     if(files.length!==1 || typeof body.campaign_id!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(body.campaign_id)) invalid('One proof and a Campaign are required');
-    return {token:body.turnstile_token.trim(),files,storageVersion:2,campaignId:body.campaign_id,completionMode:body.completion_mode??'legacy'};
+    return {...(batchTicket?{batchTicket:body.batch_ticket}:{token:body.turnstile_token.trim()}),
+      files,storageVersion:2,campaignId:body.campaign_id,completionMode:body.completion_mode??'legacy'};
   }
+  if(batchTicket)invalid('Batch ticket requires an immutable proof');
   return { token: body.turnstile_token.trim(), files };
 }
 
@@ -136,4 +144,19 @@ export function validateComplete(body) {
   }
   if(body.capability!==undefined && (typeof body.capability!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(body.capability)))invalid('Invalid upload capability');
   return { sessionId, keys: body.keys,...(body.capability===undefined?{}:{capability:body.capability}) };
+}
+
+export function validateBatchAuthorize(body) {
+  if(!isRecord(body)||Object.keys(body).some(k=>!['turnstile_token','campaign_id','completion_mode','files'].includes(k))||
+    !Array.isArray(body.files)||body.files.length<2||body.files.length>20)invalid('Invalid batch size');
+  let total=0;
+  const files=body.files.map(file=>{
+    const validated=validatePrepare({turnstile_token:body.turnstile_token,
+      storage_version:2,campaign_id:body.campaign_id,completion_mode:body.completion_mode,files:[file]});
+    total+=validated.files[0].size;
+    return validated.files[0];
+  });
+  if(!Number.isSafeInteger(total)||total>20*UPLOAD_LIMITS.maxFileBytes)invalid('Batch is too large');
+  return {token:body.turnstile_token.trim(),files,campaignId:body.campaign_id,
+    completionMode:body.completion_mode??'legacy'};
 }

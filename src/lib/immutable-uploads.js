@@ -7,7 +7,7 @@ import {requireCaseCampaignRow} from './campaign-policy.js';
 import {r2VerifiedSha256} from './r2-verified-checksum.js';
 import {rememberCompletedUpload,COMPLETED_UPLOAD_TTL_SECONDS} from './completed-uploads.js';
 import {CaseError} from '../api/case-validation.js';
-import {issueResetSession} from './prelaunch-reset-fence.js';
+import {issueResetSession,requireResetSession} from './prelaunch-reset-fence.js';
 import {proofKey} from './proof-generation.js';
 
 const fail=(code='UPLOAD_INTENT_INVALID',status=409)=>{throw new UploadError(status,code,'Upload authorization or state is invalid');};
@@ -23,19 +23,49 @@ export async function prepareFinalUpload(env,request,config,input) {
   if(member)await memberCsrf(request,env,member);
   const campaign=await env.DB.prepare('SELECT * FROM campaigns WHERE campaign_id=?').bind(input.campaignId).first();
   requireCaseCampaignRow(campaign,{voteType:campaign?.category,voteDate:campaign?.vote_start_date});
-  const sessionId=crypto.randomUUID(),proofId=crypto.randomUUID(),file=input.files[0],now=new Date();
-  const capability=member?null:newQueryKey(),guestCapabilityHash=capability?await uploadCapabilityHash(capability):null;
-  const expires=Math.floor(now.valueOf()/1000)+UPLOAD_LIMITS.expiresSeconds;
+  const batch=input.batch??null;
+  if(batch&&batch.member_id!==(member?.member_id??null))fail('UPLOAD_OWNER_MISMATCH',403);
+  const sessionId=batch?.session_id??crypto.randomUUID(),proofId=batch?.proof_id??crypto.randomUUID(),
+    file=input.files[0],now=new Date();
+  const capability=member?null:(batch?.capability??newQueryKey()),
+    guestCapabilityHash=capability?await uploadCapabilityHash(capability):null;
+  const expires=batch?.expires??Math.floor(now.valueOf()/1000)+UPLOAD_LIMITS.expiresSeconds;
+  if(expires<=Math.floor(now.valueOf()/1000))fail('BATCH_AUTH_INVALID',403);
   const objectKey=proofKey(env,'final',`${sessionId}/${proofId}.${MIME_EXTENSIONS[file.type]}`);
-  await issueResetSession(env,sessionId,[objectKey],input.completionMode==='direct'?'direct':'v2');
-  await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
-    content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
-    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)`)
-    .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
-      now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy').run().then(r=>{if(r.meta.changes!==1)fail('SUBMISSIONS_DISABLED',503);});
+  if(batch){
+    // Retry a lost prepare response using exactly the original intent identity.
+    // A ticket never creates a second intent or changes an existing proof.
+    let existing=await intentRow(env.DB,sessionId);
+    if(!existing){
+      try{await issueResetSession(env,sessionId,[objectKey],input.completionMode==='direct'?'direct':'v2');}
+      catch{await requireResetSession(env,sessionId,[objectKey]);}
+      await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
+        content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)
+        ON CONFLICT(session_id) DO NOTHING`)
+        .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
+          now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy').run();
+      existing=await intentRow(env.DB,sessionId);
+    }
+    if(!existing||existing.proof_id!==proofId||existing.object_key!==objectKey||
+      existing.campaign_id!==input.campaignId||existing.member_id!==(member?.member_id??null)||
+      existing.guest_capability_hash!==guestCapabilityHash||existing.content_type!==file.type||
+      existing.size!==file.size||existing.expected_sha256!==file.sha256||
+      existing.grant_expires!==expires||existing.completion_mode!==(input.completionMode??'legacy')||
+      existing.state!=='prepared'||existing.write_token!==null||existing.consumed_case_id!==null)
+      fail('BATCH_AUTH_REPLAY',409);
+    await requireResetSession(env,sessionId,[objectKey]);
+  }else{
+    await issueResetSession(env,sessionId,[objectKey],input.completionMode==='direct'?'direct':'v2');
+    await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
+      content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)`)
+      .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
+        now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy').run().then(r=>{if(r.meta.changes!==1)fail('SUBMISSIONS_DISABLED',503);});
+  }
   const upload=await issueUploadGrant(config,`/api/uploads/put/${sessionId}/${proofId}`,objectKey,file,
     {sessionId,proofId,campaignId:input.campaignId,memberId:member?.member_id??null,guestCapabilityHash,expires});
-  return {storage_version:2,session_id:sessionId,proof_id:proofId,expires_in:UPLOAD_LIMITS.expiresSeconds,uploads:[upload],...(capability?{capability}:{}),
+  return {storage_version:2,session_id:sessionId,proof_id:proofId,expires_in:Math.max(1,expires-Math.floor(Date.now()/1000)),uploads:[upload],...(capability?{capability}:{}),
     ...(input.completionMode==='direct'?{completion_mode:'direct'}:{})};
 }
 

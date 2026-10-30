@@ -1,10 +1,12 @@
 import {capacityPut,StorageCapacityError} from '../lib/storage-capacity.js';
 import { jsonSuccess, jsonError } from "./response.js";
-import { readUploadJson, validatePrepare, validateComplete, validUploadedObject, MIME_EXTENSIONS, UPLOAD_LIMITS, UploadError } from "./upload-validation.js";
+import { readUploadJson, validatePrepare, validateComplete, validUploadedObject, MIME_EXTENSIONS, UPLOAD_LIMITS, UploadError, validateBatchAuthorize } from "./upload-validation.js";
 import { verifyTurnstile } from "./turnstile.js";
 import { uploadGrantConfig, issueUploadGrant, readUploadGrant } from '../lib/upload-grant.js';
 import { r2VerifiedSha256 } from '../lib/r2-verified-checksum.js';
-import { requestOrigin } from '../lib/auth-session.js';
+import { requestOrigin,memberSession,memberCsrf } from '../lib/auth-session.js';
+import {requireCaseCampaignRow} from '../lib/campaign-policy.js';
+import {issueBatchTickets,readBatchTicket} from '../lib/batch-turnstile.js';
 import { AuthError } from './auth-validation.js';
 import { rememberCompletedUpload } from "../lib/completed-uploads.js";
 import { CaseError } from "./case-validation.js";
@@ -20,6 +22,14 @@ export async function prepareUpload(env, _url, request) {
       throw new UploadError(503,'DIRECT_INTENT_DISABLED','Experimental direct uploads are not enabled');
     const {token,files}=input;
     const config = await uploadGrantConfig(env);
+    if(input.batchTicket){
+      if(input.storageVersion!==2)throw new UploadError(400,'INVALID_UPLOAD_REQUEST','Invalid batch proof');
+      const batch=await readBatchTicket(config,input.batchTicket,input);
+      await requireSubmissionsEnabled(env.DB);
+      if(env.IMMUTABLE_FINAL_UPLOAD_ENABLED==='false')throw new UploadError(503,'SUBMISSIONS_IMMUTABLE_DISABLED','New immutable uploads are paused');
+      if(input.completionMode==='direct'&&env.DIRECT_INTENT_CASE_ENABLED!=='true')throw new UploadError(503,'DIRECT_INTENT_DISABLED','Direct uploads are disabled');
+      return jsonSuccess(await prepareFinalUpload(env,request,config,{...input,batch}));
+    }
     await verifyTurnstile(request, env, token);
     await requireSubmissionsEnabled(env.DB);
     // Stop issuing new V2 intents during an operator-controlled rollback, while
@@ -40,6 +50,30 @@ export async function prepareUpload(env, _url, request) {
   } catch (error) {
     if (error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError || error instanceof SubmissionError || error instanceof AuthError) return jsonError(error.status, error.code, error.message);
     return jsonError(500, "INTERNAL_ERROR", "Upload request failed");
+  }
+}
+
+export async function authorizeBatch(env,_url,request) {
+  try {
+    const input=validateBatchAuthorize(await readUploadJson(request));
+    requestOrigin(request,env);
+    if(input.completionMode==='direct'&&env.DIRECT_INTENT_CASE_ENABLED!=='true')
+      throw new UploadError(503,'DIRECT_INTENT_DISABLED','Direct uploads are disabled');
+    if(env.IMMUTABLE_FINAL_UPLOAD_ENABLED==='false')
+      throw new UploadError(503,'SUBMISSIONS_IMMUTABLE_DISABLED','New immutable uploads are paused');
+    const member=await memberSession(request,env,false);
+    if(member)await memberCsrf(request,env,member);
+    const campaign=await env.DB.prepare('SELECT * FROM campaigns WHERE campaign_id=?').bind(input.campaignId).first();
+    requireCaseCampaignRow(campaign,{voteType:campaign?.category,voteDate:campaign?.vote_start_date});
+    const config=await uploadGrantConfig(env);
+    await verifyTurnstile(request,env,input.token);
+    await requireSubmissionsEnabled(env.DB);
+    return jsonSuccess(await issueBatchTickets(config,{files:input.files,campaignId:input.campaignId,
+      completionMode:input.completionMode,memberId:member?.member_id??null}));
+  } catch(error) {
+    if(error instanceof StorageCapacityError || error instanceof UploadError || error instanceof CaseError ||
+      error instanceof SubmissionError || error instanceof AuthError)return jsonError(error.status,error.code,error.message);
+    return jsonError(500,'INTERNAL_ERROR','Batch verification failed');
   }
 }
 

@@ -9,7 +9,7 @@ import {adminHealthMonitorRoute} from './admin-health-monitor.js';
 import { memberContactRoute } from './admin-member-contact.js';
 import { siteContentRoute } from './site-content.js';
 import { jsonError } from "./response.js";
-import { prepareUpload, completeUpload, putUpload } from "./uploads.js";
+import { prepareUpload, authorizeBatch, completeUpload, putUpload } from "./uploads.js";
 import { createCase, createDirectCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
 import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
@@ -58,6 +58,7 @@ const routes = new Map([
   ["/api/campaigns", { method: "GET", handler: getCampaigns }],
   ["/api/leaderboards", { method: "GET", handler: getLeaderboards }],
   ["/api/uploads/prepare", { method: "POST", handler: prepareUpload }],
+  ["/api/uploads/batch/authorize", { method: "POST", handler: authorizeBatch }],
   ["/api/uploads/complete", { method: "POST", handler: completeUpload }],
   ["/api/cases", { method: "POST", handler: createCase }],
   ["/api/cases/direct", { method: "POST", handler: createDirectCase }],

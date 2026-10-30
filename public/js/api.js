@@ -64,7 +64,7 @@ const messages = {
   PUT_RESULT_UNCONFIRMED: "上傳結果無法確認，已停止重送。請保留目前資料並聯絡管理員。",
   R2_UPLOAD_ERROR: "上傳服務發生錯誤，結果尚未確認；請保留目前資料，不要重複投稿。",
   DIRECT_INTENT_DISABLED: "投稿服務尚未完成啟用，請稍後重試；已送出的案件不會重複建立。",
-  R2_STORAGE_CAPACITY_EXCEEDED: "容量保護目前停止上傳；可能已達容量限制或狀態無法確認，請稍後再試。 ",
+  R2_STORAGE_CAPACITY_EXCEEDED: "容量保護目前停止上傳；可能已達容量限制或狀態無法確認，請稍後再試。",
   R2_STORAGE_INVENTORY_BUSY: "正在更新儲存容量盤點，暫時等待上傳；已成功案件不會重送。",
   R2_STORAGE_SNAPSHOT_STALE: "容量快照已過期，目前無法安全接受新上傳，請管理員確認自動盤點。",
   UPLOAD_REPREPARE_REQUIRED: "上傳結果尚未確認；重試只會核對原上傳，不會重新傳送圖片。",

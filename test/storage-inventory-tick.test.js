@@ -95,7 +95,7 @@ test('bounded scheduled pages still account for every object and expire trust un
   assert.equal((await call(e)).data.inventory.complete,false);
   const pin=(await capacityRow(db)).inventory_id;
   assert.ok(pin);assert.equal((await capacityRow(db)).trusted_until,0);
-  await assert.rejects(reserveStorage(e,'synthetic-write',1),e=>e.code==='R2_STORAGE_CAPACITY_EXCEEDED');
+  await assert.rejects(reserveStorage(e,'synthetic-write',1),e=>e.code==='R2_STORAGE_INVENTORY_BUSY'&&e.noWrite===true);
   assert.equal((await call(e)).data.inventory.complete,false);
   assert.equal((await capacityRow(db)).inventory_id,pin);
   const done=await call(e);assert.equal(done.data.inventory.complete,true);

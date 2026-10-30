@@ -35,7 +35,7 @@ for(const mode of Object.keys(kind))test(mode+': actual prepare, PUT, complete a
 });
 for(const mode of Object.keys(kind))test(mode+': inventory first rejects PUT without native IO, leaked pin, reservation or UNKNOWN; finalize permits same-grant retry',async t=>{
  const f=await setup(t),p=await f.prepare(mode);assert.equal((await f.scan()).status,200);
- const before=f.counts().puts,r=await f.put(p);assert.equal(r.status,503,await r.clone().text());assert.equal((await r.json()).error.code,'R2_STORAGE_CAPACITY_EXCEEDED');
+ const before=f.counts().puts,r=await f.put(p);assert.equal(r.status,503,await r.clone().text());assert.equal((await r.json()).error.code,'R2_STORAGE_INVENTORY_BUSY');
  assert.equal(f.counts().puts,before);assert.deepEqual(f.state(),{pins:0,reserved:0,unknown:0,active:0,permit:0});
  assert.equal((await f.finish()).status,200);assert.equal((await f.put(p)).status,200);
 });

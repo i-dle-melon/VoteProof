@@ -13,6 +13,7 @@ const guard=row=>({sql:"EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND inv
 // One invocation scans at most one page. It never publishes trusted capacity.
 export async function scanInventoryPage(env){
   writer(env);const db=env.DB;let row=await capacityRow(db);
+  if(row.inventory_dirty)throw conflict('STORAGE_INVENTORY_INVALIDATED');
   await evaluateCapacity(db,row);
   const pending=await pendingInventoryPage(env,row);
   if(pending)return pending;
@@ -72,6 +73,7 @@ export async function finalizeInventory(env,id,version){
     const saved=await receipt(db,id,version);if(saved)return saved;
     throw conflict('STORAGE_FINALIZE_NOT_READY');
   }
+  if(row.inventory_dirty)throw conflict('STORAGE_INVENTORY_INVALIDATED');
   const pending=await pendingInventoryFinalize(env,row,id,version,receipt);
   if(pending)return pending;
   if(row.inventory_phase!=='ready'||row.inventory_cursor!==null||row.inventory_version!==version||row.reserved_bytes)

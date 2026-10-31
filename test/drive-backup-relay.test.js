@@ -195,7 +195,9 @@ test('failed callback sanitizes errors, backoffs, clears active lease, respects 
 test('complete application D1 query counts including batch guards, no-job, expiry, max sweep and replay', async t => {
   const meter = countDatabase(h.local.db), e = { ...env(), DB: meter.db }, measured = {};
   const measure = async (label, operation, expected) => { meter.reset(); const result = await operation(); measured[label] = meter.queries; assert.equal(meter.queries, expected, label); return result; };
-  await fresh(0); await measure('no_job_claim', () => claim(claimBody(), { e }), 4);
+  // Empty polling is now exactly one read; no terminalization or claim UPDATE
+  // runs. Nonempty/replay paths reuse that read and keep the original budget.
+  await fresh(0); await measure('no_job_claim', () => claim(claimBody(), { e }), 1);
   await fresh(); const body = claimBody(); const job = (await measure('successful_claim', () => claim(body, { e }), 4)).data.job;
   await measure('active_claim_replay', () => claim(body, { e }), 3);
   await measure('content_authorization', () => content(job, { e }), 1);

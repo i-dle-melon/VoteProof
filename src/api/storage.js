@@ -8,6 +8,7 @@ import {
   storageSummary,
   nowSeconds,
   evaluateCapacity,
+  capacityAccountingOnly,
 } from "../lib/storage-capacity.js";
 import { cleanupArchive } from "../lib/storage-archive.js";
 import { processStorageAlerts } from "../lib/storage-alerts.js";
@@ -58,7 +59,7 @@ const historyList = adminHandler(async (env, url, request) => {
 const admin = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES);
   if (url.search) throw new AdminError(400, "INVALID_STORAGE_REQUEST", "不支援查詢參數。");
-  if (request.method === "GET") return jsonSuccess(await storageSummary(env.DB, {live:env.STORAGE_CLEANUP_LIVE_ENABLED==="true"}));
+  if (request.method === "GET") return jsonSuccess(await storageSummary(env.DB, {live:env.STORAGE_CLEANUP_LIVE_ENABLED==="true",accountingOnly:capacityAccountingOnly(env)}));
   await adminCsrf(request, env, actor);
   const v = await readReviewJson(request);
   if (!validObject(v) || Object.keys(v).length)

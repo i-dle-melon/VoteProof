@@ -85,6 +85,14 @@ test('maintenance only reads quota metadata and ticks; never images, archive, ma
   assert.equal(f.properties.get('CLAIM_REQUEST_ID'),'backup-must-keep');
   assert.equal(f.properties.size,3); // No root, identity or OAuth token property is needed.
 });
+
+test('soft pause requested during a page preserves its progress and skips Finalize without deleting triggers',()=>{
+  const f=fixture();f.state.triggers=[trigger('runBackup'),trigger(handler)];
+  f.state.fetch=()=>{f.properties.set('VOTEPROOF_INVENTORY_PAUSED','true');return reply();};
+  const result=f.context.runStorageInventory();assert.equal(result.state,'paused');assert.equal(result.pages,1);
+  assert.equal(f.state.calls.length,1);assert.equal(f.state.finalizeCalls.length,0);assert.equal(f.state.triggers.length,2);
+  assert.equal(f.properties.get('CLAIM_REQUEST_ID'),'backup-must-keep');assert.equal(f.state.locked,false);
+});
 test('inventory follows every page until complete without sending a local cursor',()=>{
   const f=fixture();f.state.fetch=()=>reply(f.state.calls.length<4?
     {complete:false,scanned:f.state.calls.length*200}:{complete:true,bytes:1234,anomaly:null});

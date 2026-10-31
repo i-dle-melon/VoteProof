@@ -4,7 +4,7 @@ import {jsonSuccess} from './response.js';
 import {adminIdentity,ELEVATED_ROLES,AdminError} from '../lib/admin-identity.js';
 import {authDatabase,authKey,authMac} from '../lib/auth-session.js';
 import {equalQueryHash} from '../lib/case-keys.js';
-import {STORAGE} from '../lib/storage-capacity.js';
+import {STORAGE,capacityAccountingOnly,uploadCapacityBlocked} from '../lib/storage-capacity.js';
 import {encodeCursor} from './admin-validation.js';
 
 const LIMIT=20,WINDOW=1000,SENTINEL=1001,SCHEMA='p1_legacy_0028_v1';
@@ -41,7 +41,7 @@ const summary=adminHandler(async(env,url,request)=>{
   counter(db,'storage_alerts','kind,created_at',"kind='cleanup_failed' AND created_at>=?",[now-86400]),
   counter(db,'storage_reservations','state',"state='reserved'"),
   counter(db,'proof_upload_intents','write_token IS NOT NULL AS pinned','pinned=1'),
-  db.prepare('SELECT used_bytes,reserved_bytes,observed_at,trusted_until,blocked,anomaly FROM storage_capacity WHERE id=1'),
+  db.prepare('SELECT * FROM storage_capacity WHERE id=1'),
  ]);
  const [backup,cleanup,reservations,pins]=rows.slice(0,4).map(r=>count(r.results[0])),cap=rows[4].results[0];
  if(!cap)throw new AdminError(503,'ADMIN_SERVICE_UNAVAILABLE','容量狀態尚未取得。');
@@ -54,7 +54,9 @@ const summary=adminHandler(async(env,url,request)=>{
    unsupported:['image_mutation_operations','storage_archive_dispatches','image_maintenance_control']},
   storage:{used_bytes:cap.observed_at===null?null:cap.used_bytes,budget_bytes:STORAGE.budget,
    observed_at:cap.observed_at,trusted_until:cap.trusted_until,anomaly:cap.anomaly,
-   blocked:!!cap.blocked||!cap.trusted_until||cap.trusted_until<=now||!!cap.anomaly||cap.used_bytes+cap.reserved_bytes>=STORAGE.stop,
+   blocked:uploadCapacityBlocked(cap,capacityAccountingOnly(env)),
+   upload_policy:capacityAccountingOnly(env)&&cap.upload_policy==='observe'?'observe':'enforced',
+   snapshot_stale:cap.trusted_until<=now,inventory_invalidated:!!cap.inventory_dirty,
    cleanup_mode:env.STORAGE_CLEANUP_LIVE_ENABLED==='true'?'live':'dry-run'},
   coverage:{upload:'partial_coverage',backup:backup.coverage,cleanup:cleanup.coverage,operation:'unsupported',legacy_delete_ack:'unknown'},
   window_limit:WINDOW});

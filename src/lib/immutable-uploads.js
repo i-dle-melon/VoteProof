@@ -7,7 +7,7 @@ import {requireCaseCampaignRow} from './campaign-policy.js';
 import {r2VerifiedSha256} from './r2-verified-checksum.js';
 import {rememberCompletedUpload,COMPLETED_UPLOAD_TTL_SECONDS} from './completed-uploads.js';
 import {CaseError} from '../api/case-validation.js';
-import {issueResetSession,requireResetSession} from './prelaunch-reset-fence.js';
+import {resetSessionStatement,requireResetSession} from './prelaunch-reset-fence.js';
 import {proofKey} from './proof-generation.js';
 
 const fail=(code='UPLOAD_INTENT_INVALID',status=409)=>{throw new UploadError(status,code,'Upload authorization or state is invalid');};
@@ -16,6 +16,24 @@ export const finalReference=keys=>keys.some(key=>key.startsWith('proofs/final/')
 export const intentRow=(db,session)=>db.prepare('SELECT * FROM proof_upload_intents WHERE session_id=?').bind(session).first();
 const matches=(intent,object)=>object && validUploadedObject(intent.object_key,object) && object.size===intent.size &&
   object.httpMetadata?.contentType===intent.content_type && r2VerifiedSha256(object)===intent.expected_sha256;
+
+// Issuance and Intent share one permit/atomic batch. A replay may reuse only
+// the exact persistent epoch/key issuance; a foreign/stale issuance cannot
+// create an Intent, even when its first Prepare ACK was lost.
+async function insertPreparedIntent(env,{sessionId,proofId,objectKey,input,member,guestCapabilityHash,file,now,expires,batch}){
+ const kind=input.completionMode==='direct'?'direct':'v2';
+ const issuance=resetSessionStatement(env,sessionId,[objectKey],kind,{ifMissing:!!batch});
+ const issued=issuance?` AND EXISTS(SELECT 1 FROM prelaunch_reset_issuance WHERE session_id=? AND epoch=? AND kind=? AND keys_json=?)`:'';
+ const statement=env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
+   content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
+   SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)${issued}
+   ${batch?'ON CONFLICT(session_id) DO NOTHING':''}`)
+  .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
+   now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy',
+   ...(issuance?[sessionId,env.PRELAUNCH_RESET_CONTEXT.epoch,kind,JSON.stringify([objectKey])]:[]));
+ const result=issuance?(await env.DB.batch([issuance,statement]))[1]:await statement.run();
+ if(!batch&&result.meta.changes!==1)fail('SUBMISSIONS_DISABLED',503);
+}
 
 export async function prepareFinalUpload(env,request,config,input) {
   requestOrigin(request,env);
@@ -37,14 +55,7 @@ export async function prepareFinalUpload(env,request,config,input) {
     // A ticket never creates a second intent or changes an existing proof.
     let existing=await intentRow(env.DB,sessionId);
     if(!existing){
-      try{await issueResetSession(env,sessionId,[objectKey],input.completionMode==='direct'?'direct':'v2');}
-      catch{await requireResetSession(env,sessionId,[objectKey]);}
-      await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
-        content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)
-        ON CONFLICT(session_id) DO NOTHING`)
-        .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
-          now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy').run();
+      await insertPreparedIntent(env,{sessionId,proofId,objectKey,input,member,guestCapabilityHash,file,now,expires,batch});
       existing=await intentRow(env.DB,sessionId);
     }
     if(!existing||existing.proof_id!==proofId||existing.object_key!==objectKey||
@@ -56,12 +67,7 @@ export async function prepareFinalUpload(env,request,config,input) {
       fail('BATCH_AUTH_REPLAY',409);
     await requireResetSession(env,sessionId,[objectKey]);
   }else{
-    await issueResetSession(env,sessionId,[objectKey],input.completionMode==='direct'?'direct':'v2');
-    await env.DB.prepare(`INSERT INTO proof_upload_intents(session_id,proof_id,object_key,campaign_id,member_id,guest_capability_hash,
-      content_type,size,expected_sha256,created_at,expires_at,grant_expires,completion_mode)
-      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM submission_settings WHERE id=1 AND submissions_enabled=1)`)
-      .bind(sessionId,proofId,objectKey,input.campaignId,member?.member_id??null,guestCapabilityHash,file.type,file.size,file.sha256,
-        now.toISOString(),new Date(now.valueOf()+COMPLETED_UPLOAD_TTL_SECONDS*1000).toISOString(),expires,input.completionMode??'legacy').run().then(r=>{if(r.meta.changes!==1)fail('SUBMISSIONS_DISABLED',503);});
+    await insertPreparedIntent(env,{sessionId,proofId,objectKey,input,member,guestCapabilityHash,file,now,expires,batch});
   }
   const upload=await issueUploadGrant(config,`/api/uploads/put/${sessionId}/${proofId}`,objectKey,file,
     {sessionId,proofId,campaignId:input.campaignId,memberId:member?.member_id??null,guestCapabilityHash,expires});

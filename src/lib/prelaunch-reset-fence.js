@@ -45,7 +45,7 @@ export async function fencedRequest(env,request,handler){
   if(initial.mode==='maintenance'&&isMaintenanceInventory(request,url))return maintenanceInventory(request,env,initial);
   throw denied();
  }
- let operation=null,admissionPromise=null,ioPending=0,ioWrites=0,writeBatches=0,uncertain=false;
+ let operation=null,admissionPromise=null,ioPending=0,ioWrites=0,writeBatches=0,uncertain=false,unknownPromise=null;
  const assertOpen=async()=>{const c=await control(db);if(c?.mode!=='open'||c.epoch!==initial.epoch)throw denied('PRELAUNCH_EPOCH_CHANGED',409);};
  async function ensureOperation(){
   if(operation)return;
@@ -54,7 +54,13 @@ export async function fencedRequest(env,request,handler){
    if(result.meta.changes!==1)throw denied('PRELAUNCH_EPOCH_CHANGED',409);operation=id;})();
   return admissionPromise;
  }
- async function unknown(){uncertain=true;if(operation)try{await db.prepare("UPDATE prelaunch_reset_operations SET state='unknown' WHERE id=?").bind(operation).run();}catch{/* Persistent active/pending evidence is retained. */}}
+ async function unknown(){
+  uncertain=true;
+  // Persist at most once per request, including a lost ACK. A later error must
+  // not retry an ambiguous write; durable active/pending evidence still holds.
+  if(operation&&!unknownPromise)unknownPromise=Promise.resolve().then(()=>db.prepare("UPDATE prelaunch_reset_operations SET state='unknown' WHERE id=?").bind(operation).run()).catch(()=>{});
+  if(unknownPromise)await unknownPromise;
+ }
  async function writeBatch(statements,admission=null){
   await ensureOperation();
   try{
@@ -125,12 +131,17 @@ export async function fencedRequest(env,request,handler){
  }
 }
 
-export async function issueResetSession(env,session,keys,kind){
- if(!resetEnabled(env))return;
+export function resetSessionStatement(env,session,keys,kind,{ifMissing=false}={}){
+ if(!resetEnabled(env))return null;
  const context=env.PRELAUNCH_RESET_CONTEXT;if(!context)throw denied('RESET_CONTEXT_REQUIRED');
  if(keys.some(key=>!currentProofKey(env,key)))throw denied('PRELAUNCH_UPLOAD_RETIRED',409);
- await env.DB.prepare('INSERT INTO prelaunch_reset_issuance(session_id,epoch,kind,keys_json,created_at) VALUES(?,?,?,?,?)')
-  .bind(session,context.epoch,kind,JSON.stringify([...keys].sort()),now()).run();
+ const sql=ifMissing?'INSERT INTO prelaunch_reset_issuance(session_id,epoch,kind,keys_json,created_at) SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM prelaunch_reset_issuance WHERE session_id=?)'
+  :'INSERT INTO prelaunch_reset_issuance(session_id,epoch,kind,keys_json,created_at) VALUES(?,?,?,?,?)';
+ return env.DB.prepare(sql).bind(session,context.epoch,kind,JSON.stringify([...keys].sort()),now(),...(ifMissing?[session]:[]));
+}
+export async function issueResetSession(env,session,keys,kind){
+ const statement=resetSessionStatement(env,session,keys,kind);
+ if(statement)await statement.run();
 }
 export async function requireResetSession(env,session,keys,{singlePut=false}={}){
  if(!resetEnabled(env))return;

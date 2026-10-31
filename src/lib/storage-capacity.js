@@ -15,6 +15,10 @@ export class StorageCapacityError extends AdminError {
 }
 export const nowSeconds = () => Math.floor(Date.now() / 1000);
 export const capacityRow = (db) => db.prepare("SELECT * FROM storage_capacity WHERE id=1").first();
+export const capacityAccountingOnly = env => env.STORAGE_CAPACITY_ENFORCEMENT === 'disabled';
+export const uploadCapacityBlocked = (row,accountingOnly=false) => accountingOnly&&row.upload_policy==='observe'
+  ?!!row.anomaly||!Number.isSafeInteger(row.used_bytes+row.reserved_bytes)||row.used_bytes<0||row.reserved_bytes<0
+  :!!row.blocked||row.trusted_until<=nowSeconds()||!!row.anomaly||row.used_bytes+row.reserved_bytes>=STORAGE.stop;
 export async function storageAudit(db, action, target, detail = {}) {
   await db
     .prepare("INSERT INTO storage_audit VALUES(?,?,?,?,?)")
@@ -25,7 +29,7 @@ export async function reserveStorage(env, key, size, claim=null,diagnostic) {
   if(diagnostic)diagnostic.stage='capacity_admission';
   if (!Number.isSafeInteger(size) || size <= 0) throw new StorageCapacityError();
   const id = crypto.randomUUID();
-  const input={id,key,size,createdAt:nowSeconds(),claim};
+  const input={id,key,size,createdAt:nowSeconds(),claim,accountingOnly:capacityAccountingOnly(env)};
   if(env.PRELAUNCH_RESET_FENCE_ENABLED==='true'&&!env.PRELAUNCH_RESET_CONTEXT?.admitStorage)throw new StorageCapacityError();
   // Never label a thrown/unknown D1 ACK as noWrite. A commit may have acquired
   // both records; its durable Reservation/Pin must survive for reconciliation.
@@ -103,7 +107,9 @@ export async function putReservedStorage(env,key,body,options,size,id,diagnostic
     throw new StorageCapacityError();
   }
   if(diagnostic)diagnostic.stage='capacity_evaluation';
-  try{await evaluateCapacity(env.DB);}catch{throw new StorageCapacityError();}
+  // Observation mode retains exact accounting/receipts without adding site
+  // quota alerts or threshold writes to the upload path.
+  if(!capacityAccountingOnly(env))try{await evaluateCapacity(env.DB);}catch{throw new StorageCapacityError();}
   return object;
 }
 export async function evaluateCapacity(db, current = null) {
@@ -128,6 +134,7 @@ export async function evaluateCapacity(db, current = null) {
 export async function inventoryPage(env) {
   const db = env.DB;
   let row = await capacityRow(db);
+  if(row.inventory_dirty)throw new AdminError(409,'STORAGE_INVENTORY_INVALIDATED','盤點期間有寫入，不能發布此快照。');
   if (row.inventory_phase) throw new AdminError(409,"STORAGE_FINALIZATION_REQUIRED","分段盤點須使用原有流程完成。");
   if (env.R2_EXCLUSIVE_WRITER_CONFIRMED !== "true")
     throw new AdminError(
@@ -222,7 +229,7 @@ export async function inventoryPage(env) {
   });
   return { complete: true, bytes: total, anomaly };
 }
-export async function storageSummary(db,{live=false}={}) {
+export async function storageSummary(db,{live=false,accountingOnly=false}={}) {
   const row = await capacityRow(db);
   const history = (
     await db.prepare("SELECT * FROM storage_history ORDER BY created_at DESC LIMIT 20").all()
@@ -234,7 +241,10 @@ export async function storageSummary(db,{live=false}={}) {
     budget: STORAGE,
     used_bytes: row.observed_at===null?null:row.used_bytes,
     reserved_bytes: row.reserved_bytes,
-    blocked: !!row.blocked || row.trusted_until <= nowSeconds() || !!row.anomaly || row.used_bytes+row.reserved_bytes>=STORAGE.stop,
+    blocked: uploadCapacityBlocked(row,accountingOnly),
+    upload_policy: accountingOnly&&row.upload_policy==='observe'?'observe':'enforced',
+    snapshot_stale: row.trusted_until<=nowSeconds(),
+    inventory_invalidated: !!row.inventory_dirty,
     observed_at: row.observed_at,
     trusted_until: row.trusted_until,
     anomaly: row.anomaly,

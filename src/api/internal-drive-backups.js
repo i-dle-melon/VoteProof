@@ -36,13 +36,24 @@ const safeJob = row => { const route = source(row); return { backup_id:row.id,ca
 async function claim(env, _url, request) {
   const v=await readUploadJson(request);exact(v,['request_id','root_folder_id']);if(!UUID_PATTERN.test(v.request_id??''))fail(400,'INVALID_RELAY_REQUEST');idValue(v.root_folder_id);
   const db=env.DB,now=seconds();
+  // Only the genuinely empty path is read-only. Include all existing request
+  // IDs (root/replay checks still apply) and expired exhausted leases. A job
+  // arriving after this read is picked up by the next poll; no lease is lost.
+  const work=await db.prepare(`SELECT b.id,b.status,b.attempts,b.next_attempt_at,b.lease_until,b.root_folder_id
+    FROM (SELECT 1) anchor LEFT JOIN proof_backups b ON b.lease_token=? WHERE b.id IS NOT NULL OR
+    EXISTS(SELECT 1 FROM proof_backups WHERE status='processing' AND lease_until<=? AND attempts>=?) OR
+    EXISTS(SELECT 1 FROM proof_backups WHERE attempts<? AND
+      ((status IN('pending','failed') AND next_attempt_at IS NOT NULL AND next_attempt_at<=?)
+       OR (status='processing' AND lease_until<=?)) AND (root_folder_id IS NULL OR root_folder_id=?))`)
+    .bind(v.request_id,now,MAX_BACKUP_ATTEMPTS,MAX_BACKUP_ATTEMPTS,now,now,v.root_folder_id).first();
+  if(!work)return jsonSuccess({state:'idle'});
   // Bound maintenance to one exhausted lease per tick. Same terminal policy as
   // claimBackupStatement: no ninth attempt, no retry, sanitized INTERNAL fallback.
   await db.prepare(`UPDATE proof_backups SET status='failed',next_attempt_at=NULL,
     lease_token=NULL,lease_until=NULL,last_error_code=coalesce(last_error_code,'INTERNAL'),version=version+1
     WHERE id IN (SELECT id FROM proof_backups WHERE status='processing' AND lease_until<=?
       AND attempts>=? ORDER BY lease_until,id LIMIT 1)`).bind(now,MAX_BACKUP_ATTEMPTS).run();
-  let row=await db.prepare('SELECT id,status,attempts,next_attempt_at,lease_until,root_folder_id FROM proof_backups WHERE lease_token=?').bind(v.request_id).first();
+  let row=work.id?work:null;
   if(row){
     if(row.root_folder_id!==v.root_folder_id)fail(409,'RELAY_ROOT_CONFLICT');
     if(row.status==='confirmed')return jsonSuccess({state:'already_confirmed',backup_id:row.id});

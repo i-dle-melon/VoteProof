@@ -5,20 +5,25 @@ export const capacityAdmissionSQL=`EXISTS(SELECT 1 FROM storage_capacity WHERE i
  AND trusted_until>CAST(strftime('%s','now') AS INTEGER)
  AND used_bytes+reserved_bytes+?<9500000000)`;
 
-export function storageAdmissionStatements(db,{id,key,size,createdAt,claim}){
+export const accountingAdmissionSQL=`EXISTS(SELECT 1 FROM storage_capacity WHERE id=1
+ AND upload_policy='observe' AND anomaly IS NULL AND used_bytes>=0 AND reserved_bytes>=0
+ AND used_bytes+reserved_bytes+?<=9007199254740991)`;
+
+export function storageAdmissionStatements(db,{id,key,size,createdAt,claim,accountingOnly=false}){
+ const admission=accountingOnly?accountingAdmissionSQL:capacityAdmissionSQL;
  if(!claim)return [db.prepare(`INSERT INTO storage_reservations(id,object_key,bytes,state,created_at)
-  SELECT ?,?,?,'reserved',? WHERE ${capacityAdmissionSQL} RETURNING id`).bind(id,key,size,createdAt,size)];
+  SELECT ?,?,?,'reserved',? WHERE ${admission} RETURNING id`).bind(id,key,size,createdAt,size)];
  return [
   db.prepare(`UPDATE proof_upload_intents SET write_token=? WHERE session_id=? AND object_key=? AND size=?
    AND write_token IS NULL AND state IN ('prepared','uploaded')
    AND grant_expires>CAST(strftime('%s','now') AS INTEGER)
-   AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND ${capacityAdmissionSQL}
+   AND expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND ${admission}
    RETURNING session_id`).bind(claim.token,claim.sessionId,key,size,size),
   db.prepare(`INSERT INTO storage_reservations(id,object_key,bytes,state,created_at)
    SELECT ?,?,?,'reserved',? WHERE changes()=1 AND EXISTS(
     SELECT 1 FROM proof_upload_intents WHERE session_id=? AND object_key=? AND write_token=?) RETURNING id`)
    .bind(id,key,size,createdAt,claim.sessionId,key,claim.token),
-  db.prepare(`SELECT ${capacityAdmissionSQL} AS capacity_allowed`).bind(size),
+  db.prepare(`SELECT ${admission} AS capacity_allowed`).bind(size),
  ];
 }
 

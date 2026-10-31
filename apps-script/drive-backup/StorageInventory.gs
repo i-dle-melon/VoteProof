@@ -4,6 +4,9 @@
 // runBackup's ScriptLock, so listing capacity does not skip a backup execution.
 var VP_STORAGE_INVENTORY_MAX_PAGES = 50;
 var VP_STORAGE_INVENTORY_MAX_MS = 60000;
+function vpInventoryPaused_() {
+  return PropertiesService.getScriptProperties().getProperty('VOTEPROOF_INVENTORY_PAUSED') === 'true';
+}
 
 function vpInventoryConfig_() {
   var p = PropertiesService.getScriptProperties();
@@ -52,6 +55,10 @@ function vpInventoryResult_(state, pages, code, quota) {
 }
 
 function runStorageInventory() {
+  // Soft pause: preserve the trigger, source, credentials and runBackup. No
+  // quota, Worker or Drive request is made while paused.
+  if (vpInventoryPaused_())
+    return {state:'paused',pages:0};
   var lock = LockService.getUserLock();
   if (!lock.tryLock(1)) return vpInventoryResult_('overlap_skipped', 0);
   var pages = 0, started = Date.now(), quota = null;
@@ -61,6 +68,7 @@ function runStorageInventory() {
     started = Date.now(); // Quota latency does not consume the R2 paging budget.
     while (pages < VP_STORAGE_INVENTORY_MAX_PAGES &&
       Date.now() - started < VP_STORAGE_INVENTORY_MAX_MS) {
+      if (vpInventoryPaused_()) return {state:'paused',pages:pages};
       // Never fall back to {}: older Workers must reject this unsupported mode.
       // Cursor/pin remain authoritative in D1, including after lost responses.
       var result = vpJson_(c, '/api/internal/drive-backup/storage/tick', {inventory_only:true});
@@ -71,6 +79,7 @@ function runStorageInventory() {
         ['scan','finalize'].indexOf(result.inventory.phase) >= 0, 'INVENTORY_RESPONSE_INVALID');
       pages++;
       if (result.inventory.phase === 'finalize') {
+        if (vpInventoryPaused_()) return {state:'paused',pages:pages};
         if (Date.now() - started >= VP_STORAGE_INVENTORY_MAX_MS) break;
         var id = result.inventory.inventory_id, version = result.inventory.inventory_version;
         vpCheck_(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id || '') &&
@@ -101,6 +110,15 @@ function runStorageInventory() {
       ? String(e.message) : vpFailure_(e);
     return vpInventoryResult_('failed', pages, code, quota);
   } finally { lock.releaseLock(); }
+}
+
+function pauseStorageInventory() {
+  PropertiesService.getScriptProperties().setProperty('VOTEPROOF_INVENTORY_PAUSED','true');
+  return {state:'paused'};
+}
+function resumeStorageInventory() {
+  PropertiesService.getScriptProperties().deleteProperty('VOTEPROOF_INVENTORY_PAUSED');
+  return {state:'enabled'};
 }
 
 function installStorageInventoryTrigger() {

@@ -11,14 +11,22 @@ async function fixture(page, options = {}) {
   const boards = options.boards ?? [{ leaderboard_id: "system-history", name: "公開榜", generated_at: new Date().toISOString(),
     rankings: [{ rank: 7, nickname: options.nickname ?? "測試粉絲", points: 10, proof_count: 2, player_id: "not-for-display", email: "not-for-display" }] },
   { leaderboard_id: "LOCAL-EMPTY", name: "尚無成績的榜", generated_at: new Date().toISOString(), rankings: [] }];
-  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, grantRejects:0,putPending:false,uploadStates:new Map(),prepareSessions:[],batchTickets:new Map(), failBoards: 0 };
+  const state = { calls: [], puts: [], receipts: new Map(), query, caseId, failCase: 0, failLookup: 0, delayCase: false, prepareReject: false, putFailures: 0, grantRejects:0,putPending:false,uploadStates:new Map(),prepareSessions:[],prepareRequests:[],rejectedGrantSessions:[],batchTickets:new Map(), failBoards: 0 };
+  // Controlled response latches, never timing sleeps: both initial lanes must
+  // prepare before the chosen image receives the first PUT authorization.
+  let releasePrepared,releaseRejected;
+  const preparedPair=new Promise(resolve=>releasePrepared=resolve),firstRejected=new Promise(resolve=>releaseRejected=resolve),preparedSlots=new Set();
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let widget,issued=0;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}+'-'+(++issued)));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}+'-'+(++issued)));}};` }));
   await page.route("**/api/**", async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     if(path.startsWith('/api/uploads/put/')){
-      state.puts.push({method:request.method(),type:request.headers()['content-type'],bytes:request.postDataBuffer()?.length});expect(request.headers()['x-upload-grant']).toMatch(/^[A-Za-z0-9_-]{40,2048}$/);
-      if(state.grantRejects-->0)return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'UPLOAD_GRANT_INVALID',message:'Synthetic expired grant'}})});
+      const session=path.split('/')[4],prepared=state.prepareRequests.find(p=>p.session===session);
+      state.puts.push({session,slot:prepared?.slot,method:request.method(),type:request.headers()['content-type'],bytes:request.postDataBuffer()?.length});expect(request.headers()['x-upload-grant']).toMatch(/^[A-Za-z0-9_-]{40,2048}$/);
+      if(state.grantRejects-->0){
+        state.rejectedGrantSessions.push(session);releaseRejected();
+        return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'UPLOAD_GRANT_INVALID',message:'Synthetic expired grant'}})});
+      }
       state.uploadStates.get(path.split('/')[4]).present=!state.putPending;
       // Abort models a lost response after server admission; Complete below is
       // authoritative about whether bytes are available, never a blind success.
@@ -42,7 +50,7 @@ async function fixture(page, options = {}) {
     }
     if(path==='/api/uploads/batch/authorize'){
       if(state.prepareReject)return error('TURNSTILE_INVALID',403);
-      return reply({tickets:body.files.map(()=>{const ticket=randomBytes(48).toString('base64url');state.batchTickets.set(ticket,{session:randomUUID(),proof:randomUUID()});return ticket;}),expires_in:300});
+      return reply({tickets:body.files.map((_,slot)=>{const ticket=randomBytes(48).toString('base64url');state.batchTickets.set(ticket,{session:randomUUID(),proof:randomUUID(),slot});return ticket;}),expires_in:300});
     }
     if (path === "/api/uploads/prepare") {
       if (state.prepareReject) return error("TURNSTILE_INVALID", 403);
@@ -50,6 +58,12 @@ async function fixture(page, options = {}) {
       if(body.batch_ticket&&!bound)return error('BATCH_AUTH_INVALID',403);
       const session_id = bound?.session??randomUUID(),proof_id=bound?.proof??randomUUID();
       state.prepareSessions.push(session_id);state.uploadStates.set(session_id,{present:false});
+      state.prepareRequests.push({session:session_id,proof:proof_id,slot:bound?.slot,ticket:body.batch_ticket,files:body.files});
+      if(options.firstPutSlot!==undefined&&bound?.slot<2){
+        preparedSlots.add(bound.slot);if(preparedSlots.size===2)releasePrepared();
+        await preparedPair;
+        if(bound.slot!==options.firstPutSlot)await firstRejected;
+      }
       return reply({ session_id, expires_in: 300, uploads: body.files.map((file) => ({
         key: `proofs/staging/${today().replaceAll("-", "/")}/${session_id}/${proof_id}.png`, method: "PUT",
         upload_url: `http://127.0.0.1:4173/api/uploads/put/${session_id}/${proof_id}`,
@@ -350,17 +364,44 @@ test("PUT network retry preserves images and verifies original bytes without res
   const reference=JSON.parse(complete.body);expect(reference.session_id).toBe(state.prepareSessions[0]);expect(JSON.parse(created.body).upload_session).toEqual(reference);expect(state.receipts.size).toBe(1);
 });
 
-test('known rejected Grant renews only failed batch item and keeps successful Cases',async({page})=>{
- const state=await fixture(page);state.grantRejects=1;await form(page,3);await page.locator('#submit-button').click();
+for(const firstPutSlot of [0,1])test('known rejected Grant renews only failed batch item and keeps successful Cases: image '+(firstPutSlot+1)+' PUT arrives first',async({page})=>{
+ const state=await fixture(page,{firstPutSlot});state.grantRejects=1;await form(page,3);
+ // Observe real local-only key generation without changing randomness, values
+ // or the application. A failed item has no Case POST yet, so its original
+ // idempotency key must be captured before the first upload attempt.
+ await page.evaluate(()=>{
+   const original=crypto.getRandomValues.bind(crypto);globalThis.__grantRetryKeys=[];
+   crypto.getRandomValues=array=>{const result=original(array);if(array instanceof Uint8Array&&array.length===32)globalThis.__grantRetryKeys.push(Array.from(array,b=>b.toString(16).padStart(2,'0')).join(''));return result;};
+ });
+ await page.locator('#submit-button').click();
  await expect(page.locator('#batch-summary')).toHaveText('共 3 張 · 已送出 2 · 未成功 1 · 等待 0');
  expect(state.calls.filter(c=>c.path==='/api/cases').length).toBe(2);expect(state.receipts.size).toBe(2);const successfulKeys=[...state.receipts.keys()];
+ expect(state.rejectedGrantSessions).toHaveLength(1);const rejected=state.rejectedGrantSessions[0];
+ expect(state.puts[0].session).toBe(rejected);expect(state.puts[0].slot).toBe(firstPutSlot);
+ expect([...state.batchTickets.values()].find(t=>t.slot===firstPutSlot).session).toBe(rejected);
+ const original=state.prepareRequests.find(p=>p.session===rejected),keysBefore=await page.evaluate(()=>globalThis.__grantRetryKeys.slice());
+ expect(keysBefore).toHaveLength(3);expect(new Set(keysBefore).size).toBe(3);expect(state.batchTickets.size).toBe(3);
+ expect(state.prepareRequests).toHaveLength(3);expect(new Set(state.prepareSessions).size).toBe(3);expect(new Set(state.prepareRequests.map(p=>p.ticket)).size).toBe(3);
+ const successfulSessions=state.calls.filter(c=>c.path==='/api/cases').map(c=>JSON.parse(c.body).upload_session.session_id);
+ expect(successfulSessions).not.toContain(rejected);
+ expect(state.calls.filter(c=>c.path.endsWith('/complete')&&JSON.parse(c.body).session_id===rejected)).toHaveLength(0);
  await expect(page.locator('#image-list .image-item')).toHaveCount(3);await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();
- expect(state.prepareSessions.length).toBe(4);expect(state.puts.length).toBe(4);expect(state.prepareSessions[0]).toBe(state.prepareSessions[3]);expect(state.receipts.size).toBe(3);
+ expect(state.prepareSessions.length).toBe(4);expect(state.puts.length).toBe(4);expect(state.prepareSessions[3]).toBe(rejected);expect(state.receipts.size).toBe(3);
+ expect(new Set(state.prepareSessions).size).toBe(3);expect(state.puts.filter(p=>p.session===rejected)).toHaveLength(2);
+ for(const session of successfulSessions){expect(state.puts.filter(p=>p.session===session)).toHaveLength(1);expect(state.prepareRequests.filter(p=>p.session===session)).toHaveLength(1);}
  for(const key of successfulKeys)expect(state.calls.filter(c=>c.path==='/api/cases'&&c.idempotency===key).length).toBe(1);
  expect(JSON.parse(state.calls.filter(c=>c.path==='/api/cases').at(-1).body).upload_session.session_id).toBe(state.prepareSessions[3]);
  // An unexpired batch ticket recovers its fixed never-written intent, rather
  // than minting a new identity. Only the successful retry may create its Case.
- expect(state.calls.filter(c=>c.path==='/api/cases'&&JSON.parse(c.body).upload_session.session_id===state.prepareSessions[0])).toHaveLength(1);
+ const retried=state.prepareRequests[3];expect(retried.proof).toBe(original.proof);expect(retried.ticket===original.ticket).toBe(true);expect(retried.files).toEqual(original.files);
+ expect(state.calls.filter(c=>c.path==='/api/cases'&&JSON.parse(c.body).upload_session.session_id===rejected)).toHaveLength(1);
+ expect(state.calls.filter(c=>c.path==='/api/uploads/batch/authorize')).toHaveLength(1);
+ for(const c of state.calls.filter(c=>c.path==='/api/cases')){
+   const session=JSON.parse(c.body).upload_session.session_id,prepared=state.prepareRequests.find(p=>p.session===session);
+   expect(c.idempotency===keysBefore[prepared.slot],'Case keeps its own original image key; tickets cannot cross image slots').toBe(true);
+ }
+ const keysAfter=await page.evaluate(()=>globalThis.__grantRetryKeys.slice());expect(keysAfter.length).toBe(3);expect(keysAfter.every((k,i)=>k===keysBefore[i])).toBe(true);
+ console.log(JSON.stringify({evidence:'controlled-grant-retry',first_put_image:firstPutSlot+1,prepare_order:state.prepareRequests.map(p=>p.slot+1),put_order:state.puts.map(p=>p.slot+1),actual_rejected_image:original.slot+1,retried_image:retried.slot+1,same_session:rejected===retried.session,same_proof:original.proof===retried.proof,same_ticket:original.ticket===retried.ticket,idempotency_stable:keysAfter.every((k,i)=>k===keysBefore[i]),successful_cases_preserved:true,old_first_prepare_assumption_matches:state.prepareSessions[0]===retried.session}));
 });
 
 test('unknown pending PUT keeps original Intent through missing Complete and late completion',async({page})=>{

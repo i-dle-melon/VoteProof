@@ -6,6 +6,12 @@ async function fixture(page, options = {}) {
   const member = await memberFixture(page, { authenticated: true, ...options });
   const sessions = new Map(), receipts = new Map(), puts = [], posts = [], prepares = [],capabilities=[],authorizations=[];
   let failedPut = false, lostCase = false;
+  let releaseIdentityChange;
+  const identityChanged = new Promise(resolve => { releaseIdentityChange = resolve; });
+  const changeIdentity = () => {
+    member.member = { ...member.member, member_id: "M-" + randomUUID() };
+    releaseIdentityChange();
+  };
   const reply = (route, data) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data }) });
   await page.route('**/api/uploads/batch/authorize',route=>{
     const body=route.request().postDataJSON();authorizations.push({body,headers:route.request().headers()});
@@ -28,6 +34,8 @@ async function fixture(page, options = {}) {
         body:JSON.stringify({ok:false,error:{code:'R2_STORAGE_INVENTORY_BUSY'}})});return;
     }
     if (options.partial && index === 1 && !failedPut) { failedPut = true; await route.abort(); return; }
+    // Admission/PUT is not permission to create a Case after an identity switch.
+    if (options.switchIdentity === 'before_second_put_ack' && index === 1) await identityChanged;
     if(options.putWait)await options.putWait;
     await route.fulfill({ headers: { "Access-Control-Allow-Origin": "*" }, body: "" });
   });
@@ -38,10 +46,15 @@ async function fixture(page, options = {}) {
     if (!receipts.has(key)) receipts.set(key, { case_id: "VP-20261012-" + "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[index].repeat(16),
       query_key: randomBytes(32).toString("base64url"), status: "pending" });
     if (options.partial && index === 2 && !lostCase) { lostCase = true; await route.abort(); return; }
-    if (options.switchIdentity && index === 0) member.member = { ...member.member, member_id: "M-" + randomUUID() };
+    if (options.switchIdentity === 'after_two_cases') {
+      // Both requests must have passed their own member check before changing
+      // identity. Do not infer that boundary from the first request's arrival.
+      if (posts.length === 2) changeIdentity();
+      await identityChanged;
+    } else if (options.switchIdentity === 'before_second_put_ack' && index === 0) changeIdentity();
     await reply(route, receipts.get(key));
   });
-  return { member, prepares, receipts, puts, posts,capabilities,authorizations };
+  return { member, prepares, receipts, puts, posts,capabilities,authorizations,sessions };
 }
 async function form(page, count = 20) {
   await page.goto("/#submit"); await expect(page.locator("#submission-fields")).toBeEnabled();
@@ -226,12 +239,39 @@ test("fresh OFF blocks all 20 selected images without any upload or new case", a
   expect(state.prepares).toEqual([]); expect(state.puts).toEqual([]); expect(state.posts).toEqual([]);
 });
 
-test("account change stops new lanes while retaining the two already admitted member proofs", async ({ page }) => {
-  const state = await fixture(page, { switchIdentity: true }); await form(page, 3); await page.locator("#submit-button").click();
+test("account change after two Case checks retains both receipts and stops new lanes", async ({ page }) => {
+  const state = await fixture(page, { switchIdentity: 'after_two_cases' }); await form(page, 3); await page.locator("#submit-button").click();
   await expect(page.locator("#retry-note")).toBeVisible();
   await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 2 · 未成功 1 · 等待 0");
-  expect(state.prepares.length).toBe(2); expect(state.posts.length).toBe(2);
+  expect(state.prepares).toHaveLength(2); expect(state.posts).toHaveLength(2);
+  expect([...state.puts].sort()).toEqual([0, 1]);
+  expect(state.receipts.size).toBe(2); expect(new Set(state.posts.map(p=>p.key)).size).toBe(2);
+  expect(new Set(state.posts.map(p=>p.body.upload_session.session_id)).size).toBe(2);
+  expect(state.posts.every(p=>state.sessions.has(p.body.upload_session.session_id) &&
+    p.body.upload_session.keys.length===1 && p.body.upload_session.keys[0].startsWith(`proofs/final/${p.body.upload_session.session_id}/`))).toBe(true);
+  expect(state.authorizations).toHaveLength(1);
+  expect(state.prepares.every(p=>p.batch_ticket&&!Object.hasOwn(p,'turnstile_token'))).toBe(true);
+  expect(new Set(state.prepares.map(p=>p.batch_ticket)).size).toBe(2);
+  await expect(page.locator('#batch-items .credentials')).toHaveCount(2);
   expect(state.posts.every(p=>p.headers['x-csrf-token']===state.member.csrf)).toBe(true);
+});
+
+test('account change before second PUT ACK retains one receipt and blocks the second Case',async({page})=>{
+  const state=await fixture(page,{switchIdentity:'before_second_put_ack'});await form(page,3);await page.locator('#submit-button').click();
+  await expect(page.locator('#retry-note')).toBeVisible();
+  await expect(page.locator('#batch-summary')).toHaveText('共 3 張 · 已送出 1 · 未成功 2 · 等待 0');
+  expect(state.prepares).toHaveLength(2);expect([...state.puts].sort()).toEqual([0,1]);
+  expect(state.posts).toHaveLength(1);expect(state.receipts.size).toBe(1);
+  const post=state.posts[0];expect(state.sessions.get(post.body.upload_session.session_id)).toBe(0);
+  expect(post.body.upload_session.keys).toHaveLength(1);
+  expect(post.body.upload_session.keys[0]).toMatch(new RegExp(`^proofs/final/${post.body.upload_session.session_id}/`));
+  expect(post.key).toMatch(/^[0-9a-f]{64}$/);expect(state.receipts.has(post.key)).toBe(true);
+  expect(post.headers['x-csrf-token']).toBe(state.member.csrf);
+  expect(state.authorizations).toHaveLength(1);expect(new Set(state.prepares.map(p=>p.batch_ticket)).size).toBe(2);
+  expect(state.prepares.every(p=>p.batch_ticket&&!Object.hasOwn(p,'turnstile_token'))).toBe(true);
+  await expect(page.locator('#batch-items .credentials')).toHaveCount(1);
+  await expect(page.locator('#image-list .image-item')).toHaveCount(3);
+  await expect(page.locator('#submission-error')).toContainText('登入身份已改變');
 });
 
 test("one interactive challenge authorizes the batch without reusing the consumed token", async ({ page }) => {

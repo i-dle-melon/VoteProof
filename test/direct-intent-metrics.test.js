@@ -152,9 +152,16 @@ test("measured member/guest costs separate atomic admission and Reset Fence OFF/
         );
         // Same-fixture offline baseline measured both modes independently.
         const previous=fenced?(direct?(member?[59,41]:[56,38]):member?[81,55]:[77,51]):direct?(member?[19,17]:[16,14]):member?[30,22]:[26,18];
+        // Fenced Prepare now commits issuance + Intent under one permit pair:
+        // two 3-statement batches become one 4-statement batch. Unfenced
+        // Prepare still has no issuance/permit, so its cost does not change.
+        const prepareSavings=fenced?[2,1]:[0,0]; // SQL statements / D1 trips, not Rows Written.
+        assert.deepEqual(stages.prepare.batches,fenced?[{
+          statements:4,kinds:['fence_permit','other','other','fence_exit'],
+        }]:[],'Prepare must preserve the single atomic issuance/Intent batch');
         assert.deepEqual(
           [total.statements, total.trips],
-          [previous[0]+admission[0].statements-(fenced?6:2),previous[1]+admission.length-2],
+          [previous[0]+admission[0].statements-(fenced?6:2)-prepareSavings[0],previous[1]+admission.length-2-prepareSavings[1]],
         );
         results.push({
           flow: direct ? "direct" : "legacy-v2",
@@ -177,6 +184,7 @@ test("measured member/guest costs separate atomic admission and Reset Fence OFF/
       }
   } finally {await l.runtime.dispose();}
  }
+    assert.equal(results.length,8,'Both Fence modes, flows and identities must be measured');
     await mkdir(".wrangler/direct-intent-poc", { recursive: true });
     await writeFile(
       ".wrangler/direct-intent-poc/metrics.json",

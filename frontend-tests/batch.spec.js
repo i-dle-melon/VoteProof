@@ -50,6 +50,48 @@ async function form(page, count = 20) {
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
 }
 
+test('UAT mobile: active batch progress and case counts are actually inside the viewport',async({page},info)=>{
+  let release;const putWait=new Promise(r=>release=r);const state=await fixture(page,{putWait});
+  await page.setViewportSize({width:390,height:844});
+  try {
+    await form(page,20);await page.locator('#submit-button').click();
+    await expect.poll(()=>state.puts.length).toBe(2);
+    await expect(page.locator('#batch-counts')).toContainText('已成功建立 0 / 20 個案件');
+    await page.screenshot({path:`.wrangler/frontend-previews/uat-visible-${info.project.name}.png`});
+    await expect(page.locator('#progress-label')).toBeInViewport();
+    await expect(page.locator('#batch-counts')).toBeInViewport();
+    expect(state.authorizations).toHaveLength(1);
+    expect(state.prepares.every(x=>x.batch_ticket&&!Object.hasOwn(x,'turnstile_token'))).toBe(true);
+  } finally {release();}
+});
+
+for(const authenticated of [false,true])test(`UAT shared verification: ${authenticated?'member':'guest'} 20-image UI shows human verification only once`,async({page},info)=>{
+  let authorizeRelease,putRelease;
+  const authorizeWait=new Promise(r=>authorizeRelease=r),putWait=new Promise(r=>putRelease=r);
+  const state=await fixture(page,{authenticated,putWait});
+  await page.route('**/api/uploads/batch/authorize',async route=>{await authorizeWait;await route.fallback();});
+  try {
+    await form(page,20);
+    await page.locator('#progress-label').evaluate(label=>{
+      globalThis.__uatVerificationLabels=[];
+      new MutationObserver(()=>{if(label.textContent.includes('人機驗證'))globalThis.__uatVerificationLabels.push(label.textContent);}).observe(label,{childList:true});
+    });
+    await page.locator('#submit-button').click();
+    await expect(page.locator('#progress-label')).toHaveText('正在確認人機驗證（本批共用一次）…');
+    await expect(page.locator('#batch-items')).not.toContainText('人機驗證');
+    expect(state.prepares).toHaveLength(0);expect(state.puts).toHaveLength(0);
+    authorizeRelease();await expect.poll(()=>state.puts.length).toBe(2);
+    await expect(page.locator('#progress-label')).not.toContainText('人機驗證');
+    await expect(page.locator('#batch-items')).not.toContainText('人機驗證');
+    await page.screenshot({path:`.wrangler/frontend-previews/uat-shared-${authenticated?'member':'guest'}-${info.project.name}.png`});
+    putRelease();await expect(page.locator('#submission-success')).toBeVisible();
+    expect(state.authorizations).toHaveLength(1);expect(state.prepares).toHaveLength(20);
+    expect(state.prepares.every(x=>x.batch_ticket&&!Object.hasOwn(x,'turnstile_token'))).toBe(true);
+    expect(state.posts).toHaveLength(20);expect(state.receipts.size).toBe(20);
+    expect(await page.evaluate(()=>globalThis.__uatVerificationLabels)).toEqual(['正在確認人機驗證（本批共用一次）…']);
+  } finally {authorizeRelease();putRelease();}
+});
+
 test("20-image member batch creates 20 independent cases, status/receipts and mobile layouts", async ({ page }, testInfo) => {
   const state = await fixture(page); const errors = []; page.on("pageerror", error => errors.push(error.message));
   await form(page); await expect(page.locator("#submission-mode")).toHaveValue("member");

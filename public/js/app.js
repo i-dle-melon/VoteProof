@@ -65,12 +65,13 @@ put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putI
   assertSubmissionOpen(); return token;
 }, progress: renderSubmissionProgress });
 function renderSubmissionProgress(state) {
-  const labels = { verify: "確認人機驗證…", prepare: "準備安全上傳…", capacity_wait: "背景容量盤點中，安全等待後繼續…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
+  const labels = { verify: "正在確認人機驗證…", batch_verify: "正在確認人機驗證（本批共用一次）…", prepare: "準備安全上傳…", capacity_wait: "背景容量盤點中，安全等待後繼續…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
     complete: "正在確認圖片…", case: "正在建立案件，請勿關閉分頁…" };
   $("upload-progress").hidden = false;
   $("progress").value = Math.round(state.fraction * 100);
   const waiting=submission.summary.items.some(i=>i.status==='capacity_wait');
-  $("progress-label").textContent = `圖片 ${state.file}／${state.count} · ${waiting?labels.capacity_wait:labels[state.phase]}`;
+  $("progress-label").textContent = state.phase==='batch_verify' ? labels.batch_verify :
+    `圖片 ${state.file}／${state.count} · ${waiting?labels.capacity_wait:labels[state.phase]}`;
 }
 let admin;
 const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
@@ -293,7 +294,7 @@ $("campaign").addEventListener("change", campaignHint);
 $("campaign-refresh").addEventListener("click", () => { void loadCampaigns(); });
 
 function renderBatch(summary) {
-  const labels = { queued: "等待上傳", verify: "等待人機驗證", prepare: "準備上傳", put: "正在上傳",
+  const labels = { queued: "等待上傳", verify: "等待本批上傳授權", prepare: "準備上傳", put: "正在上傳",
     complete: "圖片傳輸完成 · 正在確認圖片", case: "正在建立案件", success: "投稿成功 · 等待人工審核",
     capacity_wait: "背景容量盤點中，正在等待恢復上傳。", failed: "投稿失敗", unknown: "⚠ 結果待確認，不會直接重新傳送圖片" };
   $("batch-results").hidden = summary.total === 0;

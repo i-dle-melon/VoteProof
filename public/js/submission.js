@@ -134,7 +134,9 @@ export class Submission {
       c.prepared = null; c.uploaded.clear();
     }
     if (!c.prepared) {
-      this.progress({ phase: "verify", fraction: 0 });
+      // A batch ticket already proves this image's shared verification. Only
+      // requesting an actual new challenge may display a verification phase.
+      if (!c.batchTicket) this.progress({ phase: "verify", fraction: 0 });
       const token = c.batchTicket ? null : await this.token();
       if (!c.batchTicket && !token) throw new PublicError("TURNSTILE_REQUIRED");
       this.progress({ phase: "prepare", fraction: 0 });
@@ -332,6 +334,7 @@ export class BatchSubmission {
       for(const item of needs)item.status='verify';this.changed(this.summary);
       const files=[];
       for(const item of needs)files.push(await item.flow.batchFile());
+      this.progress({phase:'batch_verify',count:this.#items.length,fraction:this.summary.fraction});
       const challenge=await this.dependencies.token();
       if(!challenge)throw new PublicError('TURNSTILE_REQUIRED');
       await this.#checkGate();

@@ -127,6 +127,9 @@ test('one mobile click waits for delayed verification; focus/Gate refresh and du
  await page.goto('/#submit');await expect(page.locator('#submission-fields')).toBeEnabled();
  await page.locator('#proof-images').setInputFiles([{name:'one.png',mimeType:'image/png',buffer:png}]);
  await page.locator('#submit-button').click();await expect(page.locator('#submit-button')).toBeDisabled();
+ // Disabled also covers the pre-submit Gate check. Resolve the synthetic
+ // challenge only after the actual verification waiter has been registered.
+ await expect(page.locator('#challenge-status')).toHaveText('請完成人機驗證，批次投稿會接著繼續。');
  await page.locator('#submission-form').evaluate(form=>{form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));window.dispatchEvent(new Event('focus'));});
  expect(state.prepares).toHaveLength(0);await page.evaluate(()=>globalThis.__verify());
  await expect(page.locator('#submission-success')).toBeVisible();expect(state.puts).toHaveLength(1);expect(state.posts).toHaveLength(1);expect(await page.evaluate(()=>globalThis.__resets)).toBe(0);

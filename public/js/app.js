@@ -50,6 +50,7 @@ $("vote-date").addEventListener("input", () => { voteDateEdited = true; });
 const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-status").textContent = text; });
 const batchRows = new Map();
 let inventoryCountdown = null;
+let submissionProgressRevealed = false;
 const submission = new BatchSubmission({ directIntent:()=>submissionFlow==='direct'||directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
 changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
@@ -72,6 +73,13 @@ function renderSubmissionProgress(state) {
   const waiting=submission.summary.items.some(i=>i.status==='capacity_wait');
   $("progress-label").textContent = state.phase==='batch_verify' ? labels.batch_verify :
     `圖片 ${state.file}／${state.count} · ${waiting?labels.capacity_wait:labels[state.phase]}`;
+  // Reveal progress once after verification, without moving the challenge
+  // away while the visitor still needs it or scrolling on every PUT update.
+  if (state.phase==='prepare'&&!submissionProgressRevealed) {
+    submissionProgressRevealed = true;
+    $("upload-progress").scrollIntoView({block:'start'});
+    window.scrollBy(0,-((document.querySelector('.topbar')?.getBoundingClientRect().height??0)+12));
+  }
 }
 let admin;
 const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => campaigns.find(c => c.campaign_id === id)?.name ?? "活動資訊目前無法取得", changed: (identity) => {
@@ -393,6 +401,7 @@ $("submission-form").addEventListener("submit", async (event) => {
     try {
       const sender = member.session.member ? member.session.caseSender() : null;
       submissionIdentityCheck = sender ? sender.verify : async () => {};
+      submissionProgressRevealed = false;
       submission.start(Object.fromEntries(new FormData($("submission-form"))), images.map((i) => i.file),
         { caseApi: sender ? async (path, options) => { await gateRequest; assertSubmissionOpen(); return sender(path, options); } : undefined });
     }

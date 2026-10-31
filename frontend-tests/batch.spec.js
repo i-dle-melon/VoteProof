@@ -245,3 +245,10 @@ test("one interactive challenge authorizes the batch without reusing the consume
   expect(state.prepares).toHaveLength(2);expect(state.posts).toHaveLength(2);
   expect(state.prepares.every(body=>!Object.hasOwn(body,'turnstile_token')&&typeof body.batch_ticket==='string')).toBe(true);
 });
+test('classified duplicate and pending-hint receipts are not mislabeled as ordinary pending results',async({page})=>{
+ const state=await fixture(page);const seen=new Map();
+ await page.route(/\/api\/cases(?:\/direct)?$/,async route=>{const body=route.request().postDataJSON(),key=route.request().headers()['idempotency-key'];if(!seen.has(key)){const i=seen.size;seen.set(key,{case_id:'VP-20261031-'+('ABCDEFGH'[i]).repeat(16),query_key:randomBytes(32).toString('base64url'),status:i===0?'duplicate':'pending',exact_classification:{decision:i===0?'exact_duplicate':'pending_match'}});}return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data:seen.get(key)})});});
+ await form(page,2);await page.locator('#submit-button').click();await expect(page.locator('#batch-title')).toHaveText('本次投稿全部完成');
+ await expect(page.locator('#batch-items')).toContainText('相同檔案已歸類重複，不重複計分');await expect(page.locator('#batch-items')).toContainText('疑似重複，等待人工審核');
+ expect(seen.size).toBe(2);expect(state.authorizations).toHaveLength(1);await page.locator('#batch-items').scrollIntoViewIfNeeded();await page.screenshot({path:'.wrangler/frontend-previews/exact-classification-batch-'+test.info().project.name+'.png'});
+});

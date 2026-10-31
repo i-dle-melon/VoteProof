@@ -9,6 +9,7 @@ import { adminPage, readReviewJson, UUID_PATTERN } from "./admin-validation.js";
 import { adminCases, adminCase, adminFiles, applyReview, auditLogs } from "../lib/admin-store.js";
 import { allowedMime, UPLOAD_LIMITS } from "./upload-validation.js";
 import { adminExactEvidence } from '../lib/proof-exact-hash.js';
+import {exactClassificationEnabled,requireExactPolicy,exactDecision} from '../lib/case-exact-classification.js';
 import { auditSummary, auditDetail } from '../lib/admin-audit.js';
 
 const pathCaseId = url => {
@@ -45,7 +46,11 @@ export const getAdminOverview = adminHandler(async (env, url, request) => {
 export const getAdminCase = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const db = authDatabase(env), { id, upload_intent_id, ...row } = await requireCase(db, url);
-  return jsonSuccess({ ...row, files: await adminFiles(db, id), duplicate_evidence:upload_intent_id?null:await adminExactEvidence(db,id) });
+  let classification=null;
+  if(upload_intent_id&&exactClassificationEnabled(env)){await requireExactPolicy(env);classification=await exactDecision(db,id);}
+  return jsonSuccess({ ...row, files: await adminFiles(db, id), duplicate_evidence:upload_intent_id
+    ?classification?{policy:'automatic_exact_v1',hash_state:'verified',classification}:null
+    :await adminExactEvidence(db,id) });
 });
 export const reviewAdminCase = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env);

@@ -14,6 +14,7 @@ import { SubmissionError } from "../lib/submission-gate.js";
 import { ensureCaseBackups } from "../lib/proof-backup-store.js";
 import { directCasePreflight, directProofFile, insertDirectCase } from '../lib/direct-intent-case.js';
 import {requireResetSession} from '../lib/prelaunch-reset-fence.js';
+import {exactClassificationEnabled,requireExactPolicy,exactSubmissionResult} from '../lib/case-exact-classification.js';
 
 const errorResponse = error => error instanceof CaseError || error instanceof AuthError || error instanceof SubmissionError
   ? jsonError(error.status, error.code, error.message)
@@ -43,7 +44,9 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
     identity = await requestIdempotency(request, input, env);
     if (direct && !identity) throw new CaseError(400, 'INVALID_IDEMPOTENCY_KEY', 'Idempotency-Key is required');
     db = caseDatabase(env);
-    const replay = await replayCase(db, identity);
+    input.exactClassification=Boolean(direct&&input.memberId&&exactClassificationEnabled(env));
+    if(input.exactClassification)await requireExactPolicy(env);
+    const replay = await replayCase(db, identity,input.exactClassification);
     if (replay) return jsonSuccess(replay, "no-store", 201);
     if (member) { input.nickname = member.nickname; input.playerId = member.player_id ?? "尚未設定"; } else {input.nickname="匿名投稿";input.playerId="匿名投稿";}
     if(!direct && finalReference(input.keys)) {
@@ -71,7 +74,8 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
     committed = true;
     await ensureCaseBackups(env, id, files);
     if(!direct && !completed.intent)await cleanPrivateCopies(env.PROOFS_BUCKET, completed.files.map(file => file.key));
-    return jsonSuccess({ case_id: caseId, query_key: queryKey, status: "pending" }, "no-store", 201);
+    return jsonSuccess({ case_id: caseId, query_key: queryKey,
+      ...(input.exactClassification?record.exactResult??await exactSubmissionResult(db,id):{status:'pending'}) }, "no-store", 201);
   } catch (error) {
     if (!committed && !error?.preserveArchives && cleanupKeys.length) await cleanPrivateCopies(env.PROOFS_BUCKET, cleanupKeys);
     if(error instanceof StorageCapacityError)return jsonError(error.status,error.code,error.message);
@@ -80,7 +84,7 @@ export async function createCase(env, _url, request, { direct = false } = {}) {
     // Resolve its persistent response even when it already removed staging data.
     if (db && identity) {
       try {
-        const replay = await replayCase(db, identity);
+        const replay = await replayCase(db, identity,input?.exactClassification);
         if (replay) return jsonSuccess(replay, "no-store", 201);
       } catch (replayError) {
         if (replayError instanceof CaseError) return errorResponse(replayError);

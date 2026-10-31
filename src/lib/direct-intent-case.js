@@ -3,8 +3,9 @@ import { validUploadedObject } from "../api/upload-validation.js";
 import { requireSubmissionRow } from "./submission-gate.js";
 import { requireCaseCampaignRow } from "./campaign-policy.js";
 import { r2VerifiedSha256 } from "./r2-verified-checksum.js";
+import {exactDecisionStatement,exactSubmissionResult,exactSubmissionResponse} from './case-exact-classification.js';
 
-// No completed-upload, manifest or image-analysis tables on this path.
+// No completed-upload or image-processing jobs; optional classification reads verified metadata only.
 export const DIRECT_CASE_POLICY_SQL = `SELECT s.submissions_enabled,s.submissions_message,
   p.campaign_id,p.category,p.solo_target,p.status,p.start_at,p.end_at,p.vote_start_date,p.vote_end_date,p.version,
   i.session_id,i.proof_id,i.object_key,i.campaign_id intent_campaign_id,i.member_id intent_member_id,
@@ -65,6 +66,7 @@ export async function directProofFile(bucket, intent) {
     size: object.size,
     type: intent.content_type,
     etag: object.etag,
+    sha256: r2VerifiedSha256(object),
   };
 }
 
@@ -72,11 +74,16 @@ export async function insertDirectCase(db, input, record, file) {
   let result;
   try {
     result = await db.batch([
+      ...(input.exactClassification?[exactDecisionStatement(db,input,record,file)]:[]),
       db
         .prepare(
           `INSERT INTO cases(id,case_id,created_at,updated_at,nickname,player_id,campaign_id,vote_type,
-        vote_date,query_key_hash,note,upload_intent_id,member_id,source)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM proof_upload_intents i
+        vote_date,query_key_hash,note,upload_intent_id,member_id,source${input.exactClassification?',status,duplicate_flag,duplicate_of_case_id':''})
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?${input.exactClassification?`,
+        CASE WHEN d.decision='exact_duplicate' THEN 'duplicate' ELSE 'pending' END,
+        CASE WHEN d.decision='exact_duplicate' THEN 1 ELSE 0 END,
+        CASE WHEN d.decision='exact_duplicate' THEN d.reference_case_id ELSE NULL END`:''} FROM proof_upload_intents i
+        ${input.exactClassification?"JOIN case_sha256_decisions d ON d.intent_id=i.session_id AND d.case_internal_id=?":''}
         WHERE i.session_id=? AND i.completion_mode='direct' AND i.state='prepared' AND i.consumed_case_id IS NULL
         AND i.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now') AND i.object_key=? AND i.proof_id=?
         AND i.campaign_id=? AND i.member_id IS ? AND (? IS NOT NULL OR i.guest_capability_hash=?)
@@ -106,6 +113,7 @@ export async function insertDirectCase(db, input, record, file) {
           input.sessionId,
           input.memberId ?? null,
           input.memberId ? "member" : "guest",
+          ...(input.exactClassification?[record.id]:[]),
           input.sessionId,
           file.key,
           file.id,
@@ -151,6 +159,7 @@ export async function insertDirectCase(db, input, record, file) {
           record.now,
           record.id,
         ),
+      ...(input.exactClassification?[db.prepare('SELECT decision FROM case_sha256_decisions WHERE case_internal_id=?').bind(record.id)]:[]),
     ]);
   } catch {
     // Resolve an ACK lost after the whole transaction committed. Otherwise the
@@ -159,16 +168,20 @@ export async function insertDirectCase(db, input, record, file) {
       .prepare("SELECT consumed_case_id FROM proof_upload_intents WHERE session_id=?")
       .bind(input.sessionId)
       .first();
-    if (row?.consumed_case_id === record.id) return;
+    if (row?.consumed_case_id === record.id) {
+      if(input.exactClassification)record.exactResult=await exactSubmissionResult(db,record.id);
+      return;
+    }
     if (row?.consumed_case_id)
       throw new CaseError(409, "UPLOAD_ALREADY_USED", "Upload has already been used");
     await directCasePreflight(db, input);
     throw new CaseError(500, "DATABASE_ERROR", "Case storage is unavailable");
   }
-  if (result[0]?.results?.[0]?.id !== record.id) {
+  if (result[input.exactClassification?1:0]?.results?.[0]?.id !== record.id) {
     const fresh = await directCasePreflight(db, input);
     if (fresh.campaign.version !== input.campaignVersion)
       throw new CaseError(409, "CAMPAIGN_CONFLICT", "Campaign changed; retry submission");
     throw new CaseError(409, "CASE_CONFLICT", "Case authorization or upload state changed");
   }
+  if(input.exactClassification)record.exactResult=exactSubmissionResponse(result.at(-1).results[0]);
 }

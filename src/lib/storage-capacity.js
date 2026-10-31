@@ -78,7 +78,7 @@ export async function capacityPut(env, key, body, options, size,diagnostic) {
   const id = await reserveStorage(env, key, size,null,diagnostic);
   return putReservedStorage(env,key,body,options,size,id,diagnostic);
 }
-export async function putReservedStorage(env,key,body,options,size,id,diagnostic) {
+export async function putReservedStorage(env,key,body,options,size,id,diagnostic,settleVerified=null) {
   // Never expire ambiguous reservations: a timed-out native PUT may still finish.
   if(diagnostic){diagnostic.stage='r2_put';diagnostic.putState='unknown';}
   const object = await env.PROOFS_BUCKET.put(key, body, options);
@@ -98,7 +98,8 @@ export async function putReservedStorage(env,key,body,options,size,id,diagnostic
     throw new StorageCapacityError();
   }
   try {
-    await env.DB.prepare(
+    if(settleVerified) await settleVerified(object);
+    else await env.DB.prepare(
       "UPDATE storage_reservations SET state='committed',etag=?,object_version=? WHERE id=? AND state='reserved' RETURNING id",
     )
       .bind(object.etag, object.version ?? null, id)

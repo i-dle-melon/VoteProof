@@ -3,6 +3,7 @@ import { statusConflict, reviewTransition, invalidDuplicate } from "./case-revie
 import { encodeCursor, filterSql } from "../api/admin-validation.js";
 import { reviewCampaign } from "./campaign-policy.js";
 import { reviewPointStatements } from "./point-ledger.js";
+import {AdminError} from './admin-identity.js';
 
 export const QUEUE_RANK = "CASE WHEN c.status = 'pending' THEN 0 ELSE 1 END";
 export const SUMMARY_COLUMNS = `c.case_id, c.created_at, c.updated_at, c.nickname, c.player_id, c.campaign_id,
@@ -44,7 +45,8 @@ export async function applyReview(db, actor, row, input) {
     points_awarded: row.points_awarded, point_status: row.point_status,review_stage:row.review_stage,review_risk_reason:row.review_risk_reason,status_reason:row.status_reason });
   // The unique marker belongs only to this winning UPDATE. A losing UPDATE
   // inserts zero audit rows; an audit failure rolls the entire D1 batch back.
-  const result = await db.batch([
+  let result;
+  try{result = await db.batch([
     db.prepare(`UPDATE cases SET status = ?, version = version + 1, updated_at = ?, status_reason = ?,
       status_updated_at = ?, status_updated_by = ?, reviewed_at = ?, reviewer_id = ?,
       duplicate_flag = ?, duplicate_of_case_id = ?, last_review_id = ?,review_stage=CASE WHEN ?='flag_detailed' THEN 'detailed' ELSE review_stage END,review_risk_reason=CASE WHEN ?='flag_detailed' THEN ? ELSE review_risk_reason END
@@ -64,7 +66,11 @@ export async function applyReview(db, actor, row, input) {
       .bind(mutationId, now, actor.member.member_id, actor.role, input.action, before, target?.case_id ?? null, input.reason, row.id, mutationId),
     db.prepare(`SELECT case_id, status, version, status_updated_at, status_updated_by, points_awarded, point_status,
       point_transaction_id,review_stage,review_risk_reason FROM cases WHERE id = ? AND last_review_id = ?`).bind(row.id, mutationId),
-  ]);
+  ]);}catch(error){
+    if(String(error?.message).includes('EXACT_DUPLICATE_APPROVAL_BLOCKED'))
+      throw new AdminError(409,'EXACT_DUPLICATE_REVIEW_CONFLICT','同會員同活動已有相同檔案通過；請確認原案後標記重複。');
+    throw error;
+  }
   if (result[0].meta.changes !== 1 || result.at(-2).meta.changes !== 1) throw statusConflict();
   return { ...result.at(-1).results[0],
     duplicate_of_case_id: target?.case_id ?? null };

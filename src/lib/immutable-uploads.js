@@ -1,4 +1,4 @@
-import {reserveStorage,putReservedStorage,StorageCapacityError} from './storage-capacity.js';
+import {reserveStorage,putReservedStorage,StorageCapacityError,capacityAccountingOnly} from './storage-capacity.js';
 import {UploadError,UPLOAD_LIMITS,validUploadedObject,MIME_EXTENSIONS} from '../api/upload-validation.js';
 import {memberSession,memberCsrf,requestOrigin} from './auth-session.js';
 import {newQueryKey,sha256,equalQueryHash} from './case-keys.js';
@@ -110,13 +110,38 @@ export async function putFinalUpload(env,request,grant,diagnostic) {
     if(matches(intent,await env.PROOFS_BUCKET.head(intent.object_key))){await request.body.cancel();fail('UPLOAD_ALREADY_UPLOADED');}
     fail('UPLOAD_REPREPARE_REQUIRED');
   }
-  let object,existing=false;
+  let object,existing=false,settled=false;
+  // Enforced mode retains its original pin until capacity-alert work finishes.
+  const settle=capacityAccountingOnly(env)?async object=>{
+    if(!matches(intent,object))fail('UPLOAD_CHECKSUM_FAILED',502);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE storage_reservations SET state='committed',etag=?,object_version=?
+        WHERE id=? AND state='reserved' AND object_key=? AND bytes=? AND EXISTS(
+        SELECT 1 FROM proof_upload_intents i WHERE i.session_id=? AND i.object_key=storage_reservations.object_key
+        AND i.size=storage_reservations.bytes AND i.write_token=?) RETURNING id`)
+        .bind(object.etag,object.version??null,reservation,intent.object_key,intent.size,intent.session_id,token),
+      env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,
+        uploaded_at=CASE WHEN completion_mode='legacy' THEN coalesce(uploaded_at,?) ELSE uploaded_at END,
+        state=CASE WHEN state='prepared' AND completion_mode='legacy' THEN 'uploaded' ELSE state END
+        WHERE session_id=? AND write_token=? AND EXISTS(SELECT 1 FROM storage_reservations r
+        WHERE r.id=? AND r.object_key=proof_upload_intents.object_key AND r.state='committed'
+        AND r.etag=? AND r.object_version IS ?) RETURNING session_id`)
+        .bind(new Date().toISOString(),intent.session_id,token,reservation,object.etag,object.version??null),
+      // Zero writes on success; any mismatched/zero-row settlement aborts in SQL.
+      env.DB.prepare(`INSERT INTO auth_atomic_guards(id,valid) SELECT ?,0 WHERE changes()<>1
+        OR NOT EXISTS(SELECT 1 FROM storage_reservations r JOIN proof_upload_intents i ON i.object_key=r.object_key
+        WHERE r.id=? AND r.state='committed' AND r.etag=? AND r.object_version IS ?
+        AND i.session_id=? AND i.write_token IS NULL AND i.size=r.bytes)`)
+        .bind(crypto.randomUUID(),reservation,object.etag,object.version??null,intent.session_id)
+    ]);
+    settled=true;
+  }:null;
   try {
     // Storage-enforced create-only, including simultaneous PUTs. The SHA is
     // verified by R2 against the native request stream, never by JS buffering.
     object=await putReservedStorage(env,intent.object_key,request.body,{onlyIf:new Headers({'If-None-Match':'*'}),
       sha256:intent.expected_sha256,httpMetadata:{contentType:intent.content_type},
-      customMetadata:{voteproof_upload:intent.session_id,voteproof_write:token}},intent.size,reservation,diagnostic);
+      customMetadata:{voteproof_upload:intent.session_id,voteproof_write:token}},intent.size,reservation,diagnostic,settle);
     if(diagnostic)diagnostic.stage='r2_verify';
     if(!object){existing=true;object=await env.PROOFS_BUCKET.head(intent.object_key);}
     if(!matches(intent,object))fail('UPLOAD_CHECKSUM_FAILED',502);
@@ -127,7 +152,7 @@ export async function putFinalUpload(env,request,grant,diagnostic) {
     fail('UPLOAD_REPREPARE_REQUIRED',502);
   }
   if(diagnostic)diagnostic.stage='intent_receipt';
-  await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,
+  if(!settled)await env.DB.prepare(`UPDATE proof_upload_intents SET write_token=NULL,
     uploaded_at=CASE WHEN completion_mode='legacy' THEN coalesce(uploaded_at,?) ELSE uploaded_at END,
     state=CASE WHEN state='prepared' AND completion_mode='legacy' THEN 'uploaded' ELSE state END WHERE session_id=? AND write_token=?`)
     .bind(new Date().toISOString(),intent.session_id,token).run();

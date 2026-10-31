@@ -1,5 +1,6 @@
 import { CaseError } from "../api/case-validation.js";
 import { sha256, equalQueryHash } from "./case-keys.js";
+import {exactSubmissionResult} from './case-exact-classification.js';
 
 export const IDEMPOTENCY_LIMITS = Object.freeze({ minLength: 16, maxLength: 128 });
 const unavailable = () => new CaseError(503, "IDEMPOTENCY_NOT_CONFIGURED", "Case retry service is unavailable");
@@ -44,7 +45,7 @@ export async function reconstructQueryKey(identity, id, seed) {
   return btoa(String.fromCharCode(...new Uint8Array(signed))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-export async function replayCase(db, identity) {
+export async function replayCase(db, identity, exactClassification=false) {
   if (!identity) return null;
   const row = await db.prepare(`SELECT i.request_hash, i.query_seed, c.id, c.case_id, c.query_key_hash
     FROM case_idempotency i JOIN cases c ON c.id = i.case_id WHERE i.key_hash = ?`)
@@ -56,5 +57,6 @@ export async function replayCase(db, identity) {
   const queryKey = await reconstructQueryKey(identity, row.id, row.query_seed);
   // Fail closed on secret replacement or corrupt state; never return an unusable credential.
   if (!equalQueryHash(await sha256(queryKey), row.query_key_hash)) throw unavailable();
-  return { case_id: row.case_id, query_key: queryKey, status: "pending" };
+  return { case_id: row.case_id, query_key: queryKey,
+    ...(exactClassification?await exactSubmissionResult(db,row.id):{status:'pending'}) };
 }

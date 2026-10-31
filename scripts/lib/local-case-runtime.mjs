@@ -8,10 +8,10 @@ import { unstable_splitSqlQuery } from "wrangler";
 import { authProviderFixture } from "./local-auth-provider.mjs";
 import { emailHash } from "../../src/lib/auth-identity.js";
 
-export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, adminMailService, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false } = {}) {
+export async function localCaseRuntime({ turnstileService, seedCampaign = true, submissionsEnabled = true, migrationHook, migrationThrough, providerOptions, adminMailService, backupService, resourcePersistencePath, duplicateProcessorSecret, directIntent = false, workerSource } = {}) {
   const unexpectedUpstreams = [];
   const provider = authProviderFixture(providerOptions);
-  const bundle = await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
+  const bundle = workerSource?{outputFiles:[{text:workerSource}]}:await build({ entryPoints: [fileURLToPath(new URL("../../src/index.js", import.meta.url))],
     bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
   const options = {
     name: "case-test", modules: true, script: bundle.outputFiles[0].text, compatibilityDate: "2026-10-07",

@@ -313,7 +313,11 @@ function renderBatch(summary) {
   $("batch-new").hidden = !summary.complete;
   if(!summary.total){batchRows.clear();$("batch-items").replaceChildren();}
   for (const [index, item] of summary.items.entries()) {
-    const phaseLabel=item.status==='put' ? (item.state?.fraction===1 ? '圖片傳輸完成，等待確認' : `正在上傳（${Math.round((item.state?.fraction??0)*100)}%）`) : labels[item.status];
+    const classification=item.result?.exact_classification?.decision;
+    const successLabel=item.result?.status==='duplicate'?'已建立案件 · 相同檔案已歸類重複，不重複計分'
+      :classification==='pending_match'?'投稿成功 · 疑似重複，等待人工審核'
+      :classification==='unknown'?'投稿成功 · 歷史比對 UNKNOWN，等待人工審核':labels.success;
+    const phaseLabel=item.status==='success'?successLabel:item.status==='put' ? (item.state?.fraction===1 ? '圖片傳輸完成，等待確認' : `正在上傳（${Math.round((item.state?.fraction??0)*100)}%）`) : labels[item.status];
     const status = item.error ? `${phaseLabel}：${errorMessage({ code: item.error })}` : phaseLabel;
     const previewStatus = document.querySelector(`[data-image-status="${index}"]`);
     if (previewStatus&&previewStatus.textContent!==status) previewStatus.textContent = status;

@@ -1,3 +1,4 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { memberFixture } from "./member-fixture.mjs";
@@ -138,7 +139,7 @@ test("all Admin configuration and five exact-duplicate states use shared rendere
     );
   }
   for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿設定"]) {
-    await page.locator("#admin-tabs").getByRole("button", { name: label, exact: true }).click();
+    await selectAdminTab(page,label);
     await expect(page.locator("#admin-panel")).toContainText(label);
   }
   await page

@@ -167,7 +167,7 @@ test("Preview Solo total has member rows only across responsive themes", async (
       await page.setViewportSize({ width, height: 900 });
       await page.goto(preview + "?preview_theme=" + theme + "#leaderboards");
       await expect(page.locator("html")).toHaveAttribute("data-preview-ready", "true");
-      await page.locator("#board-categories button").nth(3).click();
+      await page.locator('[data-category="solo"]').click();
       await expect(page.locator("#board-name")).toHaveText("Solo 總排行");
       await expect(page.locator("#board-results tr")).toHaveCount(5);
       await expect(page.locator("#solo-artists,#solo-target-wrap,#solo-target-filter,[data-target-id],.solo-artist-row")).toHaveCount(0);
@@ -218,7 +218,7 @@ test("public Solo total renders one member with 60 points and never requests art
     }),
   );
   await page.goto("/#leaderboards");
-  await page.locator("#board-categories button").nth(3).click();
+  await page.locator('[data-category="solo"]').click();
   await expect(page.locator("#board-name")).toHaveText("Solo 總排行");
   await expect(page.locator("#board-results tr")).toHaveCount(1);
   await expect(page.locator("#board-results")).toContainText(state.member.nickname);

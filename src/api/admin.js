@@ -7,6 +7,7 @@ import { CASE_ID_PATTERN } from "../lib/case-keys.js";
 import { caseNotFound, reviewInput } from "../lib/case-review.js";
 import { adminPage, readReviewJson, UUID_PATTERN } from "./admin-validation.js";
 import { adminCases, adminCase, adminFiles, applyReview, auditLogs } from "../lib/admin-store.js";
+import {proofStorageState} from '../lib/proof-storage-metadata.js';
 import { allowedMime, UPLOAD_LIMITS } from "./upload-validation.js";
 import { adminExactEvidence } from '../lib/proof-exact-hash.js';
 import {exactClassificationEnabled,requireExactPolicy,exactDecision} from '../lib/case-exact-classification.js';
@@ -76,12 +77,12 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
   return privateProofResponse(env,file);
 });
 export async function privateProofResponse(env,file) {
-  const lifecycle=await env.DB.prepare('SELECT p.state FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?').bind(file.object_key).first();
+  const lifecycle=await proofStorageState(env.DB,file.object_key);
   if(lifecycle?.state==='cold')throw new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已清理，備份保存在 Google Drive');
   if(lifecycle?.state==='deleting')throw new AdminError(409,'PROOF_CLEANUP_PENDING','圖片清理結果待確認，暫不提供讀取。');
   let object = await env.PROOFS_BUCKET.get(file.object_key);
   if (!object) {
-    const archived=await env.DB.prepare("SELECT p.state FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?").bind(file.object_key).first();
+    const archived=await proofStorageState(env.DB,file.object_key);
     if(archived?.state==='cold')throw new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已封存至 Google Drive，請由管理員手動開啟備份。');
     throw new AdminError(404,'PROOF_NOT_FOUND','Proof not found');
   }

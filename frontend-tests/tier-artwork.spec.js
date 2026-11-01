@@ -1,3 +1,4 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import { test, expect } from "@playwright/test";
 import { memberFixture } from "./member-fixture.mjs";
 import { adminFixture } from "./admin-fixture.mjs";
@@ -25,11 +26,12 @@ test("all eight admin artworks retain disabled labels and fit themes and small s
   const state = await adminFixture(page); const violations = [];
   await page.addInitScript(() => { globalThis.__tierCsp = []; document.addEventListener("securitypolicyviolation", e => globalThis.__tierCsp.push(e.effectiveDirective)); });
   await page.goto("/#admin"); await expect(page.locator("#admin-panel select")).toHaveCount(2);
+  await selectAdminTab(page,'會員管理');
   // WebKit reports style-src-attr for pre-existing native select internals.
   // Drain initial admin rendering, then assert the artwork introduces none.
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.evaluate(() => { globalThis.__tierCsp = []; });
-  await page.locator("#admin-tabs").getByRole("button", { name: "會員等級", exact: true }).click();
+  await page.locator('#admin-panel').getByRole('button',{name:'會員等級',exact:true}).click();
   const cards = page.locator("#admin-panel .tier-card"), images = cards.locator("img");
   await expect(cards).toHaveCount(8); await expect.poll(() => decoded(images)).toBe(true);
   for (const [i, art] of Object.values(TIER_ARTWORK).entries()) {

@@ -1,6 +1,8 @@
 import { AdminError, REVIEW_AUTH_GUARD, actorBindings } from "./admin-identity.js";
 import { EXPORT_LIMITS } from "../../public/js/export-format.js";
 import {exportAudit} from './shared-export.js';
+import {legacyProofMetadata,COLD_SCHEMA_MARKERS} from './proof-storage-metadata.js';
+const COLD_EXCLUSION="NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=f.id AND p.state IN('verifying','deleting','cold'))";
 const invalid = () => {
   throw new AdminError(400, "INVALID_EXPORT_QUERY", "Invalid export filters");
 };
@@ -96,7 +98,7 @@ export function exportWhere(scope) {
   const f = scope.filters,
     statuses = f.statuses.flatMap((s) => EXPORT_STATUS_GROUPS[s]);
   const clauses = [
-    "NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=f.id AND p.state IN('verifying','deleting','cold'))",
+    COLD_EXCLUSION,
     "c.created_at >= ?",
     "c.created_at < ?",
     `c.status IN (${statuses.map(() => "?").join(",")})`,
@@ -115,18 +117,20 @@ export function exportWhere(scope) {
 }
 export async function countExport(db, scope) {
   const where = exportWhere(scope);
-  return db
-    .prepare(
-      `SELECT COUNT(*) image_count, COALESCE(SUM(f.size),0) total_bytes FROM cases c JOIN case_files f ON f.case_id=c.id WHERE ${where.sql}`,
-    )
-    .bind(...where.values)
-    .first();
+  const read=sql=>db.prepare(`SELECT COUNT(*) image_count, COALESCE(SUM(f.size),0) total_bytes FROM cases c JOIN case_files f ON f.case_id=c.id WHERE ${sql}`).bind(...where.values).first();
+  return legacyProofMetadata(db,()=>read(where.sql),()=>read(where.sql.replace(COLD_EXCLUSION,'1=1')));
 }
 // INSERT SELECT + SQL recursion: one transactional D1 batch, never one trip/image.
 export async function snapshotExport(db, actor, id, scope, scopeKey=null) {
   const packageBytes = scope.filters.package_bytes;
   if (![EXPORT_LIMITS.maxBytes, EXPORT_LIMITS.blobMaxBytes].includes(packageBytes)) invalid();
-  const where = exportWhere(scope),
+  // A readonly probe occurs before dispatch; an ambiguous write is never retried.
+  // Legacy export is permitted only on a wholly pre-cold schema, with the same
+  // absence re-asserted inside the atomic snapshot against concurrent DDL.
+  const legacy=await legacyProofMetadata(db,async()=>{await db.prepare('SELECT file_id FROM cold_proofs LIMIT 0').all();return false;},()=>true);
+  const where = exportWhere(scope);
+  if(legacy)where.sql=where.sql.replace(COLD_EXCLUSION,'1=1');
+  const
     now = new Date().toISOString(),
     expiry = new Date(Date.now() + EXPORT_LIMITS.lifetimeSeconds * 1000).toISOString();
   const exactCampaign = scope.filters.entire_campaign
@@ -136,6 +140,7 @@ export async function snapshotExport(db, actor, id, scope, scopeKey=null) {
     ? [scope.filters.campaign_id, scope.from_utc, scope.to_utc, scope.campaign_name]
     : [];
   await db.batch([
+    ...(legacy?[db.prepare(`INSERT INTO auth_atomic_guards(id,valid) SELECT ?,0 WHERE EXISTS(${COLD_SCHEMA_MARKERS})`).bind(crypto.randomUUID())]:[]),
     db
       .prepare(
         `INSERT INTO export_jobs(id,owner_member_id,created_at,expires_at,filters_json,from_utc,to_utc,campaign_name)

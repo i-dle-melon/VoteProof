@@ -4,6 +4,7 @@ import { AuthError, suspended } from "../api/auth-validation.js";
 import { requireCaseCampaign } from "./campaign-policy.js";
 import { requireSubmissionsEnabled } from "./submission-gate.js";
 import { exactHashInsert } from './proof-exact-hash.js';
+import {legacyProofMetadata} from './proof-storage-metadata.js';
 
 export async function insertCase(db, input, record, files, manifest) {
   let results;
@@ -91,6 +92,7 @@ export const guestCase = (db, id) => db.prepare(`SELECT id, case_id, created_at,
   FROM cases WHERE case_id = ?`).bind(id).first();
 
 export async function guestFiles(db, internalId) {
-  return (await db.prepare("SELECT f.content_type,f.size,p.state storage_state FROM case_files f LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE f.case_id = ? ORDER BY f.id")
-    .bind(internalId).all()).results;
+  const rows=(await legacyProofMetadata(db,()=>db.prepare("SELECT f.content_type,f.size,p.state storage_state FROM case_files f LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE f.case_id = ? ORDER BY f.id")
+    .bind(internalId).all(),()=>db.prepare('SELECT content_type,size FROM case_files WHERE case_id=? ORDER BY id').bind(internalId).all())).results;
+  return rows.map(({storage_state,...file})=>storage_state?{...file,storage_state}:file);
 }

@@ -1,8 +1,9 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import { test, expect } from "@playwright/test";
 import { adminFixture } from "./admin-fixture.mjs";
 import { memberFixture } from "./member-fixture.mjs";
 const panel = page => page.locator("#admin-panel");
-const open = async (page, tab) => { await page.goto("/#admin"); await page.locator("#admin-tabs").getByRole("button", { name: tab, exact: true }).click(); };
+const open = async (page, tab) => { await page.goto("/#admin"); await selectAdminTab(page,tab); };
 const save = async (page, name) => name === "查看與審核" ? panel(page).locator(".case-preview").click({position:{x:12,y:12}}) : panel(page).getByRole("button", { name, exact: true }).click();
 test("guest/ordinary member cannot see admin or infer it from storage/profile", async ({ page }) => {
   const state = await memberFixture(page, { authenticated: true }); state.member.role = "super_admin";
@@ -15,10 +16,10 @@ test("admin/security use external scripts/styles and generate no script CSP viol
     globalThis.__adminScriptCsp = [];
     document.addEventListener("securitypolicyviolation", e => { if (e.effectiveDirective.startsWith("script-src")) globalThis.__adminScriptCsp.push(e.effectiveDirective); });
   });
-  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(13);
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(12);
   for (const name of ["會員管理", "系統健康監控"]) await expect(page.locator("#admin-tabs").getByRole("button", { name, exact: true })).toBeVisible();
   for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿設定"]) {
-    await page.locator("#admin-tabs").getByRole("button", { name: label, exact: true }).click(); await expect(panel(page).locator("h2")).toHaveText(label);
+    await selectAdminTab(page,label); await expect(panel(page).locator("h2")).toHaveText(label);
     expect(await panel(page).evaluate(n => [...n.querySelectorAll("*")].every(el => [...el.attributes].every(a => a.name !== "style" && !/^on/i.test(a.name))))).toBe(true);
   }
   await page.goto("/#security"); await expect(page.locator("#security-password")).toContainText("已設定");
@@ -45,7 +46,7 @@ test("session-bound admin MFA remains available beyond one hour and revocation s
   const now = Date.now(), state = await adminFixture(page);
   state.elevationUntil = now / 1000 + 7 * 86400;
   await page.clock.setFixedTime(now);
-  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(13);
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(12);
   await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
   await page.clock.setFixedTime(now + 2 * 3600000);
   const checks = state.calls.filter(c => c.path === "/api/admin/me").length;
@@ -216,6 +217,7 @@ test('comeback status capsule matches completed green without its checkmark and 
     });
     expect(styles.badge).toEqual(styles.completed);expect(['none','normal','""']).toContain(styles.before);expect(styles.completedBefore).toContain('✓');
   }
+  await page.route('**/api/leaderboards*',route=>route.fulfill({json:{ok:true,data:{leaderboards:[{...state.boards[0],type:'campaign',is_public:true,is_current_comeback:true,rankings:[]}]}}}));
   await page.evaluate(()=>{location.hash='leaderboards';});
   await expect(page.locator('[data-category="comeback"]')).toBeVisible();
   await expect(page.locator('[data-category="comeback"]')).toHaveText('本次回歸');
@@ -355,7 +357,7 @@ test("all new admin/security screens fit 320/390/430 and both themes", async ({ 
     for (const theme of ["dark", "light"]) {
       if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").click();
       for (const tab of ["案件審核", "活動管理", "排行榜管理", "會員等級", "投稿設定", "操作紀錄"]) {
-        await page.locator("#admin-tabs").getByRole("button", { name: tab, exact: true }).click(); await expect(panel(page).locator("h2")).toHaveText(tab);
+        await selectAdminTab(page,tab); await expect(panel(page).locator("h2")).toHaveText(tab);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       }
     }

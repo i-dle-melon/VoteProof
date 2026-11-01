@@ -1,7 +1,8 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import {test,expect} from './isolated-ui-fixture.mjs';
 const preview='http://127.0.0.1:4174/VoteProof/';
 const ready=p=>expect(p.locator('html')).toHaveAttribute('data-preview-ready','true');
-const tab=async(p,name)=>{await p.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(p.locator('#admin-panel')).toHaveAttribute('aria-busy','false');};
+const tab=selectAdminTab;
 test('point ledger starts collapsed and modal pages ten rows forward and backward, fits both themes',async({page})=>{
  await page.goto(preview+'?preview_identity=member#member');
  await ready(page);
@@ -39,7 +40,9 @@ test('point ledger starts collapsed and modal pages ten rows forward and backwar
  }
 });
 test('manager blocks only after red confirmation, list restores member; reviewer has no entry',async({page})=>{
- await page.goto(preview+'?preview_identity=admin#admin');await ready(page);await tab(page,'會員封鎖');const labels=await page.locator('#admin-tabs button').allTextContents();expect(labels.indexOf('會員封鎖')).toBe(labels.indexOf('會員等級')+1);
+ await page.goto(preview+'?preview_identity=admin#admin');await ready(page);await tab(page,'會員封鎖');
+ await expect(page.locator('#admin-tabs').getByRole('button',{name:'會員封鎖',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('navigation',{name:'會員管理功能'}).getByRole('button')).toHaveText(['會員列表','會員等級','會員封鎖']);
  await page.locator('#admin-panel').getByLabel('粉絲 ID',{exact:true}).fill('preview_other_fan');await page.getByLabel('封鎖原因',{exact:true}).fill('展示封鎖測試原因');await page.getByRole('button',{name:'封鎖會員',exact:true}).click();const d=page.getByRole('dialog',{name:'確認封鎖會員',exact:true});await expect(d).toBeVisible();await expect(d).toContainText('preview_other_fan');await expect(page.locator('.blocked-member-row')).toHaveCount(1);
  await expect(d.getByRole('button',{name:'確認封鎖',exact:true})).toHaveCSS('background-color','rgb(255, 38, 61)');await d.getByRole('button',{name:'取消',exact:true}).click();await expect(page.locator('.blocked-member-row')).toHaveCount(1);
  await page.getByRole('button',{name:'封鎖會員',exact:true}).click();await d.getByRole('button',{name:'確認封鎖',exact:true}).click();await expect(d).toHaveCount(0);const row=page.locator('.blocked-member-row').filter({hasText:'preview_other_fan'});await expect(row).toContainText('已被封鎖');await expect(row).toContainText('展示封鎖測試原因');await row.getByRole('button',{name:'恢復會員',exact:true}).click();const restore=page.getByRole('dialog',{name:'確認恢復會員'});await restore.getByRole('button',{name:'確認恢復',exact:true}).click();await expect(row).toHaveCount(0);

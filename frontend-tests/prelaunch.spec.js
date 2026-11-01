@@ -20,7 +20,7 @@ test('comeback is explicit and non-featured campaigns retain named buttons',asyn
  await page.route('**/api/leaderboards*',r=>r.fulfill({json:{ok:true,data:{leaderboards:boards,custom_boards:[]}}}));
  await page.goto('/#leaderboards');await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('Selected board');
  await page.locator('[data-custom-board=old]').click();await expect(page.locator('#board-name')).toHaveText('Old named board');
- boards[1].is_current_comeback=false;await page.clock.fastForward(120001);await page.locator('#boards-refresh').click();await page.locator('[data-category=comeback]').click();await expect(page.locator('#board-name')).toHaveText('');await expect(page.locator('#board-table')).toBeHidden();
+ boards[1].is_current_comeback=false;await page.clock.fastForward(120001);await page.locator('#boards-refresh').click();await expect(page.locator('[data-category=comeback]')).toHaveCount(0);await expect(page.locator('[data-custom-board=new]')).toBeVisible();await expect(page.locator('[data-custom-board=old]')).toBeVisible();await expect(page.locator('#board-name')).toHaveText('Old named board');
 });
 test('new Campaign defaults, underscore copy and authoritative Solo dropdown remain intact',async({page})=>{
  const s=await adminFixture(page);await page.goto('/#admin');await tab(page,'活動管理');await page.getByRole('button',{name:'建立活動',exact:true}).click();
@@ -66,7 +66,7 @@ test('layout, left help button, bottom sidebar and paused danger capsule in both
   await expect(page.locator('a[href="#lookup"] .hero-action-icon')).toHaveText('▣');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   if(width>980){const help=await page.locator('#workflow-help').boundingBox(),title=await page.locator('.desktop-title').boundingBox(),controls=await page.locator('.account-nav').boundingBox(),footer=await page.locator('.sidebar-footer').boundingBox();expect(help.x-title.x-title.width).toBeGreaterThan(10);expect(help.x-title.x-title.width).toBeLessThan(30);expect(controls.x-help.x-help.width).toBeGreaterThan(30);expect(width-controls.x-controls.width).toBeLessThan(60);expect(1000-footer.y-footer.height).toBeLessThan(40);}
-  await page.goto(preview+'?preview_identity=admin&preview_theme='+theme+'#admin');await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');await tab(page,'排行榜管理');await expect(page.locator('.status.neutral').filter({hasText:'系統固定榜'})).toHaveCount(3);await expect(page.locator('.status.approved').filter({hasText:'系統固定榜'})).toHaveCount(0);
+  await page.goto(preview+'?preview_identity=admin&preview_theme='+theme+'#admin');await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');await tab(page,'排行榜管理');await expect(page.locator('.status.neutral').filter({hasText:'系統固定計分範圍'})).toHaveCount(3);await expect(page.locator('.status.approved').filter({hasText:'系統固定計分範圍'})).toHaveCount(0);
  }
 });
 test('browser local calendar default, campaign clamp and manual edits survive selection',async({page})=>{

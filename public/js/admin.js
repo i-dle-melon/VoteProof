@@ -524,7 +524,11 @@ export function adminUI(session) {
     $("admin-panel").append(actions);
     await paged("leaderboards", "leaderboards", row => {
       const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", row.is_public ? copy("admin-copy-086") : copy("admin-copy-087")));
-      if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定計分範圍","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"),button('設定顯示',()=>systemBoardEditor(row)));return c;}
+      if(row.system_fixed || row.type==="all_time"){
+        c.append(node("span","系統固定計分範圍","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));
+        c.append(row.presentation_enabled===true?button('設定顯示',()=>systemBoardEditor(row)):node('p','顯示設定尚未啟用；目前維持既有排行榜設定。','tiny'));
+        return c;
+      }
       if(row.is_current_comeback)c.append(node("span","本次回歸","status comeback"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
       if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); },'btn status rejected')); return c;
@@ -541,7 +545,7 @@ export function adminUI(session) {
     });
   }
   function systemBoardEditor(row){
-    if(busy)return;clearPanel();heading('排行榜顯示設定');const f=formCard(row.name);
+    if(busy||row.presentation_enabled!==true)return;clearPanel();heading('排行榜顯示設定');const f=formCard(row.name);
     field(f,'name','按鈕顯示名稱','text',row.name,{required:true,maxLength:100});
     field(f,'top_n','顯示前幾名','number',row.top_n,{required:true,min:1,max:100,step:1});
     const enabled=field(f,'is_public','顯示此排行榜','select',row.is_public?'true':'false',{choices:[['true','顯示'],['false','隱藏']]});

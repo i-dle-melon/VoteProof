@@ -13,7 +13,10 @@ const handler = (mutation, action) => adminHandler(async (env,url,request) => {
   return action(authDatabase(env),actor,url,request,env);
 });
 const id = url => url.pathname.split('/')[4];
-const list = handler(false,async (db,_actor,url,_request,env) => jsonSuccess(await listBoards(db,url,env.ADMIN_LEADERBOARD_PRESENTATION_ENABLED==='true')));
+const list = handler(false,async (db,_actor,url,_request,env) => {
+  const enabled=env.ADMIN_LEADERBOARD_PRESENTATION_ENABLED==='true',data=await listBoards(db,url,enabled);
+  return jsonSuccess({...data,system_boards:data.system_boards.map(row=>({...row,presentation_enabled:enabled}))});
+});
 const detail = handler(false,async (db,_actor,url,_request,env) => jsonSuccess(await getBoard(db,id(url),env.ADMIN_LEADERBOARD_PRESENTATION_ENABLED==='true')));
 const presentation=handler(true,async(db,actor,url,request,env)=>{if(env.ADMIN_LEADERBOARD_PRESENTATION_ENABLED!=='true')throw new AdminError(503,'PRESENTATION_NOT_READY','顯示設定擴充尚未啟用。');return jsonSuccess(await saveSystemPresentation(db,actor,id(url),await readReviewJson(request)));});
 const create = handler(true,async (db,actor,_url,request) => jsonSuccess(await saveBoard(db,actor,boardInput(await readReviewJson(request))),'no-store',201));

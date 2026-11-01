@@ -429,7 +429,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       : reply("CASE_NOT_FOUND", 404);
   }
   if (p === "/api/admin/campaigns") return reply(paged("campaigns", previewCampaigns));
-  if (p === "/api/admin/leaderboards") return reply({...paged("leaderboards", boards.filter(b=>!b.system_fixed)),system_boards:boards.filter(b=>b.system_fixed)});
+  if (p === "/api/admin/leaderboards") return reply({...paged("leaderboards", boards.filter(b=>!b.system_fixed)),system_boards:boards.filter(b=>b.system_fixed).map(b=>({...b,presentation_enabled:true}))});
   if (/^\/api\/admin\/leaderboards\/[^/]+\/results$/.test(p))
     return reply({
       leaderboards:

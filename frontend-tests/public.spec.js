@@ -15,6 +15,7 @@ async function fixture(page, options = {}) {
   // Controlled response latches, never timing sleeps: both initial lanes must
   // prepare before the chosen image receives the first PUT authorization.
   let releasePrepared,releaseRejected;
+  let releaseFirstCase;const firstCaseCreated=new Promise(resolve=>releaseFirstCase=resolve);state.committedSlots=[];
   const preparedPair=new Promise(resolve=>releasePrepared=resolve),firstRejected=new Promise(resolve=>releaseRejected=resolve),preparedSlots=new Set();
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", (route) => route.fulfill({ contentType: "text/javascript", body:
     `let widget,issued=0;globalThis.turnstile={render(container,opts){widget=opts;container.textContent='本機隔離驗證 fixture';queueMicrotask(()=>opts.callback(${JSON.stringify(token)}+'-'+(++issued)));return 'widget';},reset(){queueMicrotask(()=>widget.callback(${JSON.stringify(token)}+'-'+(++issued)));}};` }));
@@ -72,16 +73,20 @@ async function fixture(page, options = {}) {
     if (path === "/api/uploads/complete") return state.uploadStates.get(body.session_id)?.present?reply({ session_id: body.session_id, files: [] }):error('UPLOAD_INCOMPLETE',400);
     if (path === "/api/cases") {
       if (state.delayCase) await new Promise((r) => setTimeout(r, 350));
+      const slot=state.prepareRequests.find(p=>p.session===body.upload_session.session_id)?.slot;
+      if(options.firstCaseSlot!==undefined&&slot!==options.firstCaseSlot)await firstCaseCreated;
       const key = request.headers()["idempotency-key"];
       if (!state.receipts.has(key)) state.receipts.set(key, { case_id: `VP-${today().replaceAll("-", "")}-${"ABCDEFGHJKLMNPQRSTUVWXYZ"[state.receipts.size].repeat(16)}`,
         query_key: state.receipts.size ? randomBytes(32).toString("base64url") : query, status: "pending" });
+      if(options.firstCaseSlot!==undefined){state.committedSlots.push(slot);if(slot===options.firstCaseSlot)releaseFirstCase();}
       if (state.failCase-- > 0) return route.abort();
       return reply(state.receipts.get(key), 201);
     }
     if (path.startsWith("/api/cases/")) {
       if (state.failLookup-- > 0) return route.abort();
-      if (path !== "/api/cases/" + caseId || request.headers()["x-case-query-key"] !== query) return error("CASE_NOT_FOUND", 404);
-      return reply({ case_id: caseId, created_at: new Date().toISOString(), campaign_id: campaign.campaign_id, vote_type: "Solo", vote_date: today(),
+      const receipt=[...state.receipts.values()].find(c=>path==='/api/cases/'+c.case_id&&request.headers()['x-case-query-key']===c.query_key);
+      if (!receipt&&(path !== "/api/cases/" + caseId || request.headers()["x-case-query-key"] !== query)) return error("CASE_NOT_FOUND", 404);
+      return reply({ case_id: receipt?.case_id??caseId, created_at: new Date().toISOString(), campaign_id: campaign.campaign_id, vote_type: "Solo", vote_date: today(),
         status: options.caseStatus ?? "pending", query_key_hash: "not-for-display", object_key: "not-for-display", reviewer_note: "not-for-display", files: [] });
     }
     return error("NOT_FOUND", 404);
@@ -312,8 +317,8 @@ test("unsupported MIME and too many images are clear validation errors", async (
   await page.locator("#proof-images").setInputFiles(Array.from({ length: 21 }, () => ({ name: "p.png", mimeType: "image/png", buffer: png })));
   await expect(page.locator("#image-error")).toContainText("最多"); await expect(page.locator(".image-item")).toHaveCount(0);
 });
-test("full upload success shows query warning, copy controls and safe lookup", async ({ page }) => {
-  const state = await fixture(page), logs = []; page.on("console", (message) => logs.push(message.text()));
+for(const firstCaseSlot of[0,1])test("full upload success shows query warning, copy controls and safe lookup; first Case slot "+firstCaseSlot, async ({ page }) => {
+  const state = await fixture(page,{firstCaseSlot}), logs = []; page.on("console", (message) => logs.push(message.text()));
   await form(page, 2); await page.locator("#submit-button").click();
   await expect(page.locator("#submission-success")).toBeVisible();
   await expect(page.locator("#success-query-key")).toContainText("已隱藏");
@@ -334,11 +339,17 @@ test("full upload success shows query warning, copy controls and safe lookup", a
     expect(complete).toBeGreaterThan(0);expect(created).toBeGreaterThan(complete);
   }
   expect(state.receipts.size).toBe(2);
-  await page.locator("#batch-items details summary").first().click();await page.locator("#batch-items button").first().click(); await page.locator("#lookup-button").click();
+  expect(state.committedSlots).toEqual([firstCaseSlot,1-firstCaseSlot]);
+  const chosen=(await page.locator('#batch-items .credentials').first().locator('dd').first().textContent()).trim(),own=[...state.receipts.values()].find(r=>r.case_id===chosen),other=[...state.receipts.values()].find(r=>r.case_id!==chosen);
+  expect(own).toBeTruthy();expect(other).toBeTruthy();
+  await page.locator("#batch-items details summary").first().click();await page.locator('#batch-items').getByRole('button',{name:'查詢這個案件',exact:true}).first().click();
+  await expect(page.locator('#lookup-id')).toHaveValue(own.case_id);await expect(page.locator('#lookup-key')).toHaveValue(own.query_key);await page.locator("#lookup-button").click();
   await expect(page.locator("#lookup-result")).toContainText("待審核");
   expect((await page.locator("#lookup-result").innerText()).includes("not-for-display")).toBe(false);
   expect(page.url().includes(state.query)).toBe(false); expect(await page.evaluate(() => Object.keys(localStorage).length + sessionStorage.length)).toBe(0);
   expect(logs.some((text) => text.includes(state.query) || text.includes("proofs/staging") || text.includes("r2.cloudflarestorage"))).toBe(false); await noOverflow(page);
+  await page.locator('#lookup-key').fill(other.query_key);await page.locator('#lookup-button').click();await expect(page.locator('#lookup-result')).toBeHidden();await expect(page.locator('#lookup-message')).toHaveText('找不到案件，請確認案件編號與查詢碼。');
+  expect(state.receipts.size).toBe(2);expect(state.puts).toHaveLength(2);
 });
 test("network case retry reuses exact payload and key without another upload", async ({ page }) => {
   const state = await fixture(page); state.failCase = 1; await form(page);

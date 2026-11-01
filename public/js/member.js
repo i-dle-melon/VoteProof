@@ -583,7 +583,7 @@ export function memberUI({ changed = () => {}, summaryChanged=()=>{}, campaignNa
             if (!sameMember(owner, sequence)) return;
             for(const fields of ["member-case-fields","owned-case-fields"]){$(fields).replaceChildren();
             for (const [name, value] of [["案件編號", detail.case_id], ["活動", campaignName(detail.campaign_id)], ["投稿時間", memberDate(detail.created_at)], ["已給點數", detail.points_awarded ?? "—"], ["投票日期", detail.vote_date],
-              ["類型", detail.vote_type], ["狀態", statuses[detail.status] ?? "狀態更新中"], ["審核結果",detail.status==="pending"?"等待人工審核":statuses[detail.status]??"更新中"], ["退件原因",detail.rejection_reason??"—"], ["證明附件",Array.isArray(detail.files)?detail.files.map(f=>`${f.content_type} · ${(f.size/1024).toFixed(1)} KB`).join("；")||"附件資訊暫時無法取得":"附件資訊暫時無法取得"]]) $(fields).append(element("dt", name), element("dd", value));}
+              ["類型", detail.vote_type], ["狀態", statuses[detail.status] ?? "狀態更新中"], ["審核結果",detail.status==="pending"?"等待人工審核":statuses[detail.status]??"更新中"], ["退件原因",detail.rejection_reason??"—"], ["證明附件",Array.isArray(detail.files)?detail.files.map(f=>f.storage_state==='cold'?'圖片已清理，備份保存在 Google Drive':`${f.content_type} · ${(f.size/1024).toFixed(1)} KB`).join("；")||"附件資訊暫時無法取得":"附件資訊暫時無法取得"]]) $(fields).append(element("dt", name), element("dd", value));}
             caseOpener=button;$("owned-case-detail").hidden=false;
             if(!$("owned-case-detail").open)$("owned-case-detail").showModal();
             $("owned-case-close").focus();

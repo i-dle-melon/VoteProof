@@ -8,7 +8,8 @@ import {AdminError} from './admin-identity.js';
 export const QUEUE_RANK = "CASE WHEN c.status = 'pending' THEN 0 ELSE 1 END";
 export const SUMMARY_COLUMNS = `c.case_id, c.created_at, c.updated_at, c.nickname, c.player_id, c.campaign_id,
   c.vote_type, c.vote_date, c.status, c.duplicate_flag, c.version, c.points_awarded,c.source,c.review_stage,c.review_risk_reason,
-  (SELECT f.id FROM case_files f WHERE f.case_id=c.id ORDER BY f.id LIMIT 1) primary_file_id`;
+  (SELECT f.id FROM case_files f WHERE f.case_id=c.id ORDER BY f.id LIMIT 1) primary_file_id,
+  (SELECT p.state FROM case_files f LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE f.case_id=c.id ORDER BY f.id LIMIT 1) primary_storage_state`;
 export async function adminCases(db, page) {
   const { clauses, values } = filterSql(page, "c");
   if (page.cursor) {
@@ -27,8 +28,8 @@ export async function adminCase(db, caseId) {
     c.status_updated_at, c.status_updated_by, c.reviewed_at, c.reviewer_id, c.point_status, c.point_transaction_id, d.case_id AS duplicate_of_case_id
     FROM cases c LEFT JOIN cases d ON d.id = c.duplicate_of_case_id WHERE c.case_id = ?`).bind(caseId).first();
 }
-export const adminFiles = async (db, id) => (await db.prepare(`SELECT id AS file_id, content_type, size, created_at
-  FROM case_files WHERE case_id = ? ORDER BY id`).bind(id).all()).results;
+export const adminFiles = async (db, id) => (await db.prepare(`SELECT f.id AS file_id,f.content_type,f.size,f.created_at,p.state storage_state
+  FROM case_files f LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE f.case_id = ? ORDER BY f.id`).bind(id).all()).results;
 
 export async function applyReview(db, actor, row, input) {
   const status = reviewTransition(row, input);

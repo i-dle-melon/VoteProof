@@ -159,7 +159,6 @@ export async function insertDirectCase(db, input, record, file) {
           record.now,
           record.id,
         ),
-      ...(input.exactClassification?[db.prepare('SELECT decision FROM case_sha256_decisions WHERE case_internal_id=?').bind(record.id)]:[]),
     ]);
   } catch {
     // Resolve an ACK lost after the whole transaction committed. Otherwise the
@@ -183,5 +182,5 @@ export async function insertDirectCase(db, input, record, file) {
       throw new CaseError(409, "CAMPAIGN_CONFLICT", "Campaign changed; retry submission");
     throw new CaseError(409, "CASE_CONFLICT", "Case authorization or upload state changed");
   }
-  if(input.exactClassification)record.exactResult=exactSubmissionResponse(result.at(-1).results[0]);
+  if(input.exactClassification)record.exactResult=exactSubmissionResponse(result[0].results[0]);
 }

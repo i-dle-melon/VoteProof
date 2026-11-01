@@ -132,13 +132,17 @@ export function adminPath(path) {
   if(pathname.includes('.'))return false;
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
+  if(pathname==='/api/admin/overview'){const p=new URLSearchParams(query??'');return ['from','to'].every(k=>p.getAll(k).length===1)&&[...p.keys()].every(k=>['from','to'].includes(k));}
+  if(pathname==='/api/admin/storage/manual'){const p=new URLSearchParams(query??'');return [...p.keys()].every(k=>['campaign_id','from','to','status','backup','eligible','cutoff','cursor'].includes(k)&&p.getAll(k).length===1);}
+  if(/^\/api\/admin\/storage\/manual\/[a-f0-9-]{36}\/(verify|delete|clean|status)$/.test(pathname)&&query===undefined)return true;
   if(pathname==='/api/admin/staff' && query===undefined)return true;
   if(pathname==='/api/admin/member-blocks')return true;
   const insights=pathname==='/api/admin/members-overview'?['status','fan_id','nickname','cursor']:
     /^\/api\/admin\/members-overview\/M-[a-f0-9-]{36}\/(cases|transactions)$/.test(pathname)?['cursor']:
     /^\/api\/admin\/members-overview\/M-[a-f0-9-]{36}$/.test(pathname)?[]:
     pathname==='/api/admin/health-monitor/events'?['type','status','from','to','cursor']:
-    ['/api/admin/health-monitor/summary','/api/admin/points/adjustments'].includes(pathname)?[]:null;
+    pathname==='/api/admin/health-monitor/summary'?['view']:
+    pathname==='/api/admin/points/adjustments'?[]:null;
   if(insights){const p=new URLSearchParams(query??'');return [...p.keys()].every(k=>insights.includes(k)&&p.getAll(k).length===1);}
   if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(pathname)&&query===undefined)return true;
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
@@ -147,6 +151,8 @@ export function adminPath(path) {
     const params=new URLSearchParams(query??'');return [...params.keys()].every(k=>allowed.includes(k)&&params.getAll(k).length===1);
   }
   if(pathname==="/api/admin/cases/batch-approve" && query===undefined)return true;
+  if(['/api/admin/cases/batch-reject','/api/admin/cases/batch-reject/status'].includes(pathname)&&query===undefined)return true;
+  if(/^\/api\/admin\/leaderboards\/system-(history|group|solo)\/presentation$/.test(pathname)&&query===undefined)return true;
   if(/^\/api\/admin\/audit-logs\/[a-f0-9-]{36}$/.test(pathname)){const p=new URLSearchParams(query??'');return p.getAll('source').length===1&&[...p.keys()].every(k=>k==='source')&&['admin','content','member_status','member_contact','mail_pending'].includes(p.get('source'));}
   if(pathname==='/api/admin/image-exports'&&query!==undefined){const p=new URLSearchParams(query);return p.getAll('page').length===1&&[...p.keys()].every(k=>k==='page')&&/^[1-9]\d*$/.test(p.get('page'))&&Number.isSafeInteger(Number(p.get('page'))*10);}
   if (pathname.includes("/files/") && query !== undefined) return false;

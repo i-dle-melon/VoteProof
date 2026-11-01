@@ -5,12 +5,17 @@ import {AdminError} from './admin-identity.js';
 
 const columns='leaderboard_id,name,type,campaign_id,vote_type,start_date,end_date,top_n,version,is_current_comeback';
 const safeDefinition=b=>({...b,is_current_comeback:Boolean(b.is_current_comeback),generated_at:null,rankings:[]});
-export async function publicBoardDefinitions(db,id=null){
-  const fixed=systemBoards.filter(b=>id===null||b.leaderboard_id===id).map(safeDefinition);
-  if(fixed.length&&id!==null)return fixed;
-  const rows=(await db.prepare(`SELECT ${columns} FROM leaderboards WHERE type!='all_time' AND status='active' AND is_public=1
-    ${id===null?'':'AND leaderboard_id=?'} ORDER BY created_at,leaderboard_id`).bind(...(id===null?[]:[id])).all()).results;
-  return [...fixed,...rows.map(safeDefinition)];
+export async function publicBoardDefinitions(db,id=null,{presentation=false}={}){
+  if(!presentation&&id!==null){const fixed=systemBoards.filter(b=>b.leaderboard_id===id);if(fixed.length)return fixed.map(safeDefinition);}
+  const custom=`SELECT ${columns}${presentation?',is_public':''} FROM leaderboards WHERE type!='all_time' AND status='active' AND is_public=1
+    ${id===null?'':'AND leaderboard_id=?'} ORDER BY created_at,leaderboard_id`;
+  // Optional display configuration and catalog share a single statement.
+  const query=presentation?`SELECT leaderboard_id,name,'all_time' type,NULL campaign_id,NULL vote_type,NULL start_date,NULL end_date,top_n,version,0 is_current_comeback,is_public
+    FROM admin_leaderboard_presentations ${id===null?'':'WHERE leaderboard_id=?'} UNION ALL SELECT * FROM (${custom})`:custom;
+  const rows=(await db.prepare(query).bind(...(id===null?[]:presentation?[id,id]:[id])).all()).results;
+  const fixed=systemBoards.map(b=>{const r=rows.find(r=>r.leaderboard_id===b.leaderboard_id);return r?{...b,name:r.name,top_n:r.top_n,is_public:Boolean(r.is_public),version:r.version}:b;})
+    .filter(b=>b.is_public&&(id===null||b.leaderboard_id===id)).map(safeDefinition);
+  return [...fixed,...rows.filter(r=>r.type!=='all_time').map(({is_public,...r})=>safeDefinition(r))];
 }
 export async function liveBoardRanking(db,definition,context={tierResolvers:new Map()}){
   const clauses=[],args=[];

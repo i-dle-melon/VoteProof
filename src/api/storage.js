@@ -13,6 +13,7 @@ import {
 import { cleanupArchive } from "../lib/storage-archive.js";
 import { processStorageAlerts } from "../lib/storage-alerts.js";
 import { scanInventoryPage,finalizeInventory } from "../lib/storage-inventory.js";
+import {manualCleanupRoute} from './admin-manual-cleanup.js';
 const validObject = (v) => v && typeof v === "object" && !Array.isArray(v);
 export async function quotaSnapshot(env, v) {
   if (
@@ -84,7 +85,7 @@ const internal = async (env, url, request) => {
     const inventoryOnly = url.pathname.endsWith("/tick") && validObject(v) &&
       Object.keys(v).length === 1 && v.inventory_only === true;
     if (!validObject(v) || (Object.keys(v).length && !inventoryOnly)) throw Error();
-    if (url.pathname.endsWith("/archive")) return jsonSuccess({cleanup:await cleanupArchive(env)});
+    if (url.pathname.endsWith("/archive")) return jsonError(410,'AUTOMATIC_CLEANUP_RETIRED','僅允許管理員明確選取的手動清理。');
     if (!inventoryOnly) await evaluateCapacity(env.DB);
     const inventory = inventoryOnly?await scanInventoryPage(env):await inventoryPage(env);
     let cleanup = null;
@@ -104,6 +105,7 @@ const internal = async (env, url, request) => {
   }
 };
 export function storageRoute(path) {
+  const manual=manualCleanupRoute(path);if(manual)return manual;
   if (path === "/api/admin/storage") return { method: "GET", handler: admin };
   if (path === "/api/admin/storage/history") return { method: "GET", handler: historyList };
   if (["/api/admin/storage/inventory", "/api/admin/storage/dry-run"].includes(path))

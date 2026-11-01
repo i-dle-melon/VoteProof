@@ -175,6 +175,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     if(p.endsWith('/transactions'))return reply({transactions:[],next_cursor:null,page_size:20});
     if(p.endsWith('/cases'))return reply({cases:[],next_cursor:null,page_size:20});
     if(p.startsWith('/api/admin/members-overview/'))return reply('NOT_FOUND',404);
+    if(p.endsWith('/summary')&&url.searchParams.get('view')==='overview')return reply({schema_compatibility:'p1_legacy_0028_v1',view:'overview',checked_at:null,checks:Object.fromEntries(['api','upload','storage','backup'].map(k=>[k,{state:'unknown',message:'UI PREVIEW：沒有正式監控資料；UNKNOWN。'}]))});
     if(p.endsWith('/summary'))return reply({schema_compatibility:'p1_legacy_0028_v1',checked_at:null,upload_failures:{count:null,coverage:'partial_coverage'},backup_failures:{count:null,coverage:'unsupported'},cleanup_failures:{count:null,coverage:'unsupported'},pending_operations:{count:null,legacy_ack_unverified:true},storage:{used_bytes:null,budget_bytes:null,observed_at:null,trusted_until:null,blocked:true,cleanup_mode:'dry-run'}});
     if(p.endsWith('/events'))return reply({schema_compatibility:'p1_legacy_0028_v1',events:[],next_cursor:null,page_size:20,coverage:'unsupported',message:'UI PREVIEW：沒有正式監控資料，UNKNOWN。'});
     return reply('NOT_FOUND',404);
@@ -190,6 +191,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   const storageFixture={budget:{budget:10000000000},used_bytes:{normal:7200000000,high:9100000000,stopped:9600000000,recovered:8400000000}[state.storage]??0,reserved_bytes:20000000,blocked:['stopped','unknown'].includes(state.storage),observed_at:1791979200,trusted_until:1791979800,cleanup_mode:'dry-run',retention_approved:false,anomaly:state.storage==='cleanup_failed'?'CLEANUP_VERIFICATION_FAILED':state.storage==='unknown'?'USAGE_UNKNOWN':null,history:[{created_at:1791975600,bytes:7000000000,object_count:1400,staging_bytes:10000000,other_bytes:20000000}],drive_quota:{state:state.storage==='drive_error'?'error':state.storage==='unknown'?'unknown':'known',total_bytes:state.storage==='unknown'?null:15*1024**3,used_bytes:10*1024**3,remaining_percent:['unknown','drive_error'].includes(state.storage)?null:33.3,observed_at:1791979200,stale:false}};
   if(state.storage==='unknown'){storageFixture.used_bytes=null;storageFixture.observed_at=null;}
   if(p.startsWith('/api/admin/storage')&&(!isManager||previewLoggedOut))return reply('ADMIN_FORBIDDEN',403);
+  if(p==='/api/admin/storage/manual'&&method==='GET')return reply({enabled:false,cutoff:new Date().toISOString(),items:[],next_cursor:null,total:0,eligible_count:0,eligible_bytes:0});
   if(p==='/api/admin/storage/history'){
     if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
     const page=Number(url.searchParams.get('page')??1),total=state.data==='empty'?0:23;
@@ -204,6 +206,22 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   if(p==='/api/admin/storage/inventory')return reply({complete:true,bytes:storageFixture.used_bytes});
   if(p==='/api/admin/storage/dry-run')return reply({dry_run:true,retention_approved:false,items:state.storage==='cleanup_failed'?[{state:'blocked',would_delete:false}]:[{state:'dry_run',would_delete:true}]});
   if(method!=="GET") {
+    if(method==='POST'&&isManager&&/^\/api\/admin\/leaderboards\/system-(history|group|solo)\/presentation$/.test(p)){
+      const input=typeof body==='string'?JSON.parse(body):body,row=boards.find(b=>p.includes('/'+b.leaderboard_id+'/'));
+      if(!row||input.expected_version!==row.version)return reply('LEADERBOARD_CONFLICT',409);
+      if(typeof input.name!=='string'||!input.name.trim()||input.name.length>100||!Number.isInteger(input.top_n)||input.top_n<1||input.top_n>100||typeof input.is_public!=='boolean')return reply('INVALID_LEADERBOARD_REQUEST',400);
+      Object.assign(row,{name:input.name,top_n:input.top_n,is_public:input.is_public,version:row.version+1});return reply({...row});
+    }
+    if(method==='POST'&&isStaff&&['/api/admin/cases/batch-reject','/api/admin/cases/batch-reject/status'].includes(p)){
+      const input=typeof body==='string'?JSON.parse(body):body;
+      if(!Array.isArray(input?.cases)||!input.cases.length||input.cases.length>4||new Set(input.cases.map(c=>c.case_id)).size!==input.cases.length||typeof input.reason!=='string'||!input.reason.trim()||input.reason.trim().length>500)return reply('INVALID_REVIEW_BATCH',400);
+      const results=input.cases.map(item=>{const row=adminCases.find(c=>c.case_id===item.case_id);
+        if(row?.status==='rejected'&&row.version===item.expected_version+1&&row.status_reason===input.reason.trim())return{ok:true,...row};
+        if(p.endsWith('/status'))return{ok:false,unknown:true,case_id:item.case_id,code:'REVIEW_RESULT_UNCONFIRMED'};
+        if(!row||row.status!=='pending'||row.version!==item.expected_version)return{ok:false,case_id:item.case_id,code:'CASE_STATUS_CONFLICT',status:409};
+        row.status='rejected';row.version++;row.status_reason=input.reason.trim();return{ok:true,...row};
+      });return reply({results,succeeded:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length,unknown:results.filter(r=>r.unknown).length});
+    }
     if(method==='POST' && isManager && /^\/api\/admin\/leaderboards(?:\/[^/]+\/update)?$/.test(p)) {
       if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
       const input=typeof body==='string'?JSON.parse(body):body,existing=boards.find(b=>p.endsWith('/'+b.leaderboard_id+'/update'));

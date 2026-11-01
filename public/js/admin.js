@@ -9,6 +9,7 @@ import { renderImageExports } from './admin-export.js';
 import { memberContactUI } from './admin-member-contact.js';
 import { renderMemberOverview } from './admin-members-overview.js';
 import { renderHealthMonitor } from './admin-health-monitor.js';
+import {renderManualCleanup} from './admin-manual-cleanup.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -41,7 +42,7 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { overview: "工作總覽", members:'會員管理', healthMonitor:'系統健康監控', cases: copy("admin-copy-017"), backups: 'Google Drive 備份', announcements:'彈窗公告', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), tiers: copy("admin-copy-020"), blocks:'會員封鎖', submissions: copy("admin-copy-021"), audit: copy("admin-copy-022"), staff:'管理員管理' };
+const tabs = { overview: "工作總覽", announcements:'彈窗公告', members:'會員管理', cases: copy("admin-copy-017"), backups: 'Google Drive 備份', manualCleanup:'R2 手動清理', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), submissions: copy("admin-copy-021"), healthMonitor:'系統健康監控', audit: copy("admin-copy-022"), staff:'管理員管理' };
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
@@ -90,6 +91,7 @@ export function adminUI(session) {
     } finally {
       reviewWorking=false;
       if (sequence === expected) { busy = false; $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; for (const b of controls) if (b.isConnected) b.disabled = b.dataset.reviewCommitted==='true'||b.closest('form')?.inert?true:priorDisabled.get(b);if($("admin-batch-approve"))$("admin-batch-approve").disabled=Number($("admin-batch-approve").dataset.selectionCount??0)<1; }
+      if(sequence===expected&&$('admin-batch-reject'))$('admin-batch-reject').disabled=Number($('admin-batch-reject').dataset.selectionCount??0)<1;
     }
   }
   const request = async (path, options = {}) => {
@@ -188,10 +190,13 @@ export function adminUI(session) {
     function clearSelection(){selectionMode='manual';allSelection=null;selectedReviews.clear();syncSelected();}
     const progress=node('progress'),progressText=node('p');progress.hidden=true;progress.setAttribute('aria-label','審核進度');
     const stop=button('停止後續批次',()=>{stopReview=true;progressText.textContent+=' · 已要求停止，等待目前批次的正式結果。';});stop.dataset.reviewStop='';stop.hidden=true;
-    async function executeReview(){
+    async function executeReview(action='approve'){
       if(busy)return;
       const all=selectionMode==='all',plan=allSelection;
       if(all?!plan?.total:!selectedReviews.size)return;
+      const rejecting=action==='reject';let reason=null;
+      if(rejecting){reason=window.prompt('不通過原因（必填，1～500字；同批案件共用）');if(reason===null)return;reason=reason.trim();if(!reason||[...reason].length>500||/[\u0000-\u001f\u007f]/.test(reason)){batchStatus.replaceChildren(node('p','請填寫1～500字有效的不通過原因。','notice error'));return;}}
+      const verb=rejecting?'不通過':'通過';
       const born=sequence;let finished=false;
       await run(async current=>{
         let total,cutoff,queue=[],cursor=null,more=all;stopReview=false;
@@ -202,26 +207,26 @@ export function adminUI(session) {
           // Revalidate access with the first required metadata page, then reuse
           // that page after confirmation; never fetch the COUNT a second time.
           await nextPage();if(!current())return;
-          if(!window.confirm('確定要通過已選的全站 '+total+' 件待審初審案件嗎？\n選取截止時間：'+cutoff+'\n此操作將正式變更案件審核狀態，並可能發放會員積分。截止後新增或變更的案件不會納入。'))return;
+          if(!window.confirm('確定要'+verb+'已選的全站 '+total+' 件待審初審案件嗎？\n選取截止時間：'+cutoff+'\n'+(rejecting?'不通過原因：'+reason+'\n不發放或扣除積分。':'此操作將正式變更案件審核狀態，並可能發放會員積分。')+'截止後新增或變更的案件不會納入。'))return;
         }else{queue=[...selectedReviews.values()].map(r=>({case_id:r.case_id,expected_version:r.version}));total=queue.length;if(!total)return;
-          if(!window.confirm('確認通過以下明確案件 ID？\n'+queue.map(r=>r.case_id).join('\n')))return;}
+          if(!window.confirm('確認'+verb+'已選 '+total+' 件案件？\n'+queue.map(r=>r.case_id).join('\n')+(rejecting?'\n不通過原因：'+reason:'')))return;}
         const report={summary:'',failures:[]};reviewReport=report;batchStatus.replaceChildren();progress.hidden=stop.hidden=false;progress.max=total;progress.value=0;
-        let done=0,success=0,failed=0;
-        const update=()=>{progress.value=done;progressText.textContent='已處理 '+done+'／'+total+' · '+Math.floor(done/total*100)+'% · 成功 '+success+' · 失敗 '+failed+' · 剩餘 '+Math.max(0,total-done);};update();
+        let done=0,success=0,failed=0,unconfirmed=0;
+        const update=()=>{progress.value=done;progressText.textContent='已處理 '+done+'／'+total+' · '+Math.floor(done/total*100)+'% · 成功 '+success+' · 失敗 '+failed+' · 未確認 '+unconfirmed+' · 剩餘 '+Math.max(0,total-done);};update();
         try{
           while(current()&&!stopReview&&(queue.length||more)){
             if(!queue.length){await nextPage();if(!queue.length)continue;}
             const chunk=queue.splice(0,4);let result,uncertain=false;
-            try{result=await mutate('cases/batch-approve',{cases:chunk});}
+            try{result=await mutate('cases/batch-'+action,{cases:chunk,...(rejecting?{reason}:{})});}
             catch(error){uncertain=true;stopReview=true;
-              try{result=await request('cases/batch-status?items='+encodeURIComponent(JSON.stringify(chunk)));}
+              try{result=rejecting?await mutate('cases/batch-reject/status',{cases:chunk,reason}):await request('cases/batch-status?items='+encodeURIComponent(JSON.stringify(chunk)));}
               catch{result={results:chunk.map(r=>({case_id:r.case_id,ok:false,code:'REVIEW_RESULT_UNCONFIRMED'}))};}}
             if(!current())return;
             if(!Array.isArray(result.results)||result.results.length!==chunk.length||new Set(result.results.map(r=>r.case_id)).size!==chunk.length||result.results.some(r=>!chunk.some(c=>c.case_id===r.case_id)))throw new PublicError('SERVICE_UNAVAILABLE');
             for(const row of result.results){
-              done++;
-              if(row.ok&&['approved','completed'].includes(row.status)){success++;selectedReviews.delete(row.case_id);}
-              else{failed++;report.failures.push({case_id:row.case_id,reason:row.code==='REVIEW_RESULT_UNCONFIRMED'?'結果尚未確認；請重新讀取案件及稽核，未自動重送。':adminMessage(row)+' ('+(row.code??'SERVICE_UNAVAILABLE')+')'});}
+              if(row.code==='REVIEW_NOT_SUBMITTED'){stopReview=true;continue;}done++;
+              if(row.ok&&(rejecting?row.status==='rejected':['approved','completed'].includes(row.status))){success++;selectedReviews.delete(row.case_id);}
+              else{if(row.unknown||row.code==='REVIEW_RESULT_UNCONFIRMED'){unconfirmed++;stopReview=true;}else failed++;report.failures.push({case_id:row.case_id,reason:row.code==='REVIEW_RESULT_UNCONFIRMED'?'結果尚未確認；請重新讀取案件及稽核，未自動重送。':adminMessage(row)+' ('+(row.code??'SERVICE_UNAVAILABLE')+')'});}
             }
             update();if(uncertain)progressText.textContent+=' · 上批回覆曾中斷，已停止後續提交。';
           }
@@ -242,6 +247,7 @@ export function adminUI(session) {
       }
     }
     const approveSelected=button('通過已選案件',()=>void executeReview(),'btn btn-primary');approveSelected.id='admin-batch-approve';
+    const rejectSelected=button('不通過已選案件',()=>void executeReview('reject'),'btn btn-review-reject');rejectSelected.id='admin-batch-reject';
     const approveAll=button('選取全部未審案件',()=>void selectAll());approveAll.id='admin-approve-all';
     const pickLoaded=button('選取前20張初審案件',()=>{
       if(busy)return;if(selectionMode==='first20'){clearSelection();return;}clearSelection();
@@ -252,6 +258,7 @@ export function adminUI(session) {
       const total=selectionMode==='all'?allSelection.total:selectedReviews.size;
       batchCount.textContent=selectionMode==='all'?'已選全站 '+total+' 件合格初審案件（含未載入；不受本頁篩選限制）':selectionMode==='first20'?'已選目前可見前 '+total+' 件初審案件':'已選 '+total+' 筆明確案件';
       approveSelected.dataset.selectionCount=String(total);approveSelected.disabled=busy||!total;
+      rejectSelected.dataset.selectionCount=String(total);rejectSelected.disabled=busy||!total;
       for(const [b,active]of [[pickLoaded,selectionMode==='first20'],[approveAll,selectionMode==='all']]){b.setAttribute('aria-pressed',String(active));b.classList.toggle('btn-primary',active);b.classList.toggle('btn-white',!active);}
       for(const {row,box}of selectable.values())box.checked=selectionMode==='all'?inAllScope(row):selectedReviews.has(row.case_id);
     }
@@ -264,7 +271,8 @@ export function adminUI(session) {
         allSelection={total:plan.total,cutoff:plan.cutoff};selectionMode='all';syncSelected();
       },born);
     }
-    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,approveSelected,progress,progressText,stop,node("p","選取不會核准；只有「通過已選案件」確認後才送出。全部模式手動改選時會清除全選，改為最多20件明確選取。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
+    const reviewButtons=node('div','','review-batch-actions');reviewButtons.append(approveSelected,rejectSelected);
+    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,button('清除目前選取',clearSelection),reviewButtons,progress,progressText,stop,node("p","選取不會審核；確認通過或不通過後才送出。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
     const render = row => {
       const card=node("article","","member-case admin-case-row"),summary=node("div","","case-summary"),player=node("div","","review-person"),actions=node("div","","review-actions");
       const image=button("🖼️",()=>void caseDetail(row.case_id),"case-icon case-preview");image.setAttribute("aria-label","查看證明與審核 "+row.case_id);
@@ -396,6 +404,7 @@ export function adminUI(session) {
       const preview = node("div", "", "admin-proof-grid"); panel.append(preview);
       for (const [index,file] of data.files.entries()) {
         const imageCard=node("article","正在載入證明…","member-case");preview.append(imageCard);
+        if(['cold','deleting'].includes(file.storage_state)){imageCard.textContent=file.storage_state==='cold'?'圖片已清理，備份保存在 Google Drive':'圖片清理結果待確認，暫不提供讀取。';continue;}
         try {
           await access.check(controller.signal);
           const blob=await session.adminProof("/api/admin/cases/"+data.case_id+"/files/"+file.file_id,controller.signal);
@@ -403,6 +412,7 @@ export function adminUI(session) {
           const url=URL.createObjectURL(blob),img=node("img");urls.push(url);img.src=url;img.alt=copy("admin-copy-053")+(index+1);imageCard.replaceChildren(img);
         } catch(error) {
           if(["ADMIN_FORBIDDEN","ADMIN_STEP_UP_REQUIRED","AUTH_REQUIRED","MEMBER_SUSPENDED"].includes(error.code))throw error;
+          if(error.code==='PROOF_ARCHIVED_IN_DRIVE'){imageCard.replaceChildren(node('p','圖片已清理，備份保存在 Google Drive'));continue;}
           imageCard.replaceChildren(node("p",adminMessage(error)),button("重試載入案件",()=>{collapseReview();void caseDetail(id);}));
         }
       }
@@ -514,7 +524,7 @@ export function adminUI(session) {
     $("admin-panel").append(actions);
     await paged("leaderboards", "leaderboards", row => {
       const c = node("article", "", "member-case"); c.append(node("h3", row.name), node("span", statusNames[row.status], "status"), node("p", row.is_public ? copy("admin-copy-086") : copy("admin-copy-087")));
-      if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定榜","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"));return c;}
+      if(row.system_fixed || row.type==="all_time"){c.append(node("span","系統固定計分範圍","status neutral"),node("p",row.rule??"由正式歷史積分即時統計，無需重建。"),button('設定顯示',()=>systemBoardEditor(row)));return c;}
       if(row.is_current_comeback)c.append(node("span","本次回歸","status comeback"));
       c.append(button(copy("admin-copy-088"), () => boardEditor(row)), button(copy("admin-copy-089"), () => void boardResults(row)));
       if (row.status !== "archived") c.append(button(copy("admin-copy-090"), () => { if (window.confirm(copy("admin-copy-091"))) void run(async current => { await mutate("leaderboards/" + row.leaderboard_id + "/rebuild", { expected_version: row.version }); if (current()) await load(); }); },'btn status rejected')); return c;
@@ -529,6 +539,14 @@ export function adminUI(session) {
       heading(row.name); const board = data.leaderboards?.find(b => b.leaderboard_id === row.leaderboard_id);
       $("admin-panel").append(board?.rankings?.length ? rowsTable(board.rankings, [["rank", copy("admin-copy-092")], ["nickname", copy("admin-copy-093")], ["points", copy("admin-copy-094")], ["proof_count", copy("admin-copy-095")]]) : node("p", copy("admin-copy-096")), button(copy("admin-copy-097"), () => void load()));
     });
+  }
+  function systemBoardEditor(row){
+    if(busy)return;clearPanel();heading('排行榜顯示設定');const f=formCard(row.name);
+    field(f,'name','按鈕顯示名稱','text',row.name,{required:true,maxLength:100});
+    field(f,'top_n','顯示前幾名','number',row.top_n,{required:true,min:1,max:100,step:1});
+    const enabled=field(f,'is_public','顯示此排行榜','select',row.is_public?'true':'false',{choices:[['true','顯示'],['false','隱藏']]});
+    f.append(node('p','保留既有歷史／團體／Solo計分範圍，不修改會員積分或歷史成績。','tiny'));submitButton(f,'保存顯示設定');
+    bindForm(f,()=>mutate('leaderboards/'+row.leaderboard_id+'/presentation',{name:value(f,'name'),top_n:integer(f,'top_n',1,100),is_public:enabled.value==='true',expected_version:row.version}));
   }
   async function boardEditor(row) {
     if (busy) return; clearPanel(); heading(copy("admin-copy-019"));
@@ -611,10 +629,18 @@ export function adminUI(session) {
     if(management(access.actor)){const lookup=button('會員查詢',()=>memberContact.open(),'btn btn-white');members.classList.add('member-total-contact');members.append(lookup);memberContact=memberContactUI({request,opener:lookup});}
     grid.append(members);
     for(const [state,label] of [['pending','待審核'],['approved','已通過'],['rejected','未通過'],['revoked','已撤銷']]){
-      const card=node('article','','activity-card');card.append(node('span',label,'tiny'),node('strong',String(totals.case_totals?.[state]??'尚未取得全站統計')));grid.append(card);
+      const card=node('article','','activity-card');card.append(node('span',label,'tiny'),node('strong',String(totals.case_totals?.[state]??'尚未取得全站統計')));
+      if(state!=='revoked'){card.classList.add('member-total-contact');card.append(button('日期區間',()=>overviewDates(state,label)));}grid.append(card);
     }
     $('admin-panel').append(grid,button('前往案件審核',()=>{tab='cases';void load();},'btn btn-primary'));
     if(management(access.actor)){const gate=await request('submissions');$('admin-panel').append(node('p',gate.submissions_enabled?'收件：開放投稿':'收件：目前暫停投稿','notice info'));}
+  }
+  function overviewDates(state,label){
+    const dialog=node('dialog','','admin-range-dialog'),f=node('form','','admin-filter');f.append(node('h3',label+' · 投稿日期區間（台灣時間）'));
+    const from=field(f,'overview-from','開始日期','date','',{required:true}),to=field(f,'overview-to','結束日期','date','',{required:true});
+    const result=node('p','','notice info'),submit=node('button','查詢數量','btn btn-primary');submit.type='submit';
+    f.append(submit,button('關閉',()=>dialog.close()),result);dialog.append(f);$('admin-panel').append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
+    const born=sequence;f.addEventListener('submit',async e=>{e.preventDefault();if(!f.reportValidity()||from.value>to.value){result.textContent='請選擇有效的日期區間。';return;}submit.disabled=true;try{const d=await request('overview?'+new URLSearchParams({from:from.value,to:to.value}));if(born===sequence&&dialog.isConnected)result.textContent=label+'：'+d.case_totals[state]+' 件（依投稿時間統計）';}catch(error){if(dialog.isConnected)result.textContent=adminMessage(error);}finally{submit.disabled=false;}});
   }
   async function staff(){
     heading('管理員管理','對方需先以 Google 帳號登入並完成會員資料；取得權限後仍須完成 MFA 才能使用後台。');
@@ -660,6 +686,7 @@ export function adminUI(session) {
     d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;if(busy){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===cancel){e.preventDefault();confirm.focus();}else if(!e.shiftKey&&document.activeElement===confirm){e.preventDefault();cancel.focus();}});document.body.append(d);d.showModal();cancel.focus();
   }
   const loaders = { overview,
+    manualCleanup:async()=>{const born=sequence,stop=await renderManualCleanup({container:$('admin-panel'),request,run:action=>run(action,born,{review:true}),isCurrent:()=>born===sequence&&visible,loadProof:async row=>{await access.check(controller.signal);return session.adminProof('/api/admin/cases/'+row.case_id+'/files/'+row.file_id,controller.signal);}});if(born===sequence)adminInsightsStop=stop;else stop();},
     members:async()=>{const born=sequence,stop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
     healthMonitor:async()=>{const born=sequence,stop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
     cases, backups:()=>{heading('Google Drive 備份');return backupOverview();}, announcements, exports:()=>renderImageExports({container:$('admin-panel'),request,session,signal:controller.signal}), campaigns, leaderboards: boards, tiers, blocks, submissions, audit, staff };
@@ -670,9 +697,12 @@ export function adminUI(session) {
       if (!canUseTab(actor,tab)) tab = "cases";
       $("admin-tabs").replaceChildren();
       for (const [key, label] of Object.entries(tabs)) if (canUseTab(actor,key)) {
-        const b = button(label, () => { if (!busy) { tab = key; void load(); } }, "btn " + (tab === key ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(tab === key)); $("admin-tabs").append(b);
+        const active=tab===key||key==='members'&&['tiers','blocks'].includes(tab);
+        const b = button(label, () => { if (!busy) { tab = key; void load(); } }, "btn " + (active ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(active)); $("admin-tabs").append(b);
       }
-      $("admin-panel").append(button(copy("admin-copy-144"), () => void load())); await loaders[tab]();
+      const toolbar=node('div','','admin-panel-toolbar'),memberTabs=node('nav','','tabs');memberTabs.setAttribute('aria-label','會員管理功能');
+      if(['members','tiers','blocks'].includes(tab))for(const [key,label]of [['members','會員列表'],['tiers','會員等級'],['blocks','會員封鎖']]){const b=button(label,()=>{if(!busy){tab=key;void load();}},'btn '+(tab===key?'btn-primary':'btn-white'));b.setAttribute('aria-pressed',String(tab===key));memberTabs.append(b);}
+      toolbar.append(memberTabs,button(copy("admin-copy-144"), () => void load()));$("admin-panel").append(toolbar);await loaders[tab]();
     }, born);
   }
   $("admin-retry").addEventListener("click", () => void load());

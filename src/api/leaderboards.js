@@ -18,7 +18,7 @@ export async function getLeaderboards(env, url) {
   // filter explicitly instead of silently presenting totals as artist scores.
   if (url.searchParams.has('solo_target')) return jsonError(400,'INVALID_LEADERBOARD_QUERY','Invalid leaderboard query');
   try {
-    const definitions=await publicBoardDefinitions(env.DB,id);
+    const definitions=await publicBoardDefinitions(env.DB,id,{presentation:env.ADMIN_LEADERBOARD_PRESENTATION_ENABLED==='true'});
     if(view==='catalog')return jsonSuccess({...leaderboardPayload(definitions),refreshed_at:new Date().toISOString()},'public, max-age=0, must-revalidate');
     // Read active/public definitions before looking up cached scores. Hiding or
     // changing a board takes effect immediately, independent of score TTL.

@@ -5,6 +5,13 @@ import{fencedRequest}from'../src/lib/prelaunch-reset-fence.js';
 import{memberSession,csrfToken}from'../src/lib/auth-session.js';
 import worker from'../src/index.js';
 const sha=createHash('sha256').update(image).digest('hex');
+test('preferred SHA source chooses approved over an older pending match without extra points',async t=>{
+ const f=await setup(t),older=await f.proof(),accepted=await f.proof();
+ assert.equal(accepted.data.exact_classification.decision,'pending_match');assert.equal((await f.review(accepted,'approve')).status,200);
+ const newest=await f.proof();assert.equal(newest.data.status,'duplicate');
+ const basis=f.read('SELECT c.case_id FROM case_sha256_decisions d JOIN cases c ON c.id=d.reference_case_id WHERE d.case_internal_id=(SELECT id FROM cases WHERE case_id=?)',newest.data.case_id);
+ assert.equal(basis.case_id,accepted.data.case_id);assert.notEqual(basis.case_id,older.data.case_id);assert.equal(f.read('SELECT COUNT(*) n FROM point_transactions').n,1);
+});
 globalThis.fetch=async url=>{assert.equal(String(url),'https://challenges.cloudflare.com/turnstile/v0/siteverify');return Response.json({success:true});};
 async function setup(t,{exact=true,install=true,observe=true}={}){
  const f=await embeddedCaseRuntime();t.after(()=>f.close());const a=await f.identity('admin'),b=await f.identity();f.sqlite.exec('UPDATE submission_settings SET submissions_enabled=1');

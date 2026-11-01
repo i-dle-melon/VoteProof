@@ -1,4 +1,4 @@
-import { systemBoards,isSystemBoard,rejectSystemMutation,liveSystemBoards } from './system-leaderboards.js';
+import { systemBoards,configuredSystemBoards,isSystemBoard,rejectSystemMutation,liveSystemBoards } from './system-leaderboards.js';
 import { AdminError, ELEVATED_AUTH_GUARD, actorBindings, adminDenied } from './admin-identity.js';
 import { boardConflict, boardMissing } from './leaderboard-policy.js';
 import { LEDGER_CTE, INTEGRITY_SQL } from './leaderboard-ranking.js';
@@ -10,12 +10,12 @@ const definitionFields = ['name','type','campaign_id','start_date','end_date','v
 const scopeFields = ['type','campaign_id','start_date','end_date','vote_type'];
 const safeBoard = row => { const { last_mutation_id, ...safe } = row; return { ...safe, is_public: Boolean(safe.is_public), is_current_comeback: Boolean(safe.is_current_comeback) }; };
 export const boardRow = (db, id) => db.prepare('SELECT * FROM leaderboards WHERE leaderboard_id = ?').bind(id).first();
-export async function getBoard(db, id) {
-  const fixed=systemBoards.find(b=>b.leaderboard_id===id); if(fixed)return fixed;
+export async function getBoard(db, id, presentation=false) {
+  const fixed=systemBoards.find(b=>b.leaderboard_id===id); if(fixed)return (await configuredSystemBoards(db,presentation)).find(b=>b.leaderboard_id===id);
   if (typeof id !== 'string' || !CAMPAIGN_ID.test(id)) throw boardMissing();
   const row = await boardRow(db, id); if (!row) throw boardMissing(); return safeBoard(row);
 }
-export async function listBoards(db, url) {
+export async function listBoards(db, url, presentation=false) {
   const invalid = () => { throw new AdminError(400, 'INVALID_ADMIN_QUERY', 'Invalid leaderboard pagination'); };
   for (const k of url.searchParams.keys()) if (!['limit','cursor','status'].includes(k) || url.searchParams.getAll(k).length !== 1) invalid();
   const status = url.searchParams.get('status'), raw = url.searchParams.get('limit'), limit = raw === null ? 20 : Number(raw);
@@ -33,7 +33,7 @@ export async function listBoards(db, url) {
   }
   const rows = (await db.prepare(`SELECT * FROM leaderboards ${where.length ? 'WHERE '+where.join(' AND ') : ''} ORDER BY created_at DESC, leaderboard_id DESC LIMIT ?`).bind(...args,limit+1).all()).results;
   const selected = rows.slice(0,limit), last = selected.at(-1);
-  return { leaderboards: selected.map(safeBoard), system_boards:encoded===null && (!status || status==="active")?systemBoards:[], next_cursor: rows.length > limit ? encodeCursor([status,last.created_at,last.leaderboard_id]) : null };
+  return { leaderboards: selected.map(safeBoard), system_boards:encoded===null && (!status || status==="active")?await configuredSystemBoards(db,presentation):[], next_cursor: rows.length > limit ? encodeCursor([status,last.created_at,last.leaderboard_id]) : null };
 }
 export async function saveBoard(db, actor, input, existing = null) {
   rejectSystemMutation(existing);rejectSystemMutation(input);

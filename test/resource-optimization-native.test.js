@@ -1,0 +1,30 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+import {createRequire} from 'node:module';
+import {localAdminRuntime} from '../scripts/lib/local-admin-runtime.mjs';
+import {measuredD1} from '../scripts/lib/measured-d1.mjs';
+import {adminHealthMonitorRoute} from '../src/api/admin-health-monitor.js';
+import {fencedRequest} from '../src/lib/prelaunch-reset-fence.js';
+import {RESET_V1_SQL_SHA256} from '../src/lib/prelaunch-reset-schema.js';
+import {exactDecisionStatement} from '../src/lib/case-exact-classification.js';
+const require=createRequire(import.meta.url),{unstable_splitSqlQuery}=require('wrangler');
+test('light health probes native D1 only; full histories stay lazy and evidence remains UNKNOWN',async t=>{
+ const h=await localAdminRuntime(),l=h.local;t.after(()=>l.runtime.dispose());const actor=await h.identity({role:'super_admin'}),now=Math.floor(Date.now()/1000);
+ await l.db.batch(Array.from({length:1001},(_,n)=>l.db.prepare("INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)").bind('synthetic-'+n,now,'inventory','storage','{}')));
+ for(const file of['migrations-storage-policy/0001_observe_capacity.sql','migrations-reset-v1/0001_reset_fence.sql'])await l.db.batch(unstable_splitSqlQuery(fs.readFileSync(file,'utf8')).map(sql=>l.db.prepare(sql)));
+ await l.db.batch([l.db.prepare('INSERT INTO prelaunch_reset_schema_versions VALUES(1,?,?)').bind(RESET_V1_SQL_SHA256,new Date().toISOString()),l.db.prepare("UPDATE prelaunch_reset_control SET mode='open'")]);
+ const base={...l.authConfig,DB:l.db,PRELAUNCH_RESET_FENCE_ENABLED:'true'},counts={};
+ const write=sql=>fencedRequest(base,new Request('https://voteproof.example/api/synthetic-write',{method:'POST'}),async e=>{await e.DB.prepare(sql).run();return Response.json({ok:true});});
+ async function get(path){const m=measuredD1(l.db),url=new URL(path,'https://voteproof.example'),req=new Request(url,{headers:actor.headers});const r=await fencedRequest({...base,DB:m.db},req,e=>adminHealthMonitorRoute(url.pathname).handler(e,url,req));counts[path]=m.totals();return{status:r.status,...await r.json()};}
+ const old=await get('/api/admin/health-monitor/summary');assert.equal(old.status,200);await get('/api/admin/health-monitor/events?type=all&status=all');
+ await write('UPDATE storage_capacity SET trusted_until=0');
+ const light=await get('/api/admin/health-monitor/summary?view=overview');assert.equal(light.status,200);assert.equal(light.data.checks.upload.state,'abnormal');assert.equal(light.data.checks.backup.state,'unknown');assert.equal(light.data.checks.storage.state,'unknown');
+ assert.equal(counts['/api/admin/health-monitor/summary?view=overview'].rows_written,0);assert.ok(counts['/api/admin/health-monitor/summary?view=overview'].statements<counts['/api/admin/health-monitor/summary'].statements);
+ await write("UPDATE storage_capacity SET anomaly='synthetic-anomaly'");const bad=await get('/api/admin/health-monitor/summary?view=overview');assert.equal(bad.data.checks.upload.state,'abnormal');assert.equal(bad.data.checks.storage.state,'abnormal');
+ for(const suffix of['?view=unknown','?view=overview&view=overview','?view=overview&extra=1'])assert.equal((await get('/api/admin/health-monitor/summary'+suffix)).status,400);
+ const url=new URL('https://voteproof.example/api/admin/health-monitor/summary?view=overview'),unauth=await adminHealthMonitorRoute(url.pathname).handler({...l.authConfig,DB:l.db},url,new Request(url));assert.equal(unauth.status,401);
+ await l.db.batch(unstable_splitSqlQuery(fs.readFileSync('migrations-exact-classification/0001_case_sha256.sql','utf8')).map(sql=>l.db.prepare(sql)));
+ let sql,args;exactDecisionStatement({prepare:s=>{sql=s;return{bind:(...a)=>{args=a;}};}},{sessionId:'synthetic',memberId:actor.memberId,campaignId:'LOCAL-TEST'},{id:'synthetic-case',now:new Date().toISOString()},{id:'synthetic',key:'synthetic',sha256:'a'.repeat(64),size:3});
+ const plan=(await l.db.prepare('EXPLAIN QUERY PLAN '+sql).bind(...args).all()).results;
+ fs.writeFileSync('.wrangler/resource-health-native-cost.json',JSON.stringify({evidence:'local workerd D1 meta; 1001 audit fixtures; cloud CPU UNKNOWN',counts,sha_query_plan:plan},null,2));
+ assert.ok(plan.some(r=>r.detail.includes('idx_case_sha_consumed')));assert.ok(plan.some(r=>r.detail.includes('idx_case_sha_legacy_scope')));
+});

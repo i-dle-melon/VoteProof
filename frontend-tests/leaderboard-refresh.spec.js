@@ -46,12 +46,12 @@ test('automatic refresh failure retains last successful table and error; home av
   s.calls.length=0;await page.goto('/#home');await expect(page.locator('#home-board-results')).toContainText('10 點');expect(s.calls).toEqual([]);
   await page.reload();await expect(page.locator('#home-board-results')).toContainText('10 點');expect(s.calls).toEqual(['system-history']);
 });
-test('Pages fixture shares catalog/detail renderer and retains all seven board buttons without Production calls',async({page})=>{
+test('Pages catalog includes its named comeback campaign button without Production calls',async({page})=>{
   const apiRequests=[];page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/'))apiRequests.push(r.url());});
   await page.goto('http://127.0.0.1:4174/VoteProof/?preview_identity=guest#leaderboards');
   await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');
   await expect(page.locator('#board-results tr')).not.toHaveCount(0);
-  await expect(page.locator('#board-categories button')).toHaveCount(7);
+  await expect(page.locator('#board-categories button')).toHaveCount(8);
   await page.locator('#board-categories [data-custom-board]').last().click();
   await expect(page.locator('#board-name')).toHaveText('展示特別活動榜');expect(apiRequests).toEqual([]);
 });

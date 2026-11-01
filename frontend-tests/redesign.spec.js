@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { memberFixture, png } from "./member-fixture.mjs";
 import { adminFixture } from "./admin-fixture.mjs";
 
-test("four default categories append configured custom buttons and preserve honest empty states", async ({
+test("published categories append named campaign/custom buttons and preserve honest empty states", async ({
   page,
 }) => {
   await page.clock.install();
@@ -33,10 +33,11 @@ test("four default categories append configured custom buttons and preserve hone
   );
   await page.goto("/#leaderboards");
   await expect(page.locator("#board-categories button")).toHaveText([
-    "歷史累計",
+    "公開 history",
     "本次回歸",
-    "團體排行",
-    "Solo 總排行",
+    "公開 group",
+    "公開 solo",
+    "公開 comeback",
     "公開 custom-a",
     "公開 custom-b",
   ]);
@@ -53,18 +54,15 @@ test("four default categories append configured custom buttons and preserve hone
   boards.splice(1, 1);
   await page.clock.fastForward(120001);
   await page.locator("#boards-refresh").click();
-  await page.locator("[data-category=comeback]").click();
-  await expect(page.locator("#boards-message")).toContainText("目前沒有公開排行榜");
-  await expect(page.locator("#board-table")).toBeHidden();
+  await expect(page.locator("[data-category=comeback]")).toHaveCount(0);
+  await expect(page.locator("[data-custom-board=comeback]")).toHaveCount(0);
+  await expect(page.locator('#board-name')).toHaveText('公開 custom-b');
   boards.splice(0);
   await page.clock.fastForward(120001);
   await page.locator("#boards-refresh").click();
-  await expect(page.locator("#board-categories button")).toHaveText([
-    "歷史累計",
-    "本次回歸",
-    "團體排行",
-    "Solo 總排行",
-  ]);
+  await expect(page.locator("#board-categories button")).toHaveCount(0);
+  await expect(page.locator("#boards-message")).toContainText("目前沒有公開排行榜");
+  await expect(page.locator("#board-table")).toBeHidden();
 });
 
 test("admin custom button name and display switch persist without publishing invented scores", async ({
@@ -99,7 +97,7 @@ test("admin custom button name and display switch persist without publishing inv
     }),
   );
   await page.goto("/#leaderboards");
-  await expect(page.locator("#board-categories button")).toHaveCount(4);
+  await expect(page.locator("#board-categories button")).toHaveCount(0);
   await page.goto("/admin");
   await page
     .locator("#admin-tabs")
@@ -116,7 +114,7 @@ test("admin custom button name and display switch persist without publishing inv
   await expect(page.locator("#admin-panel")).toContainText("生日應援榜");
   expect(state.boards[0].is_public).toBe(true);
   await page.goto("/#leaderboards");
-  await expect(page.locator("#board-categories button")).toHaveCount(5);
+  await expect(page.locator("#board-categories button")).toHaveCount(1);
   await page.locator("[data-custom-board=BOARD]").click();
   await expect(page.locator("#boards-message")).toContainText("還沒有成績");
   await page.goto("/admin");
@@ -133,7 +131,7 @@ test("admin custom button name and display switch persist without publishing inv
   await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
   expect(state.boards[0].is_public).toBe(false);
   await page.goto("/#leaderboards");
-  await expect(page.locator("#board-categories button")).toHaveCount(4);
+  await expect(page.locator("#board-categories button")).toHaveCount(0);
   expect(state.calls.some((c) => c.path.endsWith("/rebuild") && c.method === "POST")).toBe(false);
 });
 

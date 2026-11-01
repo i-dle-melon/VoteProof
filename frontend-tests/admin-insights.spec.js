@@ -12,6 +12,7 @@ async function setup(page,options={}){
   state.insights.push(path+url.search);
   const reply=data=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data})});
   if(path.endsWith('/points/adjustments')){state.writes.push({body:req.postDataJSON(),headers:req.headers()});if(state.holdWrite)await state.holdWrite;if(state.lostAck)return route.abort();members[0].total_points+=req.postDataJSON().points;return reply({transaction_id:'synthetic-adjustment',points:req.postDataJSON().points});}
+  if(path.endsWith('/summary')&&url.searchParams.get('view')==='overview'){if(state.holdSummary)await state.holdSummary;return reply({schema_compatibility:'p1_legacy_0028_v1',view:'overview',checked_at:1,checks:{api:{state:'normal',message:'管理API本次可讀'},upload:{state:'unknown',message:'沒有真實上傳證據'},storage:{state:'unknown',message:'快照已過期'},backup:{state:'unknown',message:'資料不完整'}}});}
   if(path.endsWith('/summary')){if(state.holdSummary)await state.holdSummary;return reply({schema_compatibility:'p1_legacy_0028_v1',checked_at:1,upload_failures:{count:null},backup_failures:{count:2,coverage:'complete_table'},cleanup_failures:{count:null,coverage:'partial_window'},pending_operations:{count:null,legacy_ack_unverified:true,known_signals:{reservations:{count:0,observed_count:0},write_pins:{count:null,observed_count:1}}},storage:{used_bytes:1000,budget_bytes:10000000000,observed_at:1,trusted_until:1,blocked:true,cleanup_mode:'dry-run'}});}
   if(path.endsWith('/events'))return reply({schema_compatibility:'p1_legacy_0028_v1',events:url.searchParams.get('type')==='operation'?[]:[{id:'audit:1',created_at:1790812800,type:'capacity',code:'alert_ambiguous',status:'manual'}],next_cursor:null,coverage:url.searchParams.get('type')==='operation'?'unsupported':'partial_window',message:'僅已記錄窗口；舊 DELETE／ACK UNKNOWN。'});
   if(path.endsWith('/transactions'))return reply({transactions:[{created_at:'2026-10-01T00:00:00.000Z',category:'manual_adjustment',points:10,reason:'測試紀錄'}],next_cursor:null});
@@ -51,38 +52,31 @@ test('cancelled confirmation sends no member mutation',async({page})=>{
  await tab(page,'會員管理');await root(page).getByRole('button',{name:'詳細資料',exact:true}).first().click();await root(page).getByRole('button',{name:'調整積分',exact:true}).click();await root(page).getByRole('button',{name:'封鎖會員',exact:true}).click();
  expect(s.writes).toEqual([]);expect(s.calls.filter(c=>c.path==='/api/admin/member-blocks'&&c.method==='POST')).toEqual([]);
 });
-test('health refresh is serialized and polling stops while hidden, after navigation and MFA expiry',async({page})=>{
- await page.clock.install();const s=await setup(page);await tab(page,'系統健康監控');await expect(root(page)).toContainText('alert_ambiguous');await expect(root(page)).toContainText('快照已過期');await expect(root(page)).toContainText('資料不完整');
- const summaries=()=>s.insights.filter(x=>x.endsWith('/summary')).length;
- let release;s.holdSummary=new Promise(r=>release=r);await root(page).getByRole('button',{name:'立即更新',exact:true}).evaluate(b=>{b.click();b.click();});await expect.poll(summaries).toBe(2);
- await root(page).getByLabel('每 60 秒更新').check();await page.clock.runFor(5000);expect(summaries()).toBe(2);release();s.holdSummary=null;await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeEnabled();
- await page.evaluate(()=>{Object.defineProperties(document,{hidden:{configurable:true,value:true},visibilityState:{configurable:true,value:'hidden'}});document.dispatchEvent(new Event('visibilitychange'));});await page.clock.runFor(120000);expect(summaries()).toBe(2);
- await Promise.all([page.waitForResponse('**/api/admin/me'),page.evaluate(()=>{Object.defineProperties(document,{hidden:{configurable:true,value:false},visibilityState:{configurable:true,value:'visible'}});document.dispatchEvent(new Event('visibilitychange'));})]);await page.clock.runFor(60000);await expect.poll(summaries).toBe(3);
- // A virtual 60-second jump must not expire a real, still-pending auth/overview
- // request. Await both the poll completion and destination render first.
- await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeEnabled();
- let releaseAuth;s.holdAdminCheck=new Promise(r=>releaseAuth=r);
- const moving=tab(page,'工作總覽');await expect.poll(()=>s.authCheckHeld).toBe(true);
- await expect(root(page)).toHaveAttribute('aria-busy','true');
- releaseAuth();s.holdAdminCheck=null;await moving;
- const before=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(before);
- await tab(page,'系統健康監控');await expect(root(page)).toContainText('alert_ambiguous');await root(page).getByLabel('每 60 秒更新').check();s.elevationUntil=0;await page.clock.runFor(60000);await expect(page.locator('#admin-gate')).toBeVisible();const stopped=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(stopped);
+test('health refresh is serialized, manual only, and stops after navigation and MFA expiry',async({page})=>{
+ await page.clock.install();const s=await setup(page);await tab(page,'系統健康監控');await expect(root(page)).toContainText('快照已過期');await expect(root(page)).toContainText('資料不完整');
+ const summaries=()=>s.insights.filter(x=>x.includes('/summary')).length;expect(summaries()).toBe(1);expect(s.insights.some(x=>x.includes('/events'))).toBe(false);await expect(root(page).getByRole('checkbox')).toHaveCount(0);
+ let release;s.holdSummary=new Promise(r=>release=r);await root(page).getByRole('button',{name:'立即更新',exact:true}).evaluate(b=>{b.click();b.click();});await expect.poll(summaries).toBe(2);release();s.holdSummary=null;await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeEnabled();
+ await page.clock.runFor(180000);expect(summaries()).toBe(2);
+ await tab(page,'工作總覽');const before=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(before);
+ await tab(page,'系統健康監控');s.elevationUntil=0;await root(page).getByRole('button',{name:'立即更新',exact:true}).click();await expect(page.locator('#admin-gate')).toBeVisible();const stopped=s.insights.length;await page.clock.runFor(60000);expect(s.insights.length).toBe(stopped);
 });
+
 test('reviewer cannot access either P1 tab',async({page})=>{
  await setup(page,{role:'reviewer'});for(const name of ['會員管理','系統健康監控'])await expect(page.locator('#admin-tabs').getByRole('button',{name,exact:true})).toHaveCount(0);
 });
 
 test('B0 UNKNOWN, unsupported and partial windows are explicit; auto refresh starts OFF',async({page})=>{
- const s=await setup(page);await tab(page,'系統健康監控');await expect(root(page)).toContainText('PARTIAL WINDOW');await expect(root(page)).toContainText('完整作業／Archive Dispatch：UNSUPPORTED');
- await expect(root(page).getByLabel('每 60 秒更新')).not.toBeChecked();
- await root(page).getByLabel('異常類型',{exact:true}).selectOption('operation');await expect(root(page)).toContainText('不代表 0 件');
+ const s=await setup(page);await tab(page,'系統健康監控');await expect(root(page)).not.toContainText('PARTIAL WINDOW');expect(s.insights).toHaveLength(1);
+ await root(page).getByText('技術資訊（按需載入）',{exact:true}).click();await expect(root(page)).toContainText('完整作業／Archive Dispatch：UNSUPPORTED');
+ await root(page).getByText('詳細歷史（按需載入）',{exact:true}).click();await expect(root(page)).toContainText('PARTIAL WINDOW');
+ await root(page).getByLabel('異常類型',{exact:true}).selectOption('operation');await root(page).getByRole('button',{name:'篩選',exact:true}).click();await expect(root(page)).toContainText('不代表 0 件');
  expect(s.writes).toEqual([]);
 });
 
 test('new frontend with old Worker404 stops polling and shows version mismatch instead of fabricated data',async({page})=>{
  await page.clock.install();await setup(page);let calls=0;
  await page.route('**/api/admin/health-monitor/**',route=>{calls++;return route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'NOT_FOUND'}})});});
- await tab(page,'系統健康監控');await expect(root(page)).toContainText('版本不相容或尚未發布');await expect(root(page).getByLabel('每 60 秒更新')).toBeDisabled();
+ await tab(page,'系統健康監控');await expect(root(page)).toContainText('版本不相容或尚未發布');await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeDisabled();
  const before=calls;await page.clock.runFor(180000);expect(calls).toBe(before);
  await page.route('**/api/admin/members-overview**',route=>route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'NOT_FOUND'}})}));
  await tab(page,'會員管理');await expect(root(page)).toContainText('Worker 尚未提供會員管理 API');
@@ -90,16 +84,16 @@ test('new frontend with old Worker404 stops polling and shows version mismatch i
 
 test('pending health read cannot update a hidden or departed page',async({page})=>{
  const s=await setup(page);await tab(page,'系統健康監控');let release;s.holdSummary=new Promise(r=>release=r);
- await root(page).getByRole('button',{name:'立即更新',exact:true}).click();await expect.poll(()=>s.insights.filter(x=>x.endsWith('/summary')).length).toBe(2);
+ await root(page).getByRole('button',{name:'立即更新',exact:true}).click();await expect.poll(()=>s.insights.filter(x=>x.includes('/summary')).length).toBe(2);
  const before=s.insights.length;await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});release();s.holdSummary=null;
  await expect(root(page).getByRole('button',{name:'立即更新',exact:true})).toBeEnabled();expect(s.insights.length).toBe(before);
  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});
  await tab(page,'工作總覽');await expect(root(page)).not.toContainText('R2 容量與已觀察訊號');
 });
-test('logout aborts pending health reads and stops enabled polling',async({page})=>{
- await page.clock.install();const s=await setup(page);await tab(page,'系統健康監控');await root(page).getByLabel('每 60 秒更新').check();
+test('logout aborts pending health reads and cannot resume background refresh',async({page})=>{
+ await page.clock.install();const s=await setup(page);await tab(page,'系統健康監控');await expect(root(page).getByRole('checkbox')).toHaveCount(0);
  let release;s.holdSummary=new Promise(r=>release=r);await root(page).getByRole('button',{name:'立即更新',exact:true}).click();
- await expect.poll(()=>s.insights.filter(x=>x.endsWith('/summary')).length).toBe(2);
+ await expect.poll(()=>s.insights.filter(x=>x.includes('/summary')).length).toBe(2);
  await page.locator('#logout-button').click();await expect.poll(()=>s.authenticated).toBe(false);await expect(page.locator('#admin-gate')).toBeVisible();
  const before=s.insights.length;release();s.holdSummary=null;await page.clock.runFor(180000);expect(s.insights.length).toBe(before);
  await expect(root(page)).not.toContainText('R2 容量與已觀察訊號');

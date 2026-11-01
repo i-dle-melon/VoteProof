@@ -34,7 +34,9 @@ function count(row){return {count:row.sampled_rows>=SENTINEL?null:row.observed_c
  observed_count:row.observed_count,coverage:row.sampled_rows>=SENTINEL?'partial_window':'complete_table',
  window_limit:WINDOW,truncated:row.sampled_rows>=SENTINEL};}
 const summary=adminHandler(async(env,url,request)=>{
- await adminIdentity(request,env,ELEVATED_ROLES);if(url.search)throw invalid();
+ await adminIdentity(request,env,ELEVATED_ROLES);
+ if(url.searchParams.size===1&&url.searchParams.getAll('view').length===1&&url.searchParams.get('view')==='overview')return quickSummary(env);
+ if(url.search)throw invalid();
  const now=Math.floor(Date.now()/1000),db=authDatabase(env);
  const rows=await db.batch([
   counter(db,'proof_backups','provider,status',"provider='google_drive' AND status='failed'"),
@@ -61,6 +63,22 @@ const summary=adminHandler(async(env,url,request)=>{
   coverage:{upload:'partial_coverage',backup:backup.coverage,cleanup:cleanup.coverage,operation:'unsupported',legacy_delete_ack:'unknown'},
   window_limit:WINDOW});
 });
+// Present-state probes only. No COUNT, history, R2, Drive or writes.
+async function quickSummary(env){
+ const now=Math.floor(Date.now()/1000),db=authDatabase(env),r=await db.batch([
+  db.prepare('SELECT k.*,s.submissions_enabled FROM storage_capacity k LEFT JOIN submission_settings s ON s.id=1 WHERE k.id=1'),
+  db.prepare("SELECT EXISTS(SELECT 1 FROM proof_backups WHERE provider='google_drive' AND status='failed') failed,EXISTS(SELECT 1 FROM proof_backups WHERE provider='google_drive' AND status='processing') processing,EXISTS(SELECT 1 FROM proof_backups WHERE provider='google_drive' AND status='pending') pending")
+ ]),s=r[0].results[0],b=r[1].results[0];
+ if(!s)throw new AdminError(503,'ADMIN_SERVICE_UNAVAILABLE','容量狀態尚未取得。');
+ const stale=!s.trusted_until||s.trusted_until<=now||!!s.inventory_dirty||s.observed_at===null,blocked=uploadCapacityBlocked(s,capacityAccountingOnly(env));
+ return jsonSuccess({schema_compatibility:SCHEMA,view:'overview',checked_at:now,
+  checks:{api:{state:'normal',message:'本次管理API及D1讀取成功；不代表全站每個API都已驗收。'},
+   upload:{state:s.anomaly||blocked?'abnormal':'unknown',message:s.anomaly?'存在容量資料異常。':blocked?'容量保護目前拒絕新寫入。':s.submissions_enabled!==1?'投稿開關未開放；本頁不執行試上傳。':'投稿開關已開放；未進行真實上傳，端到端狀態未知。'},
+   storage:{state:s.anomaly?'abnormal':stale?'unknown':'normal',message:s.anomaly?'存在容量異常。':stale?'快照已過期或失效，無法證明即時容量。':'最近可信快照有效；不是即時全桶掃描。'},
+   backup:{state:b.failed?'abnormal':'unknown',message:b.failed?'已記錄備份失敗，請展開詳細資訊。':b.processing||b.pending?'有排隊或處理中的已記錄備份；尚未驗證全部圖片完整覆蓋。':'未發現已記錄失敗；未核對缺漏及Drive實體，不能推定全部備份正常。'}},
+  storage:{used_bytes:s.observed_at===null?null:s.used_bytes,reserved_bytes:s.reserved_bytes,budget_bytes:STORAGE.budget,observed_at:s.observed_at,trusted_until:s.trusted_until,snapshot_stale:stale,inventory_invalidated:!!s.inventory_dirty,anomaly:s.anomaly,blocked,upload_policy:capacityAccountingOnly(env)&&s.upload_policy==='observe'?'observe':'enforced',cleanup_mode:env.STORAGE_CLEANUP_LIVE_ENABLED==='true'?'live':'dry-run'},
+  coverage:{upload:'unverified_end_to_end',backup:'registered_jobs_only',legacy_delete_ack:'unknown'},message:'只顯示已取得證據；技術訊號與固定歷史窗口按需載入。'});
+}
 const sources={
  backup:{table:'proof_backups',prefix:'backup:',columns:'id,created_at,provider,status,last_error_code',
   eligible:"provider='google_drive' AND status='failed'",state:"'pending'",code:"coalesce(last_error_code,'BACKUP_FAILED')",kind:"'backup'"},

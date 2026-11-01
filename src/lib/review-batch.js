@@ -15,6 +15,41 @@ export function batchReviewInput(body){
  }
  return body.cases;
 }
+export function batchRejectInput(body,role){
+ if(!body||Object.keys(body).some(k=>!['cases','reason'].includes(k)))throw new AdminError(400,'INVALID_REVIEW_BATCH','請提供案件及共同不通過原因。');
+ const items=batchReviewInput({cases:body.cases});
+ const {reason}=reviewInput({action:'reject',expected_version:0,reason:body.reason},role);
+ return {items,reason};
+}
+async function acknowledgedRejection(db,actor,item,reason){
+ return db.prepare(`SELECT c.case_id,c.status,c.version,c.points_awarded,c.point_status FROM cases c
+ JOIN admin_audit_logs a ON a.target_id=c.case_id AND a.target_type='case' AND a.action='reject'
+ AND a.target_version=? AND a.admin_member_id=? AND a.reason=?
+ WHERE c.case_id=? AND c.status='rejected' AND c.version=?`)
+ .bind(item.expected_version+1,actor.member.member_id,reason,item.case_id,item.expected_version+1).first();
+}
+export async function batchReject(db,actor,items,reason,{statusOnly=false}={}){
+ const results=[];let halted=false;
+ for(const item of items){
+  if(halted){results.push({ok:false,case_id:item.case_id,code:'REVIEW_NOT_SUBMITTED',status:409});continue;}
+  try{
+   const prior=await acknowledgedRejection(db,actor,item,reason);
+   if(prior){results.push({ok:true,...prior,outcome:'already_rejected'});continue;}
+   if(statusOnly){results.push({ok:false,unknown:true,case_id:item.case_id,code:'REVIEW_RESULT_UNCONFIRMED',status:409});continue;}
+   const row=await adminCase(db,item.case_id);
+   if(!row)throw new AdminError(404,'CASE_NOT_FOUND','案件不存在。');
+   const input=reviewInput({action:'reject',expected_version:item.expected_version,reason},actor.role);
+   const result=await applyReview(db,actor,row,input);
+   results.push({ok:true,...result,outcome:'rejected'});
+  }catch(error){
+   try{const prior=await acknowledgedRejection(db,actor,item,reason);if(prior){results.push({ok:true,...prior,outcome:'already_rejected'});halted=!(error instanceof AdminError)||error.status>=500;continue;}}catch{}
+   const unknown=!(error instanceof AdminError)||error.status>=500;
+   results.push({ok:false,unknown,case_id:item.case_id,code:unknown?'REVIEW_RESULT_UNCONFIRMED':error.code,status:unknown?503:error.status});
+   if(unknown)halted=true;
+  }
+ }
+ return {results,succeeded:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok&&!r.unknown).length,unknown:results.filter(r=>r.unknown).length};
+}
 async function acknowledgedApproval(db,item){
  const row=await db.prepare(`SELECT c.case_id,c.status,c.version,c.points_awarded,c.point_status,c.review_stage,c.review_risk_reason
   FROM cases c JOIN admin_audit_logs a ON a.target_id=c.case_id AND a.target_type='case' AND a.action='approve' AND a.target_version=?

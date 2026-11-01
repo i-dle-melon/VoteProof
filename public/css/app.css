@@ -2812,3 +2812,14 @@ button.legacy-case-row:hover {
  .audit-table td:last-child { display:block; }.audit-table td:last-child::before { display:none; }
  .audit-pagination { justify-content:flex-start; }.audit-detail-dialog .case-details { grid-template-columns:1fr; }
 }
+
+/* Explicit manual admin actions; no automatic storage operations. */
+.admin-panel-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+.admin-panel-toolbar>button{margin-left:auto}.admin-panel-toolbar .tabs{margin:0}
+.review-batch-actions,.manual-cleanup-actions{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+.btn-review-reject{background:transparent;border:1px solid #d98181;color:#eaa5a5}
+[data-theme="light"] .btn-review-reject{color:#933f3f;border-color:#b96b6b}
+.admin-range-dialog{max-width:min(34rem,94vw);padding:1.5rem;border-radius:1rem;background:var(--surface,#202020);color:inherit;border:1px solid #666}
+@media(max-width:600px){.review-batch-actions>button{flex:1 1 44%;min-height:44px}.manual-cleanup-actions>button{flex:1 1 44%;min-height:44px}.admin-panel-toolbar{align-items:flex-start}.admin-panel-toolbar .tabs{flex:1 1 70%}}
+
+[data-theme="light"] .admin-range-dialog{background:#fff;color:#111}

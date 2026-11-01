@@ -89,6 +89,7 @@ export function proofThumbnails({ session, signal, isCurrent, onAuthError }) {
     }
   }
   function observe(button, row) {
+    if(['cold','deleting'].includes(row.primary_storage_state)){button.textContent=row.primary_storage_state==='cold'?'圖片已清理，備份保存在 Google Drive':'圖片清理結果待確認';return;}
     const primary = row.primary_file_id ?? row.files?.[0]?.file_id;
     if (!primary) {
       button.textContent = "無圖片";

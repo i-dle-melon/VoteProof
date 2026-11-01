@@ -40,7 +40,7 @@ test("banner exists before JS and Production has no preview control bar", async 
   ).toBe(false);
 });
 
-test("normal member fixture fills shared Home, seven board buttons, own Cases and Security", async ({
+test("normal member fixture fills shared Home, named campaign board buttons, own Cases and Security", async ({
   page,
 }) => {
   const requests = [],
@@ -59,6 +59,7 @@ test("normal member fixture fills shared Home, seven board buttons, own Cases an
     "本次回歸",
     "團體排行",
     "Solo 總排行",
+    "本次回歸",
     "展示生日應援榜",
     "展示週末衝刺榜",
     "展示特別活動榜",

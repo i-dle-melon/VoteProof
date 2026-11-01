@@ -1,3 +1,5 @@
+import * as storageModule from '../src/lib/cold-storage.js';
+import {cleanupArchive} from '../src/lib/storage-archive.js';
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -15,10 +17,8 @@ import {
 } from "../src/lib/storage-capacity.js";
 import {
   coldContext,
-  readColdProof,
   storageSignature,
   shaBytes,
-  cleanupDryRun,
 } from "../src/lib/cold-storage.js";
 import { quotaSnapshot } from "../src/api/storage.js";
 import { processStorageAlerts, storageRecipients } from "../src/lib/storage-alerts.js";
@@ -350,84 +350,12 @@ async function bridge(row, { corrupt = false, alter = () => {}, wrongSignature =
     return Response.json(r);
   };
 }
-test("confirmed Drive backup is never enough: downloaded bytes, signature, folder, identity, MIME and size must match", async () => {
-  const row = await coldFixture();
-  const sha = await shaBytes(new Uint8Array([1, 2, 3]));
-  assert.deepEqual(
-    await readColdProof(env(), row, sha, { fetcher: await bridge(row) }),
-    new Uint8Array([1, 2, 3]),
-  );
-  for (const options of [
-    { corrupt: true },
-    { wrongSignature: true },
-    { alter: (p) => (p.metadata.appProperties.voteproof_case_id = "wrong") },
-    { alter: (p) => (p.metadata.mimeType = "image/jpeg") },
-    { alter: (p) => (p.metadata.size = 4) },
-    { alter: (p) => (p.root_folder_id = "wrong") },
-    { alter: (p) => (p.metadata.parents = ["public"]) },
-  ])
-    await assert.rejects(readColdProof(env(), row, sha, { fetcher: await bridge(row, options) }));
-});
-test("dry-run verifies exact bytes and R2 version, persists result and never deletes; stale lease resumes idempotently", async () => {
-  const row = await coldFixture();
-  await normal(STORAGE.cleanupStart);
-  let readCount = 0;
-  const read = async (e, r, sha) => {
-    readCount++;
-    return readColdProof(e, r, sha, { fetcher: await bridge(r) });
-  };
-  const a = await cleanupDryRun(env(), { read });
-  assert.ok(
-    a.items.some((i) => i.file_id === row.file_id && i.would_delete),
-    JSON.stringify({
-      a,
-      state: await db
-        .prepare("SELECT * FROM cold_proofs WHERE file_id=?")
-        .bind(row.file_id)
-        .first(),
-      readCount,
-    }),
-  );
-  assert.ok(await h.local.bucket.head(row.object_key));
-  assert.equal(
-    (await cleanupDryRun(env(), { read })).items.some((i) => i.file_id === row.file_id),
-    false,
-  );
-  assert.equal(readCount, 1);
-  await db
-    .prepare("UPDATE cold_proofs SET state='verifying',lease_until=0 WHERE file_id=?")
-    .bind(row.file_id)
-    .run();
-  await cleanupDryRun(env(), { read });
-  assert.equal(
-    (await db.prepare("SELECT state FROM cold_proofs WHERE file_id=?").bind(row.file_id).first())
-      .state,
-    "dry_run",
-  );
-  assert.ok(await h.local.bucket.head(row.object_key));
-});
-test("Drive confirmed but content mismatch or R2 replaced during verification blocks cleanup and emits failure only once", async () => {
-  const row = await coldFixture();
-  await normal(STORAGE.cleanupStart);
-  const bad = await cleanupDryRun(env(), {
-    read: async (e, r, sha) =>
-      readColdProof(e, r, sha, { fetcher: await bridge(r, { corrupt: true }) }),
-  });
-  assert.ok(bad.items.some((i) => i.file_id === row.file_id && !i.would_delete));
-  assert.ok(await h.local.bucket.head(row.object_key));
-  await cleanupDryRun(env(), {
-    read: async () => {
-      await h.local.bucket.put(row.object_key, new Uint8Array([1, 2, 3]), {
-        httpMetadata: { contentType: "image/png" },
-      });
-    },
-  });
-  assert.equal(
-    (await db.prepare("SELECT state FROM cold_proofs WHERE file_id=?").bind(row.file_id).first())
-      .state,
-    "blocked",
-  );
-});
+test('website cold-reader export is absent; confirmed backup does not authorize media reads',async()=>{assert.equal(storageModule.readColdProof,undefined);const row=await coldFixture();assert.ok(row.drive_file_id);});
+
+test('legacy byte-download dry-run is removed; backup metadata and source object are retained',async()=>{assert.equal(storageModule.cleanupDryRun,undefined);const row=await coldFixture();assert.ok(await h.local.bucket.head(row.object_key));assert.equal((await db.prepare('SELECT status FROM proof_backups WHERE file_id=?').bind(row.file_id).first()).status,'confirmed');});
+
+test('verified metadata helpers remain available after removing cold media transport',()=>{assert.equal(typeof storageModule.coldContext,'function');assert.equal(typeof storageModule.storageSignature,'function');assert.equal(typeof storageModule.scriptPost,'function');assert.equal(typeof storageModule.shaBytes,'function');});
+
 test("missing R2 proof never invokes automatic Drive cold-read; archived proofs return a clear 410", async () => {
   const row = await coldFixture();
   await h.local.bucket.delete(row.object_key);
@@ -531,7 +459,7 @@ test("real legacy/final/member/guest and Admin image HTTP paths return fixed cap
     assert.equal(adminPath(path), true);
   assert.equal(adminPath("/api/admin/storage/delete"), false);
 });
-test("archived R2 proof requires manual Drive access; export rejects archived scope explicitly", async () => {
+test("archived R2 proof requires manual Drive access; new exports exclude archived files", async () => {
   const row = await coldFixture();
   await h.local.bucket.delete(row.object_key);
   await db.prepare("INSERT INTO cold_proofs(file_id,state,updated_at) VALUES(?,'cold',?) ON CONFLICT(file_id) DO UPDATE SET state='cold',updated_at=excluded.updated_at")
@@ -553,8 +481,11 @@ test("archived R2 proof requires manual Drive access; export rejects archived sc
   const result = await h.local.fetch(
     "/api/admin/image-exports/jobs", "POST",
     { job_id: randomUUID(), filters }, actor.headers);
-  assert.equal(result.status, 409, await result.clone().text());
-  assert.equal((await result.json()).error.code, "EXPORT_ARCHIVED_PROOF");
+  assert.equal(result.status, 200, await result.clone().text());
+  const job=(await result.json()).data;
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM export_job_items WHERE job_id=? AND file_id=?').bind(job.id,row.file_id).first()).n,0);
+  assert.ok(job.image_count>0); // Other, still-present images remain exportable.
+  assert.equal((await worker.fetch(new Request('https://voteproof.example'+proof,{headers:actor.headers}),env())).status,410);
 });
 test("verified active managers are added, normalized and deduplicated; reviewers and suspended managers are excluded", async () => {
   async function add(role, email, status = "active") {
@@ -662,4 +593,4 @@ test("two scanners racing the same final cursor commit one page/history only", a
   assert.equal((await capacityRow(db)).used_bytes, 3);
 });
 
-test('retention is measured from closure, not an old approval timestamp',async()=>{const row=await coldFixture();await db.prepare('UPDATE cases SET status_updated_at=? WHERE id=?').bind(new Date().toISOString(),row.case_internal_id).run();await normal(STORAGE.cleanupStart);const result=await cleanupDryRun(env(),{read:async()=>assert.fail('Freshly closed case is not eligible')});assert.equal(result.items.some(i=>i.file_id===row.file_id),false);});
+test('retention is measured from closure, not an old approval timestamp',async()=>{const row=await coldFixture();await db.prepare('UPDATE cases SET status_updated_at=? WHERE id=?').bind(new Date().toISOString(),row.case_internal_id).run();await normal(STORAGE.cleanupStart);const result=await cleanupArchive(env(),{read:async()=>assert.fail('Freshly closed case is not eligible')});assert.equal(result.state,'no_eligible_proofs');});

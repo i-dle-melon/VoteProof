@@ -1,4 +1,4 @@
-import {batchReviewInput,batchApprove,initialReviewPage,reviewBatchStatus} from "../lib/review-batch.js";
+import {batchReviewInput,batchApprove,batchRejectInput,batchReject,initialReviewPage,reviewBatchStatus} from "../lib/review-batch.js";
 import { jsonSuccess } from "./response.js";
 import { adminHandler } from "./admin-response.js";
 import { authDatabase, csrfToken } from "../lib/auth-session.js";
@@ -33,14 +33,20 @@ export const listAdminCases = adminHandler(async (env, url, request) => {
 });
 export const getAdminOverview = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
-  if (url.search) throw new AdminError(400, "INVALID_ADMIN_QUERY", "Unexpected overview query");
-  const [members, cases] = await authDatabase(env).batch([
-    authDatabase(env).prepare("SELECT COUNT(*) AS member_count FROM members"),
-    authDatabase(env).prepare("SELECT status,COUNT(*) AS count FROM cases GROUP BY status"),
+  const p=url.searchParams,range=p.size>0;
+  const valid=v=>/^\d{4}-\d{2}-\d{2}$/.test(v??'')&&Number.isFinite(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
+  if([...p.keys()].some(k=>!['from','to'].includes(k))||range&&(p.getAll('from').length!==1||p.getAll('to').length!==1||!valid(p.get('from'))||!valid(p.get('to'))||p.get('from')>p.get('to')))
+    throw new AdminError(400,'INVALID_ADMIN_QUERY','請指定有效的投稿日期區間。');
+  const start=range?new Date(p.get('from')+'T00:00:00+08:00').toISOString():null;
+  const end=range?new Date(Date.parse(p.get('to')+'T00:00:00+08:00')+86400000).toISOString():null;
+  const db=authDatabase(env),results = await db.batch([
+    ...(!range?[db.prepare("SELECT COUNT(*) AS member_count FROM members")]:[]),
+    db.prepare(`SELECT status,COUNT(*) AS count FROM cases ${range?'WHERE created_at>=? AND created_at<?':''} GROUP BY status`).bind(...(range?[start,end]:[])),
   ]);
+  const cases=results.at(-1);
   const counts = Object.fromEntries(['pending','approved','completed','rejected','duplicate','revoked'].map(k=>[k,0]));
   for (const row of cases.results) counts[row.status] = row.count;
-  return jsonSuccess({member_count:members.results[0].member_count,case_counts:counts,
+  return jsonSuccess({member_count:range?null:results[0].results[0].member_count,case_counts:counts,
     case_totals:{pending:counts.pending,approved:counts.approved+counts.completed,rejected:counts.rejected+counts.duplicate,revoked:counts.revoked}});
 });
 export const getAdminCase = adminHandler(async (env, url, request) => {
@@ -70,6 +76,9 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
   return privateProofResponse(env,file);
 });
 export async function privateProofResponse(env,file) {
+  const lifecycle=await env.DB.prepare('SELECT p.state FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?').bind(file.object_key).first();
+  if(lifecycle?.state==='cold')throw new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已清理，備份保存在 Google Drive');
+  if(lifecycle?.state==='deleting')throw new AdminError(409,'PROOF_CLEANUP_PENDING','圖片清理結果待確認，暫不提供讀取。');
   let object = await env.PROOFS_BUCKET.get(file.object_key);
   if (!object) {
     const archived=await env.DB.prepare("SELECT p.state FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?").bind(file.object_key).first();
@@ -98,6 +107,12 @@ const getAdminAuditDetail=adminHandler(async(env,url,request)=>{
 });
 
 export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);const items=batchReviewInput(await readReviewJson(request));return jsonSuccess(await batchApprove(authDatabase(env),actor,items));});
+const rejectBatch=statusOnly=>adminHandler(async(env,url,request)=>{
+ const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);
+ if(url.search)throw new AdminError(400,'INVALID_REVIEW_BATCH','Unexpected query');
+ const {items,reason}=batchRejectInput(await readReviewJson(request),actor.role);
+ return jsonSuccess(await batchReject(authDatabase(env),actor,items,reason,{statusOnly}));
+});
 const initialReview = adminHandler(async(env,url,request)=>{
   await adminIdentity(request,env);return jsonSuccess(await initialReviewPage(authDatabase(env),url));
 });
@@ -108,6 +123,8 @@ const batchStatus = adminHandler(async(env,url,request)=>{
   return jsonSuccess(await reviewBatchStatus(authDatabase(env),batchReviewInput({cases:parsed})));
 });
 const exactRoutes = new Map([
+  ["/api/admin/cases/batch-reject",{method:"POST",handler:rejectBatch(false)}],
+  ["/api/admin/cases/batch-reject/status",{method:"POST",handler:rejectBatch(true)}],
   ["/api/admin/cases/initial-review",{method:"GET",handler:initialReview}],
   ["/api/admin/cases/batch-status",{method:"GET",handler:batchStatus}],
   ["/api/admin/cases/batch-approve",{method:"POST",handler:approveAdminBatch}],

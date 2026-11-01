@@ -476,6 +476,7 @@ $("lookup-form").addEventListener("submit", async (event) => {
       if (label === "案件狀態") { description.replaceChildren(node("span", value, "status")); }
       $("case-details").append(node("dt", label), description);
     }
+    if(data.files?.some(f=>f.storage_state==='cold'))$('case-details').append(node('dt','證明圖片'),node('dd','圖片已清理，備份保存在 Google Drive'));
     $("lookup-result").hidden = false; $("lookup-message").textContent = "查詢完成。";
   } catch (e) { $("lookup-message").textContent = e.status === 404 ? lookupGeneric : errorMessage(e); }
   finally { lookupBusy = false; $("lookup-button").disabled = false; $("lookup-id").disabled = $("lookup-key").disabled = false; $("lookup-button").textContent = "查詢案件"; $("lookup-form").setAttribute("aria-busy", "false"); }
@@ -539,7 +540,9 @@ function boardMatches(board, category) {
 function renderBoardTabs() {
   $("board-categories").replaceChildren();
   for(const [key,label] of boardCategories){
-    const tab=node("button",label,"tab");tab.type="button";tab.dataset.category=key;
+    if(!publicBoards.some(b=>boardMatches(b,key)))continue;
+    const title=['history','group','solo'].includes(key)?publicBoards.find(b=>boardMatches(b,key))?.name??label:label;
+    const tab=node("button",title,"tab");tab.type="button";tab.dataset.category=key;
     tab.classList.toggle("active",key===boardCategory);tab.setAttribute("aria-pressed",String(key===boardCategory));tab.disabled=boardLoading;
     tab.addEventListener("click",()=>{
       boardCategory=key;const board=publicBoards.find(b=>boardMatches(b,key));
@@ -547,9 +550,9 @@ function renderBoardTabs() {
       if(board)void selectBoard();else{renderBoard(null);$("boards-message").textContent="這個分類目前沒有公開排行榜。管理員公布後會顯示在這裡。";}
     });$("board-categories").append(tab);
   }
-  for(const board of publicBoards.filter(b=>b.type==="custom" || categoryOf(b).startsWith("named:"))){
+  for(const board of publicBoards.filter(b=>b.type==="custom" || b.type==='campaign')){
     const tab=node("button",board.name,"tab");tab.type="button";tab.dataset.customBoard=board.leaderboard_id;
-    const active=boardCategory===categoryOf(board);tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));tab.disabled=boardLoading;
+    const active=$('board-select').value===board.leaderboard_id;tab.classList.toggle("active",active);tab.setAttribute("aria-pressed",String(active));tab.disabled=boardLoading;
     tab.addEventListener("click",()=>{$("board-select").value=board.leaderboard_id;void selectBoard();});$("board-categories").append(tab);
   }
   $("leader-tabs").replaceChildren();

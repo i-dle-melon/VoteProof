@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { createHmac, createHash, randomBytes, randomUUID } from "node:crypto";
-import { storageSignature, shaBytes, readColdProof } from "../src/lib/cold-storage.js";
+import { storageSignature, shaBytes } from "../src/lib/cold-storage.js";
 const backupSource = readFileSync("apps-script/drive-backup/Code.gs", "utf8"),
   alertSource = readFileSync("apps-script/storage-alert/Code.gs", "utf8");
 function fixture(source, { email = "idle.voteproof.verify@gmail.com" } = {}) {
@@ -162,34 +162,8 @@ function coldFiles(f) {
   ])
     f.files.set(m.id, { ...m, trashed: false });
 }
-test("cold Apps Script authenticates before Google access and returns signed bytes only from private pinned root", async () => {
-  const f = fixture(backupSource);
-  coldFiles(f);
-  const r = await coldRequest(f);
-  const post = (v) =>
-    JSON.parse(f.context.doPost({ postData: { contents: JSON.stringify(v) } }).value);
-  assert.equal(post({ ...r, signature: "wrong" }).error, "COLD_UNAVAILABLE");
-  assert.equal(f.state.calls.length, 0);
-  const result = post(r);
-  assert.equal(JSON.parse(result.payload).base64, "AQID");
-  assert.equal(
-    result.signature,
-    await storageSignature(
-      f.secret,
-      JSON.stringify([
-        "VoteProof/storage-read-result",
-        result.nonce,
-        result.timestamp,
-        result.payload,
-      ]),
-    ),
-  );
-  f.state.shared = true;
-  assert.equal(post(r).error, "COLD_UNAVAILABLE");
-  f.state.shared = false;
-  f.files.get("campaign").parents = ["another-root"];
-  assert.equal(post(r).error, "COLD_UNAVAILABLE");
-});
+test('retired cold-read rejects signed or unsigned calls before Google access',async()=>{const f=fixture(backupSource);coldFiles(f);const r=await coldRequest(f);for(const input of[r,{...r,signature:'wrong'}]){const answer=JSON.parse(f.context.doPost({postData:{contents:JSON.stringify(input)}}).value);assert.equal(answer.error,'COLD_READ_RETIRED');}assert.equal(f.state.calls.length,0);});
+
 test("Drive media failure never fabricates proof bytes", async () => {
   const f = fixture(backupSource);
   coldFiles(f);
@@ -198,37 +172,11 @@ test("Drive media failure never fabricates proof bytes", async () => {
     JSON.parse(
       f.context.doPost({ postData: { contents: JSON.stringify(await coldRequest(f)) } }).value,
     ).error,
-    "COLD_UNAVAILABLE",
+    "COLD_READ_RETIRED",
   );
 });
-test("quota uses about.get storageQuota, supports unknown/unlimited/error and never installs a trigger", () => {
-  for (const about of [
-    { storageQuota: { limit: "15000000000", usage: "10000000000" } },
-    { storageQuota: { usage: "123" } },
-    { storageQuota: {} },
-    new Error("offline"),
-  ]) {
-    const f = fixture(backupSource);
-    f.state.about = about;
-    f.context.runStorageMaintenance();
-    const quota = JSON.parse(f.state.calls[0].init.payload);
-    assert.equal(
-      quota.total_bytes,
-      about instanceof Error || !about.storageQuota.limit ? null : 15000000000,
-    );
-    assert.equal(
-      quota.state,
-      about instanceof Error
-        ? "error"
-        : about.storageQuota.limit
-          ? "known"
-          : about.storageQuota.usage
-            ? "unlimited"
-            : "unknown",
-    );
-    assert.ok(f.state.calls.every((c) => !c.url.includes("token")));
-  }
-});
+test('retired automatic maintenance performs no quota, inventory, archive or trigger operation',()=>{const f=fixture(backupSource);assert.equal(f.context.runStorageMaintenance().state,'retired_manual_cleanup_only');assert.equal(f.state.calls.length,0);});
+
 async function alertRequest(f, id = randomUUID()) {
   const b = {
     version: 1,
@@ -276,93 +224,7 @@ test("dedicated alert MailApp has fixed account, signed purpose, durable cross-r
   );
   assert.equal(other.state.sends, 0);
 });
-test("cold transport checks maximum-size bytes through bounded signed result, not only metadata", async (t) => {
-  const bytes = new Uint8Array(5242880);
-  bytes.fill(37);
-  const sha = await shaBytes(bytes),
-    secret = randomBytes(32).toString("hex"),
-    row = {
-      file_id: "fixture",
-      object_key: "fixture",
-      size: bytes.length,
-      content_type: "image/png",
-      etag: "etag",
-      backup_status: "confirmed",
-      drive_file_id: "file",
-      drive_folder_id: "day",
-      root_folder_id: "root",
-      campaign_folder_id: "campaign",
-      date_key: "date:fixture",
-      campaign_key: "campaign:fixture",
-      source_object_key: "fixture",
-      source_size: bytes.length,
-      source_mime: "image/png",
-      source_etag: "etag",
-      case_id: "VP-fixture",
-    };
-  const started = performance.now(),
-    cpu = process.cpuUsage();
-  const actual = await readColdProof(
-    {
-      DRIVE_BACKUP_RELAY_SECRET: secret,
-      DRIVE_COLD_RELAY_URL: "https://"+"script.google.com"+"/macros/s/fixture/exec",
-    },
-    row,
-    sha,
-    {
-      fetcher: async (_u, init) => {
-        const request = JSON.parse(init.body),
-          payload = JSON.stringify({
-            metadata: {
-              id: "file",
-              trashed: false,
-              name: "VP-fixture.png",
-              size: bytes.length,
-              mimeType: "image/png",
-              parents: ["day"],
-              appProperties: {
-                source: "voteproof",
-                storage_source: "r2",
-                voteproof_case_id: "VP-fixture",
-                voteproof_proof_id: "fixture",
-              },
-            },
-            base64: Buffer.from(bytes).toString("base64"),
-            root_folder_id: "root",
-            campaign_folder_id: "campaign",
-            date_folder_id: "day",
-            campaign_key_hash: await shaBytes(new TextEncoder().encode(row.campaign_key)),
-            date_key_hash: await shaBytes(new TextEncoder().encode(row.date_key)),
-          }),
-          result = { nonce: request.nonce, timestamp: Math.floor(Date.now() / 1000), payload };
-        result.signature = await storageSignature(
-          secret,
-          JSON.stringify([
-            "VoteProof/storage-read-result",
-            result.nonce,
-            result.timestamp,
-            payload,
-          ]),
-        );
-        return Response.json(result);
-      },
-    },
-  );
-  assert.equal(actual.length, 5242880);
-  assert.equal(await shaBytes(actual), sha);
-  assert.ok(performance.now() > started);
-  const used = process.cpuUsage(cpu);
-  t.diagnostic(
-    JSON.stringify({
-      local_only: true,
-      bytes: bytes.length,
-      wall_ms: Math.round(performance.now() - started),
-      process_cpu_ms: (used.user + used.system) / 1000,
-      cloud_worker_cpu: "UNKNOWN",
-      includes_mock_response_encoding: true,
-    }),
-  );
-});
+test('cold-read never sends Drive media or base64 bytes, even for a valid old signed request',async()=>{const f=fixture(backupSource);coldFiles(f);const answer=JSON.parse(f.context.doPost({postData:{contents:JSON.stringify(await coldRequest(f))}}).value);assert.equal(answer.error,'COLD_READ_RETIRED');assert.equal(answer.payload,undefined);assert.equal(f.state.calls.length,0);});
 
 test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw or base64 image bytes', async () => {
   const f=fixture(backupSource);
@@ -379,7 +241,7 @@ test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw
     request.timestamp,request.file_id,sha,3
   ]));
   const post=v=>JSON.parse(f.context.doPost({postData:{contents:JSON.stringify(v)}}).value);
-  assert.equal(post({...request,signature:'invalid'}).error,'COLD_UNAVAILABLE');
+  assert.equal(post({...request,signature:'invalid'}).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   assert.equal(f.state.calls.length,0);
   const reply=post(request),payload=JSON.parse(reply.payload);
   assert.equal(payload.sha256,sha);
@@ -392,12 +254,12 @@ test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw
     'VoteProof/archive-verified-result',reply.nonce,reply.timestamp,reply.payload
   ])));
   f.state.shared=true;
-  assert.equal(post(request).error,'COLD_UNAVAILABLE');
+  assert.equal(post(request).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   f.state.shared=false;
   f.files.get('campaign').parents=['wrong-root'];
-  assert.equal(post(request).error,'COLD_UNAVAILABLE');
+  assert.equal(post(request).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   f.files.get('campaign').parents=['root'];
-  assert.equal(post({...request,expected_sha256:'0'.repeat(64)}).error,'COLD_UNAVAILABLE');
+  assert.equal(post({...request,expected_sha256:'0'.repeat(64)}).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   // Re-sign a wrong expected digest so the assertion reaches the media SHA
   // comparison rather than merely rejecting a stale request HMAC.
   const signed=async changes=>{
@@ -406,20 +268,12 @@ test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw
     ]));return v;
   };
   const calls=f.state.calls.length;
-  assert.equal(post(await signed({expected_sha256:'0'.repeat(64)})).error,'COLD_UNAVAILABLE');
+  assert.equal(post(await signed({expected_sha256:'0'.repeat(64)})).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   assert.equal(f.state.calls.length,calls+1);
   const before=f.state.calls.length;
-  assert.equal(post(await signed({timestamp:request.timestamp-121})).error,'COLD_UNAVAILABLE');
-  assert.equal(post(await signed({nonce:'invalid'})).error,'COLD_UNAVAILABLE');
+  assert.equal(post(await signed({timestamp:request.timestamp-121})).error,'DRIVE_VERIFICATION_UNAVAILABLE');
+  assert.equal(post(await signed({nonce:'invalid'})).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   assert.equal(f.state.calls.length,before);
 });
 
-test('maintenance sends inventory, verification and deletion as separate authenticated requests',()=>{
-  const f=fixture(backupSource);const result=f.context.runStorageMaintenance();
-  assert.equal(result.cleanup.state,'cold');
-  assert.deepEqual(f.state.calls.map(x=>new URL(x.url).pathname),[
-    '/api/internal/drive-backup/storage/quota','/api/internal/drive-backup/storage/tick',
-    '/api/internal/drive-backup/storage/archive','/api/internal/drive-backup/storage/archive']);
-  const stopped=fixture(backupSource);stopped.state.archiveState='no_eligible_proofs';stopped.context.runStorageMaintenance();
-  assert.equal(stopped.state.calls.filter(x=>x.url.endsWith('/storage/archive')).length,1);
-});
+test('automatic maintenance cannot dispatch cleanup after manual-only storage policy',()=>{const f=fixture(backupSource);assert.equal(f.context.runStorageMaintenance().state,'retired_manual_cleanup_only');assert.equal(f.state.calls.length,0);});

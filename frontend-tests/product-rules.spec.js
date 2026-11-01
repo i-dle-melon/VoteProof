@@ -57,10 +57,11 @@ test('Preview review API failure retains expanded panel and retryable form',asyn
  await page.locator('.admin-case-row').first().locator('.case-preview').click({position:{x:12,y:12}});await page.locator('[data-preview-review] button[type=submit]').click();
  await expect(page.locator('.inline-review')).toBeVisible();await expect(page.locator('.inline-review [role=alert]')).not.toBeEmpty();await expect(page.locator('[data-preview-review] button[type=submit]')).toBeEnabled();
 });
-test('system ranking cards expose no edit/rebuild and custom buttons stay fifth through seventh',async({page})=>{
+test('system ranking cards allow presentation only and include a named current-campaign button',async({page})=>{
  await page.goto(scene({identity:'admin'},'admin'));await ready(page);await page.locator('#admin-tabs').getByRole('button',{name:'排行榜管理',exact:true}).click();
- const fixed=page.locator('#admin-panel article').filter({hasText:'系統固定榜'});await expect(fixed).toHaveCount(3);await expect(fixed.locator('button')).toHaveCount(0);
- await page.goto(scene({},'leaderboards'));await ready(page);await expect(page.locator('#board-categories button')).toHaveCount(7);
+ const fixed=page.locator('#admin-panel article').filter({hasText:'系統固定榜'});await expect(fixed).toHaveCount(3);await expect(fixed.locator('button')).toHaveText(['設定顯示','設定顯示','設定顯示']);
+ await expect(fixed.getByRole('button',{name:'重建',exact:true})).toHaveCount(0);
+ await page.goto(scene({},'leaderboards'));await ready(page);await expect(page.locator('#board-categories button')).toHaveCount(8);
  await page.locator('#board-categories button').nth(3).click();await expect(page.locator('#solo-target-wrap,#solo-target-filter')).toHaveCount(0);await expect(page.locator('#board-rule-status')).toContainText('歷史積分');
 });
 test('actual frontend uses protected Admin proof path automatically; API failure keeps review inline',async({page})=>{

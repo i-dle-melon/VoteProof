@@ -96,6 +96,7 @@ export function exportWhere(scope) {
   const f = scope.filters,
     statuses = f.statuses.flatMap((s) => EXPORT_STATUS_GROUPS[s]);
   const clauses = [
+    "NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=f.id AND p.state IN('verifying','deleting','cold'))",
     "c.created_at >= ?",
     "c.created_at < ?",
     `c.status IN (${statuses.map(() => "?").join(",")})`,

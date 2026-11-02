@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { memberFixture } from './member-fixture.mjs';
+import { selectAdminTab } from './admin-navigation.mjs';
 
 const preview = 'http://127.0.0.1:4174/VoteProof/';
 const openStorage = async page => {
   await page.goto(preview+'?preview_identity=admin#admin');
   await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');
-  await page.locator('#admin-tabs').getByRole('button',{name:'Google Drive 備份',exact:true}).click();
+  await selectAdminTab(page,'Google Drive 備份');
   await expect(page.getByRole('region',{name:'儲存容量保護'})).toBeVisible();
 };
 
@@ -31,7 +32,7 @@ test('Pages capacity history stays collapsed and reads 10 per page in a closable
 test('Pages history empty state, responsive bounds and outside-click close',async({page})=>{
   await page.goto(preview+'?preview_identity=admin&preview_data=empty#admin');
   await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');
-  await page.locator('#admin-tabs').getByRole('button',{name:'Google Drive 備份',exact:true}).click();
+  await selectAdminTab(page,'Google Drive 備份');
   await page.locator('.storage-panel summary').filter({hasText:'容量歷史統計'}).click();
   await page.getByRole('button',{name:'查看容量歷史清單'}).click();
   const dialog=page.getByRole('dialog',{name:'容量歷史統計'});

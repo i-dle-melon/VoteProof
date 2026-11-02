@@ -28,7 +28,11 @@ test('audit errors preserve last page; permission/MFA failure clears details and
 test('leaving during lazy module loading makes no late audit request or hidden private panel',async({page})=>{
  const state=await adminFixture(page);let requested=false,finishLoad;const gate=new Promise(resolve=>{finishLoad=resolve;});
  await page.route('**/js/admin-audit.js',async route=>{requested=true;await gate;await route.continue();});
- await page.goto('/#admin');await selectAdminTab(page,'操作紀錄');await expect.poll(()=>requested).toBe(true);
+ await page.goto('/#admin');await selectAdminTab(page,'Google Drive 備份');
+ // Intentionally leave while the audit module is still blocked: the ordinary
+ // navigation helper waits for readiness and cannot model this in-flight exit.
+ await page.getByRole('navigation',{name:'系統功能',exact:true}).getByRole('button',{name:'操作紀錄',exact:true}).click();
+ await expect.poll(()=>requested).toBe(true);await expect(root(page)).toHaveAttribute('aria-busy','true');await expect(root(page)).toHaveAttribute('inert','');
  await page.getByRole('link',{name:'VoteProof 首頁',exact:true}).click();const response=page.waitForResponse('**/js/admin-audit.js');finishLoad();await response;await page.waitForLoadState('networkidle');
- expect(state.calls.filter(c=>c.path.includes('audit-logs'))).toHaveLength(0);await expect(root(page).locator('.audit-table')).toHaveCount(0);
+ expect(state.calls.filter(c=>c.path.includes('audit-logs'))).toHaveLength(0);await expect(root(page).locator('.audit-table')).toHaveCount(0);await expect(page.locator('#admin-content')).toBeHidden();
 });

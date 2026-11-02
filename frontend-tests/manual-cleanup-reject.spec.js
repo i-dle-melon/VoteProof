@@ -101,7 +101,7 @@ test('admin navigation nests membership tools and date counts are GET only',asyn
  await tabs.getByRole('button',{name:'會員管理',exact:true}).click();const bar=page.locator('.admin-panel-toolbar');await expect(bar.getByRole('button',{name:'會員等級',exact:true})).toBeVisible();await expect(bar.getByRole('button',{name:'會員封鎖',exact:true})).toBeVisible();
  const reload=await bar.getByRole('button',{name:'重新載入',exact:true}).boundingBox(),tools=await bar.locator('nav').boundingBox();expect(reload.x).toBeGreaterThan(tools.x);
  await tabs.getByRole('button',{name:'工作總覽',exact:true}).click();await expect(page.getByRole('button',{name:'日期區間',exact:true})).toHaveCount(3);await page.getByRole('button',{name:'日期區間',exact:true}).first().click();
- const dialog=page.locator('.admin-range-dialog');await dialog.locator('input[type=date]').first().fill('2026-10-01');await dialog.locator('input[type=date]').last().fill('2026-10-31');await dialog.getByRole('button',{name:'查詢數量',exact:true}).click();await expect(dialog).toContainText('待審核：7 件');expect(reads.every(m=>m==='GET')).toBe(true);
+ const dialog=page.locator('.admin-range-dialog');await dialog.getByLabel('開始日期與時間').fill('2026-10-01T00:00');await dialog.getByLabel('結束日期與時間').fill('2026-11-01T00:00');await dialog.getByRole('button',{name:'查詢數量',exact:true}).click();await expect(dialog).toContainText('待審核：7 件');expect(reads.every(m=>m==='GET')).toBe(true);
  await page.screenshot({path:'.wrangler/frontend-previews/admin-date-range-'+info.project.name+'.png'});
 });
 test('a visible current-comeback campaign also gets its own named ranking button',async({page})=>{

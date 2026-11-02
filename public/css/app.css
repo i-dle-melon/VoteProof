@@ -2820,6 +2820,9 @@ button.legacy-case-row:hover {
 .btn-review-reject{background:transparent;border:1px solid #d98181;color:#eaa5a5}
 [data-theme="light"] .btn-review-reject{color:#933f3f;border-color:#b96b6b}
 .admin-range-dialog{max-width:min(34rem,94vw);padding:1.5rem;border-radius:1rem;background:var(--surface,#202020);color:inherit;border:1px solid #666}
+.admin-range-dialog .admin-filter{grid-template-columns:repeat(2,minmax(0,1fr))}
+.admin-range-dialog h3,.admin-range-dialog .notice{grid-column:1/-1}
+@media(max-width:620px){.admin-range-dialog .admin-filter{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){.review-batch-actions>button{flex:1 1 44%;min-height:44px}.manual-cleanup-actions>button{flex:1 1 44%;min-height:44px}.admin-panel-toolbar{align-items:flex-start}.admin-panel-toolbar .tabs{flex:1 1 70%}}
 
 [data-theme="light"] .admin-range-dialog{background:#fff;color:#111}

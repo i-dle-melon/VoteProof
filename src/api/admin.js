@@ -36,10 +36,24 @@ export const getAdminOverview = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const p=url.searchParams,range=p.size>0;
   const valid=v=>/^\d{4}-\d{2}-\d{2}$/.test(v??'')&&Number.isFinite(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
-  if([...p.keys()].some(k=>!['from','to'].includes(k))||range&&(p.getAll('from').length!==1||p.getAll('to').length!==1||!valid(p.get('from'))||!valid(p.get('to'))||p.get('from')>p.get('to')))
-    throw new AdminError(400,'INVALID_ADMIN_QUERY','請指定有效的投稿日期區間。');
-  const start=range?new Date(p.get('from')+'T00:00:00+08:00').toISOString():null;
-  const end=range?new Date(Date.parse(p.get('to')+'T00:00:00+08:00')+86400000).toISOString():null;
+  const invalid=()=>new AdminError(400,'INVALID_ADMIN_QUERY','請指定有效且開始早於結束的投稿日期時間區間。');
+  const precise=p.has('from_at')||p.has('to_at'),keys=precise?['from_at','to_at']:['from','to'];
+  if([...p.keys()].some(k=>!keys.includes(k))||range&&keys.some(k=>p.getAll(k).length!==1))throw invalid();
+  let start=null,end=null;
+  if(range&&precise){
+    // Require an explicit offset; Date.parse alone accepts rolled-over dates and local time.
+    const instant=value=>{
+      const match=/^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(value??'');
+      if(!match||match[0]!==value||!valid(match[1])||value.endsWith('-00:00'))throw invalid();
+      const time=Date.parse(value);if(!Number.isFinite(time)||new Date(time).toISOString().length!==24)throw invalid();return time;
+    };
+    const from=instant(p.get('from_at')),to=instant(p.get('to_at'));
+    if(from>=to)throw invalid();start=new Date(from).toISOString();end=new Date(to).toISOString();
+  }else if(range){
+    if(!valid(p.get('from'))||!valid(p.get('to'))||p.get('from')>p.get('to'))throw invalid();
+    start=new Date(p.get('from')+'T00:00:00+08:00').toISOString();
+    end=new Date(Date.parse(p.get('to')+'T00:00:00+08:00')+86400000).toISOString();
+  }
   const db=authDatabase(env),results = await db.batch([
     ...(!range?[db.prepare("SELECT COUNT(*) AS member_count FROM members")]:[]),
     db.prepare(`SELECT status,COUNT(*) AS count FROM cases ${range?'WHERE created_at>=? AND created_at<?':''} GROUP BY status`).bind(...(range?[start,end]:[])),

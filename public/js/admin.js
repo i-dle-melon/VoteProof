@@ -640,11 +640,20 @@ export function adminUI(session) {
     if(management(access.actor)){const gate=await request('submissions');$('admin-panel').append(node('p',gate.submissions_enabled?'收件：開放投稿':'收件：目前暫停投稿','notice info'));}
   }
   function overviewDates(state,label){
-    const dialog=node('dialog','','admin-range-dialog'),f=node('form','','admin-filter');f.append(node('h3',label+' · 投稿日期區間（台灣時間）'));
-    const from=field(f,'overview-from','開始日期','date','',{required:true}),to=field(f,'overview-to','結束日期','date','',{required:true});
+    const dialog=node('dialog','','admin-range-dialog'),f=node('form','','admin-filter');f.append(node('h3',label+' · 投稿日期時間區間（台灣時間）'));
+    const now=Date.now(),yesterday=taipeiInput(now-86400000).slice(0,10),today=taipeiInput(now).slice(0,10);
+    const from=field(f,'overview-from','開始日期與時間','datetime-local',yesterday+'T23:00',{required:true,step:60}),to=field(f,'overview-to','結束日期與時間','datetime-local',today+'T23:00',{required:true,step:60});
     const result=node('p','','notice info'),submit=node('button','查詢數量','btn btn-primary');submit.type='submit';
     f.append(submit,button('關閉',()=>dialog.close()),result);dialog.append(f);$('admin-panel').append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();
-    const born=sequence;f.addEventListener('submit',async e=>{e.preventDefault();if(!f.reportValidity()||from.value>to.value){result.textContent='請選擇有效的日期區間。';return;}submit.disabled=true;try{const d=await request('overview?'+new URLSearchParams({from:from.value,to:to.value}));if(born===sequence&&dialog.isConnected)result.textContent=label+'：'+d.case_totals[state]+' 件（依投稿時間統計）';}catch(error){if(dialog.isConnected)result.textContent=adminMessage(error);}finally{submit.disabled=false;}});
+    const born=sequence;f.addEventListener('submit',async e=>{
+      e.preventDefault();if(!f.reportValidity())return;
+      let fromAt,toAt;
+      try{fromAt=utcFromTaipei(from.value);toAt=utcFromTaipei(to.value);if(fromAt>=toAt)throw new Error('INVALID_RANGE');}
+      catch{result.textContent='請選擇有效且開始早於結束的日期時間區間。';return;}
+      submit.disabled=true;
+      try{const d=await request('overview?'+new URLSearchParams({from_at:fromAt,to_at:toAt}));if(born===sequence&&dialog.isConnected)result.textContent=label+'：'+d.case_totals[state]+' 件（依投稿時間統計）';}
+      catch(error){if(dialog.isConnected)result.textContent=adminMessage(error);}finally{submit.disabled=false;}
+    });
   }
   async function staff(){
     heading('管理員管理','對方需先以 Google 帳號登入並完成會員資料；取得權限後仍須完成 MFA 才能使用後台。');

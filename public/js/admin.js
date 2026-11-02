@@ -273,7 +273,7 @@ export function adminUI(session) {
       },born);
     }
     const reviewButtons=node('div','','review-batch-actions');reviewButtons.append(approveSelected,rejectSelected);
-    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,button('清除目前選取',clearSelection),reviewButtons,progress,progressText,stop,node("p","選取不會審核；確認通過或不通過後才送出。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
+    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,reviewButtons,button('清除目前選取',clearSelection),progress,progressText,stop,node("p","選取不會審核；確認通過或不通過後才送出。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
     const render = row => {
       const card=node("article","","member-case admin-case-row"),summary=node("div","","case-summary"),player=node("div","","review-person"),actions=node("div","","review-actions");
       const image=button("🖼️",()=>void caseDetail(row.case_id),"case-icon case-preview");image.setAttribute("aria-label","查看證明與審核 "+row.case_id);

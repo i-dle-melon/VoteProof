@@ -47,7 +47,7 @@ export async function reconstructQueryKey(identity, id, seed) {
 
 export async function replayCase(db, identity, exactClassification=false) {
   if (!identity) return null;
-  const row = await db.prepare(`SELECT i.request_hash, i.query_seed, c.id, c.case_id, c.query_key_hash
+  const row = await db.prepare(`SELECT i.request_hash, i.query_seed, c.id, c.case_id, c.query_key_hash, c.status
     FROM case_idempotency i JOIN cases c ON c.id = i.case_id WHERE i.key_hash = ?`)
     .bind(identity.keyHash).first();
   if (!row) return null;
@@ -58,5 +58,5 @@ export async function replayCase(db, identity, exactClassification=false) {
   // Fail closed on secret replacement or corrupt state; never return an unusable credential.
   if (!equalQueryHash(await sha256(queryKey), row.query_key_hash)) throw unavailable();
   return { case_id: row.case_id, query_key: queryKey,
-    ...(exactClassification?await exactSubmissionResult(db,row.id):{status:'pending'}) };
+    ...(exactClassification?await exactSubmissionResult(db,row.id):{status:row.status==='duplicate'?'duplicate':'pending'}) };
 }

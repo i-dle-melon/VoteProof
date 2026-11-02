@@ -56,3 +56,39 @@ test('wrong pin after known R2 ACK aborts settlement inside SQL, not after parti
 test('source approval before Case transaction changes hint into automatic duplicate',async t=>{const f=await setup(t),first=await f.proof(),p=await f.prepare();assert.equal((await f.put(p)).status,200);const db=f.env.DB;let raced=false;f.env.DB={...db,batch:async xs=>{if(!raced&&xs.some(s=>s.sql.includes('INSERT INTO case_sha256_decisions'))){raced=true;f.env.DB=db;assert.equal((await f.review(first,'approve')).status,200);}return db.batch(xs);}};const r=await f.create(p);assert.equal(r.status,201);assert.equal((await r.json()).data.status,'duplicate');assert.equal(f.read('SELECT COUNT(*) n FROM point_transactions').n,1);});
 test('two concurrent copies of an approved original both classify without issuing extra points',async t=>{const f=await setup(t),original=await f.proof();assert.equal((await f.review(original,'approve')).status,200);const a=await f.prepare(),b=await f.prepare();assert.equal((await f.put(a)).status,200);assert.equal((await f.put(b)).status,200);const responses=await Promise.all([f.create(a),f.create(b)]);assert.ok(responses.every(r=>r.status===201));for(const r of responses)assert.equal((await r.json()).data.status,'duplicate');assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,3);assert.equal(f.read("SELECT COUNT(*) n FROM cases WHERE status='duplicate'").n,2);assert.equal(f.read('SELECT COUNT(*) n FROM point_transactions').n,1);});
 test('classification does not bypass owner, CSRF or Submission Gate checks',async t=>{const f=await setup(t),p=await f.prepare();assert.equal((await f.put(p)).status,200);const owner=p.headers;p.headers={...owner,'X-CSRF-Token':'invalid'};assert.equal((await f.create(p)).status,403);p.headers=f.b.headers;assert.equal((await f.create(p)).status,403);p.headers=owner;await fencedRequest(f.env,new Request(origin+'/api/local-gate-fixture',{method:'POST'}),async env=>{await env.DB.prepare('UPDATE submission_settings SET submissions_enabled=0,version=version+1 WHERE id=1').run();return Response.json({ok:true});});assert.equal((await f.create(p)).status,503);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,0);assert.equal(f.read('SELECT COUNT(*) n FROM case_sha256_decisions').n,0);});
+
+test('policy OFF replay preserves an existing duplicate without reclassifying or rewriting images',async t=>{
+ const f=await setup(t),first=await f.proof();assert.equal((await f.review(first,'approve')).status,200);
+ const duplicate=await f.proof();assert.equal(duplicate.data.status,'duplicate');
+ await fencedRequest(f.env,new Request(origin+'/api/local-policy-fixture',{method:'POST'}),async env=>{
+  await env.DB.prepare('UPDATE case_sha256_control SET enabled=0,version=version+1 WHERE id=1 AND version=1').run();return Response.json({ok:true});
+ });
+ f.env.EXACT_DUPLICATE_CLASSIFICATION_ENABLED='false';
+ const before=f.sqlite.prepare('SELECT * FROM case_sha256_decisions ORDER BY case_internal_id').all(),raw=f.env.DB,queries=[];
+ f.env.DB={...raw,prepare(sql){queries.push(sql);return raw.prepare(sql);}};
+ const replay=await f.create(duplicate.p,duplicate.key);assert.equal(replay.status,201);const data=(await replay.json()).data;
+ assert.equal(data.status,'duplicate');assert.equal(data.case_id,duplicate.data.case_id);assert.equal(data.query_key,duplicate.data.query_key);
+ assert.ok(!queries.some(q=>q.includes('case_sha256_')),'OFF replay must not query optional Schema');
+ assert.equal(queries.filter(q=>q.includes('FROM case_idempotency i JOIN cases c')).length,1);
+ assert.deepEqual(f.sqlite.prepare('SELECT * FROM case_sha256_decisions ORDER BY case_internal_id').all(),before);
+ assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,2);assert.equal(f.read('SELECT COUNT(*) n FROM point_transactions').n,1);assert.equal(f.puts(),2);
+});
+
+test('extension-free OFF replay remains compatible without extra Schema or PUT',async t=>{
+ const f=await setup(t,{exact:false,install:false}),created=await f.proof();
+ const raw=f.env.DB,queries=[];f.env.DB={...raw,prepare(sql){queries.push(sql);return raw.prepare(sql);}};
+ const replay=await f.create(created.p,created.key);assert.equal(replay.status,201);const data=(await replay.json()).data;
+ assert.equal(data.status,'pending');assert.equal(data.case_id,created.data.case_id);assert.equal(data.query_key,created.data.query_key);
+ assert.ok(!queries.some(q=>q.includes('case_sha256_')));assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,1);assert.equal(f.puts(),1);
+});
+
+test('pre-policy replay remains the original case after classification activation',async t=>{
+ const f=await setup(t,{exact:false}),created=await f.proof();
+ await fencedRequest(f.env,new Request(origin+'/api/local-policy-fixture',{method:'POST'}),async env=>{
+  await env.DB.prepare('UPDATE case_sha256_control SET enabled=1,version=version+1 WHERE id=1 AND version=0').run();return Response.json({ok:true});
+ });
+ f.env.EXACT_DUPLICATE_CLASSIFICATION_ENABLED='true';
+ const replay=await f.create(created.p,created.key);assert.equal(replay.status,201);const data=(await replay.json()).data;
+ assert.equal(data.status,'pending');assert.equal(data.case_id,created.data.case_id);assert.equal(data.query_key,created.data.query_key);
+ assert.equal(f.read('SELECT COUNT(*) n FROM case_sha256_decisions').n,0);assert.equal(f.read('SELECT COUNT(*) n FROM cases').n,1);assert.equal(f.puts(),1);
+});

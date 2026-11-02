@@ -67,6 +67,8 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -z "$(git status --porcelain)"
+          # Fail closed with endpoint/status diagnostics; never print metadata.
+          node scripts/ci/deploy-metadata-preflight.mjs
           # Preserve the approved Production ON / Preview OFF routing state.
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -81,7 +83,7 @@ jobs:
           fs.mkdirSync('.wrangler', { recursive: true });
           fs.writeFileSync('.wrangler/approved-deploy.json', JSON.stringify(config));
           NODE
-          npx wrangler deploy --name voteproof --config .wrangler/approved-deploy.json --keep-vars --message "Git commit $RELEASE_SHA"
+          npx --yes --package=wrangler@4.156.0 wrangler deploy --name voteproof --config .wrangler/approved-deploy.json --keep-vars --message "Git commit $RELEASE_SHA"
           printf 'Deployed commit: %s\n' "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
           printf 'No migrations, data writes, or submission toggle performed.\n' >> "$GITHUB_STEP_SUMMARY"
       - name: Verify health and unchanged gate (read only)

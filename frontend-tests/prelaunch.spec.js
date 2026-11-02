@@ -1,9 +1,10 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import {test,expect} from './isolated-ui-fixture.mjs';
 import {adminFixture} from './admin-fixture.mjs';
 import {memberFixture} from './member-fixture.mjs';
 test.use({timezoneId:'America/Los_Angeles'});
 const preview='http://127.0.0.1:4174/VoteProof/';
-const tab=async(page,name)=>{await page.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');};
+const tab=async(page,name)=>selectAdminTab(page,name);
 test('member public rank uses only loaded boards and empty ranks remain honest',async({page})=>{
  const state=await memberFixture(page,{authenticated:true});
  const boards=[8,2,5].map((rank,i)=>({leaderboard_id:'B'+i,name:'Board '+i,type:i===1?'campaign':'all_time',is_current_comeback:i===1,vote_type:i===2?'Solo':null,rankings:[{rank,member_id:state.member.member_id,nickname:'Member',points:60,proof_count:3}]}));
@@ -46,7 +47,7 @@ test('Drive backup has own authorized tab and is absent from all Cases',async({p
  expect(s.calls.some(c=>c.path==='/api/admin/backups')).toBe(false);await tab(page,'Google Drive 備份');expect(s.calls.some(c=>c.path==='/api/admin/backups')).toBe(true);await expect(page.locator('#admin-panel')).toContainText('Google Drive 備份');
 });
 test('reviewer cannot see or load the Drive management tab',async({page})=>{
- const s=await adminFixture(page,{role:'reviewer'});await page.goto('/#admin');await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');await expect(page.getByRole('button',{name:'Google Drive 備份',exact:true})).toHaveCount(0);expect(s.calls.some(c=>c.path==='/api/admin/backups')).toBe(false);
+ const s=await adminFixture(page,{role:'reviewer'});await page.goto('/#admin');await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');await expect(page.getByRole('button',{name:'系統',exact:true})).toHaveCount(0);expect(s.calls.some(c=>c.path==='/api/admin/backups')).toBe(false);
 });
 test('only owner has rightmost staff management; normal Admin cannot grant and reviewer has exactly three tabs',async({page})=>{
  const s=await adminFixture(page,{role:'super_admin'});await page.goto('/#admin');await expect(page.locator('#admin-tabs button').last()).toHaveText('管理員管理');await tab(page,'管理員管理');

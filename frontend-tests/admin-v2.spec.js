@@ -1,8 +1,9 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import {test,expect} from '@playwright/test';
 import {randomUUID} from 'node:crypto';
 import {adminFixture} from './admin-fixture.mjs';
 const ready=async page=>{await page.goto('/#admin');await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');};
-const tab=async(page,name)=>{await page.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');};
+const tab=async(page,name)=>selectAdminTab(page,name);
 const reply=(route,data)=>route.fulfill({json:{ok:true,data}});
 test('pending jobs and collapsed missing/history stay distinct, including zero and direct pagination',async({page})=>{
  const state=await adminFixture(page);state.backups=Array.from({length:43},(_,i)=>({file_id:randomUUID(),case_id:state.caseId,status:'pending',created_at:1790000000+i,attempts:0}));

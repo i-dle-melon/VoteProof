@@ -16,9 +16,9 @@ test("admin/security use external scripts/styles and generate no script CSP viol
     globalThis.__adminScriptCsp = [];
     document.addEventListener("securitypolicyviolation", e => { if (e.effectiveDirective.startsWith("script-src")) globalThis.__adminScriptCsp.push(e.effectiveDirective); });
   });
-  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(12);
-  for (const name of ["會員管理", "系統健康監控"]) await expect(page.locator("#admin-tabs").getByRole("button", { name, exact: true })).toBeVisible();
-  for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿設定"]) {
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(9);
+  for (const name of ["會員管理", "投稿開關", "系統"]) await expect(page.locator("#admin-tabs").getByRole("button", { name, exact: true })).toBeVisible();
+  for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿開關"]) {
     await selectAdminTab(page,label); await expect(panel(page).locator("h2")).toHaveText(label);
     expect(await panel(page).evaluate(n => [...n.querySelectorAll("*")].every(el => [...el.attributes].every(a => a.name !== "style" && !/^on/i.test(a.name))))).toBe(true);
   }
@@ -46,7 +46,7 @@ test("session-bound admin MFA remains available beyond one hour and revocation s
   const now = Date.now(), state = await adminFixture(page);
   state.elevationUntil = now / 1000 + 7 * 86400;
   await page.clock.setFixedTime(now);
-  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(12);
+  await page.goto("/#admin"); await expect(page.locator("#admin-tabs button")).toHaveCount(9);
   await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
   await page.clock.setFixedTime(now + 2 * 3600000);
   const checks = state.calls.filter(c => c.path === "/api/admin/me").length;
@@ -303,7 +303,7 @@ test("foreground revalidation preserves campaign draft without writing or bypass
   await expect(page.locator("#admin-field-name")).toHaveValue("未送出的變更"); expect(state.calls.some(c => c.method === "POST")).toBe(false);
 });
 test("submission OFF to ON requires explicit confirmation and never toggles automatically", async ({ page }) => {
-  const state = await adminFixture(page, { autoConfirm: false }); await open(page, "投稿設定"); await page.locator("#admin-field-submissions_enabled").selectOption("true");
+  const state = await adminFixture(page, { autoConfirm: false }); await open(page, "投稿開關"); await page.locator("#admin-field-submissions_enabled").selectOption("true");
   page.once("dialog", d => d.dismiss()); await save(page, "保存投稿設定"); expect(state.calls.some(c => c.path.endsWith("submissions/update"))).toBe(false);
   page.once("dialog", d => { expect(d.message()).toContain("確定開放"); void d.accept(); }); await save(page, "保存投稿設定"); await expect(page.locator("#admin-field-submissions_enabled")).toHaveValue("true");
   await expect.poll(() => state.calls.find(c => c.path.endsWith("submissions/update"))?.body.expected_version).toBe(0);
@@ -312,7 +312,7 @@ test("submission OFF to ON requires explicit confirmation and never toggles auto
 test("submission public message is editable only while OFF and retained while ON", async ({ page }) => {
   const state = await adminFixture(page);
   state.submissions.submissions_message = '維護通知';
-  await open(page, '投稿設定');
+  await open(page, '投稿開關');
   const enabled = page.locator('#admin-field-submissions_enabled');
   const message = page.locator('#admin-field-submissions_message');
   await expect(message).toBeVisible();
@@ -356,7 +356,7 @@ test("all new admin/security screens fit 320/390/430 and both themes", async ({ 
     await page.setViewportSize({ width, height: 560 });
     for (const theme of ["dark", "light"]) {
       if (await page.locator("html").getAttribute("data-theme") !== theme) await page.locator("#theme-toggle").click();
-      for (const tab of ["案件審核", "活動管理", "排行榜管理", "會員等級", "投稿設定", "操作紀錄"]) {
+      for (const tab of ["案件審核", "活動管理", "排行榜管理", "會員等級", "投稿開關", "操作紀錄"]) {
         await selectAdminTab(page,tab); await expect(panel(page).locator("h2")).toHaveText(tab);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       }

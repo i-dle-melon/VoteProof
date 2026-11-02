@@ -42,7 +42,8 @@ const integer = (form, name, min, max) => {
 };
 const submitButton = (form, label) => { const b = node("button", label, "btn btn-primary"); b.type = "submit"; form.append(b); };
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
-const tabs = { overview: "工作總覽", announcements:'彈窗公告', members:'會員管理', cases: copy("admin-copy-017"), backups: 'Google Drive 備份', manualCleanup:'R2 手動清理', exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), submissions: copy("admin-copy-021"), healthMonitor:'系統健康監控', audit: copy("admin-copy-022"), staff:'管理員管理' };
+const tabs = { overview: "工作總覽", announcements:'彈窗公告', members:'會員管理', cases: copy("admin-copy-017"), exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), submissions: '投稿開關', system: '系統', staff:'管理員管理' };
+const systemTabs = [['backups','Google Drive 備份'],['manualCleanup','R2 手動清理'],['healthMonitor','系統健康監控'],['audit',copy("admin-copy-022")]];
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
@@ -605,7 +606,7 @@ export function adminUI(session) {
     }
   }
   async function submissions() {
-    heading(copy("admin-copy-021"), copy("admin-copy-122"));
+    heading('投稿開關', copy("admin-copy-122"));
     const data = await request("submissions"), f = formCard(copy("admin-copy-123"));
     const enabled = field(f, "submissions_enabled", copy("admin-copy-123"), "select", String(data.submissions_enabled), { choices: [["false", copy("admin-copy-124")], ["true", copy("admin-copy-125")]] });
     const message = field(f, "submissions_message", copy("admin-copy-126"), "textarea", data.submissions_message ?? "", { maxLength: 500 });
@@ -710,12 +711,14 @@ export function adminUI(session) {
       if (!canUseTab(actor,tab)) tab = "cases";
       $("admin-tabs").replaceChildren();
       for (const [key, label] of Object.entries(tabs)) if (canUseTab(actor,key)) {
-        const active=tab===key||key==='members'&&['tiers','blocks'].includes(tab);
-        const b = button(label, () => { if (!busy) { tab = key; void load(); } }, "btn " + (active ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(active)); $("admin-tabs").append(b);
+        const active=tab===key||key==='members'&&['tiers','blocks'].includes(tab)||key==='system'&&systemTabs.some(([child])=>child===tab);
+        const b = button(label, () => { if (!busy) { tab = key==='system'?'backups':key; void load(); } }, "btn " + (active ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(active)); $("admin-tabs").append(b);
       }
       const toolbar=node('div','','admin-panel-toolbar'),memberTabs=node('nav','','tabs');memberTabs.setAttribute('aria-label','會員管理功能');
       if(['members','tiers','blocks'].includes(tab))for(const [key,label]of [['members','會員列表'],['tiers','會員等級'],['blocks','會員封鎖']]){const b=button(label,()=>{if(!busy){tab=key;void load();}},'btn '+(tab===key?'btn-primary':'btn-white'));b.setAttribute('aria-pressed',String(tab===key));memberTabs.append(b);}
-      toolbar.append(memberTabs,button(copy("admin-copy-144"), () => void load()));$("admin-panel").append(toolbar);await loaders[tab]();
+      const systemNav=node('nav','','tabs');systemNav.setAttribute('aria-label','系統功能');
+      if(systemTabs.some(([child])=>child===tab))for(const [key,label] of systemTabs){const b=button(label,()=>{if(!busy){tab=key;void load();}},'btn '+(tab===key?'btn-primary':'btn-white'));b.setAttribute('aria-pressed',String(tab===key));systemNav.append(b);}
+      toolbar.append(memberTabs,systemNav,button(copy("admin-copy-144"), () => void load()));$("admin-panel").append(toolbar);await loaders[tab]();
     }, born);
   }
   $("admin-retry").addEventListener("click", () => void load());

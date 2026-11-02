@@ -1,3 +1,4 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import { test, expect } from "@playwright/test";
 const origin = "http://127.0.0.1:4174";
 async function backup(page, scenario = "normal", role = "admin") {
@@ -5,10 +6,7 @@ async function backup(page, scenario = "normal", role = "admin") {
     origin + "/VoteProof/?preview_identity=" + role + "&preview_storage=" + scenario + "#admin",
   );
   await expect(page.locator("html")).toHaveAttribute("data-preview-ready", "true");
-  await page
-    .locator("#admin-tabs")
-    .getByRole("button", { name: "Google Drive 備份", exact: true })
-    .click();
+  await selectAdminTab(page, "Google Drive 備份");
   await expect(page.getByRole("region", { name: "儲存容量保護" })).toBeVisible();
 }
 test("storage shared Admin renderer has decimal budget, Drive quota, dry-run and no real transport", async ({
@@ -94,7 +92,7 @@ test("reviewer cannot access storage management tab", async ({ page }) => {
   await page.goto(origin + "/VoteProof/?preview_identity=reviewer#admin");
   await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
   await expect(
-    page.locator("#admin-tabs").getByRole("button", { name: "Google Drive 備份", exact: true }),
+    page.locator("#admin-tabs").getByRole("button", { name: "系統", exact: true }),
   ).toHaveCount(0);
 });
 
@@ -109,7 +107,7 @@ test('Pages missing backup dialog uses the shared renderer and fixture pages wit
   await dialog.getByLabel('頁碼',{exact:true}).fill('3');await dialog.getByRole('button',{name:'前往',exact:true}).click();
   await expect(dialog.locator('article')).toHaveCount(3);await expect(dialog).toContainText('第 3／3 頁');await page.keyboard.press('Escape');
   await page.goto(origin+'/VoteProof/?preview_identity=admin&preview_data=empty#admin');
-  await page.locator('#admin-tabs').getByRole('button',{name:'Google Drive 備份',exact:true}).click();
+  await selectAdminTab(page,'Google Drive 備份');
   await expect(summary()).toHaveText('尚未排入備份：0');await summary().click();await page.getByRole('button',{name:'查看未排入備份清單'}).click();
   await expect(page.getByRole('dialog',{name:'尚未排入備份',exact:true})).toContainText('目前沒有尚未排入備份的圖片。');
   expect(requests.filter(r=>new URL(r.url).origin!==origin||new URL(r.url).pathname.includes('/api/')||r.method!=='GET')).toEqual([]);

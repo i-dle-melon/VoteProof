@@ -1,11 +1,9 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import { test, expect } from '@playwright/test';
 import { adminFixture } from './admin-fixture.mjs';
 import { randomUUID } from 'node:crypto';
-const tab = async (page, name) => {
-  await page.locator('#admin-tabs').getByRole('button', {name, exact:true}).click();
-  await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false');
-};
-const ready = async page => { await page.goto('/#admin'); await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false'); await tab(page,await page.locator('#admin-tabs').getByRole('button',{name:'Google Drive 備份',exact:true}).count()?'Google Drive 備份':'工作總覽'); };
+const tab = async (page, name) => selectAdminTab(page, name);
+const ready = async page => { await page.goto('/#admin'); await expect(page.locator('#admin-panel')).toHaveAttribute('aria-busy','false'); await tab(page,await page.locator('#admin-tabs').getByRole('button',{name:'系統',exact:true}).count()?'Google Drive 備份':'工作總覽'); };
 const openReview = async page => {
   await tab(page,'案件審核');
   await page.locator('.review-album .case-preview').first().click({position:{x:12,y:12}});

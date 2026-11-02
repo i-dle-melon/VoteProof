@@ -138,7 +138,7 @@ test("all Admin configuration and five exact-duplicate states use shared rendere
       }[analysis],
     );
   }
-  for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿設定"]) {
+  for (const label of ["活動管理", "排行榜管理", "會員等級", "投稿開關"]) {
     await selectAdminTab(page,label);
     await expect(page.locator("#admin-panel")).toContainText(label);
   }
@@ -192,7 +192,7 @@ test("mutation transport, proof URLs, auth and secrets remain impossible despite
     );
   });
   expect(codes).toEqual(Array(7).fill("UI_PREVIEW_ONLY"));
-  await page.locator("#admin-tabs").getByRole("button", { name: "投稿設定", exact: true }).click();
+  await page.locator("#admin-tabs").getByRole("button", { name: "投稿開關", exact: true }).click();
   await page
     .locator("#admin-panel form")
     .evaluate((f) => f.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));

@@ -1,3 +1,4 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import{test,expect}from'@playwright/test';import{randomUUID}from'node:crypto';import{adminFixture}from'./admin-fixture.mjs';
 const ok=(route,data)=>route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data})});
 const caseId=n=>'VP-20261101-'+'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[n].repeat(16);
@@ -67,7 +68,7 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true}={}){
   if((p.endsWith('/delete')||p.endsWith('/clean'))){if(wait)await wait;row.cleanup_state=unknown?'deleting':'cold';return ok(route,{file_id:row.file_id,state:unknown?'unknown':'deleted'});}
   if(p.endsWith('/status'))return ok(route,{state:row.cleanup_state==='cold'?'deleted':'unknown'});
  });
- await page.goto('/#admin');await page.getByRole('button',{name:'R2 手動清理',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 0 張');return{state,rows,calls,initialImageReads:state.calls.filter(c=>c.path.includes('/files/')).length};
+ await page.goto('/#admin');await selectAdminTab(page,'R2 手動清理');await expect(page.locator('#admin-panel')).toContainText('已選 0 張');return{state,rows,calls,initialImageReads:state.calls.filter(c=>c.path.includes('/files/')).length};
 }
 test('manual cleanup all covers 25 files over pages, first20 is stable and each file has independent verified cleanup',async({page},info)=>{
  const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());
@@ -97,7 +98,8 @@ test('admin navigation nests membership tools and date counts are GET only',asyn
  await adminFixture(page);await page.route('**/api/admin/members-overview**',r=>ok(r,{members:[],page_size:20,next_cursor:null}));const reads=[];
  await page.route('**/api/admin/overview**',route=>{reads.push(route.request().method());return ok(route,{member_count:98,case_totals:{pending:7,approved:8,rejected:3,revoked:0}});});
  await page.goto('/#admin');const tabs=page.locator('#admin-tabs');await expect(tabs.getByRole('button',{name:'會員等級',exact:true})).toHaveCount(0);await expect(tabs.getByRole('button',{name:'會員封鎖',exact:true})).toHaveCount(0);
- const names=await tabs.locator('button').allTextContents();expect(names.indexOf('彈窗公告')).toBeLessThan(names.indexOf('會員管理'));expect(names.indexOf('系統健康監控')+1).toBe(names.indexOf('操作紀錄'));
+ const names=await tabs.locator('button').allTextContents();expect(names.indexOf('彈窗公告')).toBeLessThan(names.indexOf('會員管理'));expect(names.indexOf('投稿開關')+1).toBe(names.indexOf('系統'));for(const sub of ['Google Drive 備份','R2 手動清理','系統健康監控','操作紀錄'])expect(names).not.toContain(sub);
+  await tabs.getByRole('button',{name:'系統',exact:true}).click();const system=page.getByRole('navigation',{name:'系統功能'});await expect(system.locator('button')).toHaveText(['Google Drive 備份','R2 手動清理','系統健康監控','操作紀錄']);await expect(system.getByRole('button',{name:'Google Drive 備份',exact:true})).toHaveAttribute('aria-pressed','true');
  await tabs.getByRole('button',{name:'會員管理',exact:true}).click();const bar=page.locator('.admin-panel-toolbar');await expect(bar.getByRole('button',{name:'會員等級',exact:true})).toBeVisible();await expect(bar.getByRole('button',{name:'會員封鎖',exact:true})).toBeVisible();
  const reload=await bar.getByRole('button',{name:'重新載入',exact:true}).boundingBox(),tools=await bar.locator('nav').boundingBox();expect(reload.x).toBeGreaterThan(tools.x);
  await tabs.getByRole('button',{name:'工作總覽',exact:true}).click();await expect(page.getByRole('button',{name:'日期區間',exact:true})).toHaveCount(3);await page.getByRole('button',{name:'日期區間',exact:true}).first().click();
@@ -112,5 +114,5 @@ test('a visible current-comeback campaign also gets its own named ranking button
 test('isolated Preview mocks reject and keeps manual cleanup read-only without API transport',async({page})=>{
  const realApi=[],errors=[];page.on('request',r=>{const u=new URL(r.url());if(u.pathname.includes('/api/'))realApi.push(u.origin+u.pathname);});page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.type()==='prompt'?'Preview reason':undefined));
  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_identity=admin#admin');await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');await page.locator('#admin-tabs').getByRole('button',{name:'案件審核',exact:true}).click();await page.locator('[data-review-select]').first().check();await page.locator('#admin-batch-reject').click();await expect(page.locator('.batch-review-results')).toContainText('成功 1');
- await page.locator('#admin-tabs').getByRole('button',{name:'R2 手動清理',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('目前只提供唯讀候選清單');await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(realApi).toEqual([]);expect(errors).toEqual([]);
+ await selectAdminTab(page,'R2 手動清理');await expect(page.locator('#admin-panel')).toContainText('目前只提供唯讀候選清單');await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(realApi).toEqual([]);expect(errors).toEqual([]);
 });

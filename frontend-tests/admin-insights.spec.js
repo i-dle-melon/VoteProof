@@ -1,7 +1,8 @@
+import {selectAdminTab} from './admin-navigation.mjs';
 import {test,expect} from '@playwright/test';
 import {adminFixture} from './admin-fixture.mjs';
 const root=p=>p.locator('#admin-panel');
-const tab=async(p,name)=>{await p.locator('#admin-tabs').getByRole('button',{name,exact:true}).click();await expect(root(p)).toHaveAttribute('aria-busy','false');};
+const tab=async(p,name)=>selectAdminTab(p,name);
 async function setup(page,options={}){
  const state=await adminFixture(page,{autoConfirm:false,...options});state.insights=[];state.writes=[];
  const members=Array.from({length:21},(_,i)=>({member_id:'M-00000000-0000-4000-8000-'+String(i+1).padStart(12,'0'),nickname:'合成會員 '+i,fan_id:'fan_'+i,status:'active',created_at:'2026-10-01T00:00:00.000Z',tier:{name:'普通'},total_points:10,proof_counts:{total:3,pending:1,approved:2,rejected:0},login_methods:['Google']}));state.members=members;
@@ -62,7 +63,7 @@ test('health refresh is serialized, manual only, and stops after navigation and 
 });
 
 test('reviewer cannot access either P1 tab',async({page})=>{
- await setup(page,{role:'reviewer'});for(const name of ['會員管理','系統健康監控'])await expect(page.locator('#admin-tabs').getByRole('button',{name,exact:true})).toHaveCount(0);
+ await setup(page,{role:'reviewer'});for(const name of ['會員管理','系統'])await expect(page.locator('#admin-tabs').getByRole('button',{name,exact:true})).toHaveCount(0);
 });
 
 test('B0 UNKNOWN, unsupported and partial windows are explicit; auto refresh starts OFF',async({page})=>{

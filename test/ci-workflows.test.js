@@ -99,7 +99,7 @@ test('workflow wiring preserves isolation, manual deploy, exact gate and paralle
   const read=p=>readFile('.github/workflows/'+p+'.yml','utf8');const [pages,prod,ci]=await Promise.all(['pages-preview','production-deploy','branch-validation'].map(read));
   assert.doesNotMatch(pages,/Require full branch CI|CLOUDFLARE|wrangler deploy/);assert.match(pages,/ci-smoke.spec.js/);assert.match(pages,/pages-public-build.test.js/);
   assert.match(prod,/workflow_dispatch:/);assert.doesNotMatch(prod,/^\s*(push|schedule|pull_request):/m);assert.match(prod,/needs: validate/);assert.match(prod,/--keep-vars/);
-  assert.equal((prod.match(/npx --yes --package=wrangler@4\.156\.0 wrangler deploy/g)??[]).length,1);
+  assert.equal((prod.match(/npx --yes --package=wrangler@4\.156\.2 wrangler deploy/g)??[]).length,1);
   assert.match(ci,/fail-fast: false/);for(const name of ['desktop-chrome','android-chrome','iphone-webkit'])assert.ok(ci.includes(name));
   assert.match(ci,/branches: \['codex\/\*\*'\]/); // Promoting an already validated SHA to main must not launch duplicate CI.
   assert.match(ci,/if: needs.plan.outputs.migrations == 'true'/);

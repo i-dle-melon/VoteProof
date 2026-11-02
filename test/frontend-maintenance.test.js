@@ -36,7 +36,7 @@ test("workflows isolate automatic Pages from exact-commit manual Production depl
   assert.match(production, /node scripts\/ci\/validation\.mjs/);
   assert.doesNotMatch(production, /run: npm test|run: npm run test:frontend/);
   assert.match(production, /Verify health and unchanged gate/);
-  assert.equal((production.match(/npx --yes --package=wrangler@4\.156\.0 wrangler deploy/g) ?? []).length, 1);
+  assert.equal((production.match(/npx --yes --package=wrangler@4\.156\.2 wrangler deploy/g) ?? []).length, 1);
   assert.match(production, /config\.workers_dev = true/);
   assert.match(production, /config\.preview_urls = false/);
   assert.doesNotMatch(production, /d1 (execute|migrations)|r2 (object|bucket)|secret (put|delete)|submissions\/update/);

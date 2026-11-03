@@ -2,6 +2,27 @@ import { test, expect } from '@playwright/test';
 import { memberFixture } from './member-fixture.mjs';
 import { adminFixture } from './admin-fixture.mjs';
 
+test('Preview upload contract boots every shared summary without module errors or writes',async({page})=>{
+ const errors=[],requests=[];page.on('pageerror',e=>errors.push(e.message));
+ page.on('request',r=>requests.push({url:r.url(),method:r.method()}));
+ const origin='http://127.0.0.1:4174';
+ for(const scene of['zero','uploading','failed','success']){
+  await page.goto(origin+'/VoteProof/?preview_identity=admin&preview_submission='+scene+'#submit');
+  expect(errors).toEqual([]);
+  await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');
+  if(scene!=='zero'){
+   const counts=page.locator('#batch-counts');await expect(counts).not.toContainText(/undefined|NaN/);
+   await expect(counts).toContainText('處理完成：'+(scene==='success'?3:scene==='failed'?2:1)+' / 3');
+   await expect(counts).toContainText('尚未開始：'+(scene==='success'?0:1));
+   const progress=await page.locator('#progress').evaluate(p=>p.value);expect(Number.isFinite(progress)).toBe(true);
+   expect(progress).toBe(scene==='success'?100:scene==='uploading'?47:33);
+  }
+ }
+ expect(errors).toEqual([]);
+ expect(requests.filter(r=>new URL(r.url).origin!==origin||new URL(r.url).pathname.includes('/api/')||!['GET','HEAD'].includes(r.method))).toEqual([]);
+ expect(await page.evaluate(()=>document.cookie)).toBe('');
+});
+
 test('Guest navigation and recovery controls boot without Preview auth', async ({ page }) => {
   await memberFixture(page);
   for(const view of ['home','submit','lookup','leaderboards','login','register','recover']) {

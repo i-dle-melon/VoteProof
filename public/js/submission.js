@@ -303,7 +303,11 @@ export class BatchSubmission {
   get busy() { return this.#running !== null; }
   get error() { return this.#error; }
   #remember(diagnostic) {
-    if(!this.#error)this.#error=Object.assign(new PublicError(diagnostic.code,diagnostic.http_status??0),{diagnostic});
+    if(!this.#error)this.#error=Object.assign(new PublicError(diagnostic.code,diagnostic.http_status??0),{diagnostic,
+      ...(diagnostic.upload_stage?{uploadStage:diagnostic.upload_stage}:{}),
+      ...(diagnostic.put_state?{putState:diagnostic.put_state}:{}),
+      ...(diagnostic.transport_event?{transportEvent:diagnostic.transport_event}:{}),
+      ...(diagnostic.duration_ms!==null?{elapsedMs:diagnostic.duration_ms}:{})});
   }
   get diagnostics() {
     const s=this.summary;

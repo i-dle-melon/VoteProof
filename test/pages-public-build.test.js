@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { build } from "esbuild";
 import {
   buildPagesPreview,
   removeElement,
@@ -28,6 +29,10 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   const before = await readFile("public/index.html", "utf8"),
     out = await buildPagesPreview(resolve(".wrangler/pages-preview"));
   const html = await readFile(resolve(out, "index.html"), "utf8");
+  // Link the generated adapters with the shared app, not only the production
+  // entry graph. A missing shim export must fail Build before 77 UI timeouts.
+  await build({entryPoints:[resolve(out,"js/app.js")],bundle:true,write:false,
+    platform:"browser",format:"esm",logLevel:"silent"});
   for (const view of ["home", "member", "security", "admin"])
     assert.match(html, new RegExp('id="view-' + view + '"'));
   assert.match(html, /UI PREVIEW · 非正式網站/);

@@ -23,15 +23,20 @@ export function submissionFixture() {
             : null,
       }))
     : [];
+  const succeeded=items.filter(i=>i.result).length,failed=items.filter(i=>i.status==='failed').length;
+  const queued=items.filter(i=>i.status==='queued').length;
   return {
     items,
     total: items.length,
-    succeeded: items.filter((i) => i.result).length,
-    failed: state.submission === "failed" ? 1 : 0,
+    succeeded,
+    failed,
     unknown: 0,
-    processing: state.submission === "uploading" ? 1 : 0,
+    processing: items.length-succeeded-failed-queued,
     retryable: state.submission === "failed" ? 2 : 0,
-    queued: state.submission === "uploading" ? 1 : 0,
+    queued,
+    processed: succeeded+failed,
+    paused: state.submission === "failed",
+    fraction: state.submission==='success'?1:state.submission==='uploading'?.47:items.length?succeeded/items.length:0,
     complete: active && state.submission === "success",
   };
 }

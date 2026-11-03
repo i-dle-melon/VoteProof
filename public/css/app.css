@@ -2818,7 +2818,7 @@ button.legacy-case-row:hover {
 .admin-panel-toolbar>button{margin-left:auto}.admin-panel-toolbar .tabs{margin:0}
 .review-batch-actions,.manual-cleanup-actions{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
 .batch-review-controls > .review-batch-actions{grid-column:1/-1;justify-content:space-between;width:100%}
-.review-batch-actions > #admin-batch-approve{min-width:178px}
+.review-batch-actions > #admin-batch-approve{flex:1 1 356px;min-width:min(100%,356px)}
 .review-batch-end-actions{display:flex;gap:.6rem;align-items:center;margin-left:auto;max-width:100%}
 @media(max-width:600px){
   .review-batch-end-actions{width:100%;justify-content:flex-end}

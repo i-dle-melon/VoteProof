@@ -97,11 +97,11 @@ test('review action layout keeps approve width and clear selection to the left o
   const rejectButton=page.locator('#admin-batch-reject');
   const rightGroup=page.locator('.review-batch-end-actions');
   await expect(rightGroup.locator('button')).toHaveText(['清除目前選取','不通過已選案件']);
-  const a=await approveButton.boundingBox(),c=await clearButton.boundingBox(),r=await rejectButton.boundingBox();
-  expect(a.width).toBeGreaterThanOrEqual(178);
+  const a=await approveButton.boundingBox(),c=await clearButton.boundingBox(),r=await rejectButton.boundingBox(),group=await page.locator('.review-batch-actions').boundingBox();
+  expect(a.width).toBeGreaterThanOrEqual(Math.min(356,group.width)-1);
   expect(c.x+c.width).toBeLessThanOrEqual(r.x+1);
   expect(Math.abs(c.y-r.y)).toBeLessThanOrEqual(1);
-  expect(a.x).toBeLessThan(c.x);
+  expect(a.y+1<c.y || (Math.abs(a.y-c.y)<=1 && a.x<c.x)).toBe(true);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await first(page).click();
   await expect(approveButton).toBeEnabled();

@@ -416,13 +416,43 @@ for(const firstPutSlot of [0,1])test('known rejected Grant renews only failed ba
 });
 
 test('unknown pending PUT keeps original Intent through missing Complete and late completion',async({page})=>{
- const state=await fixture(page);state.putFailures=1;state.putPending=true;await form(page);await page.locator('#submit-button').click();
- await expect(page.locator('#submission-error')).toContainText('上傳回覆尚未確認');await page.locator('#submit-button').click();
- await expect(page.locator('#submission-error')).toContainText('只核對原上傳');expect(state.puts.length).toBe(1);expect(state.prepareSessions.length).toBe(1);expect(state.receipts.size).toBe(0);
- await expect(page.locator('#image-list .image-item')).toHaveCount(1);state.uploadStates.get(state.prepareSessions[0]).present=true;
- await page.locator('#submit-button').click();await expect(page.locator('#submission-success')).toBeVisible();expect(state.puts.length).toBe(1);expect(state.receipts.size).toBe(1);
- const completed=state.calls.filter(c=>c.path.endsWith('/complete'));expect(completed.length).toBe(2);expect(completed[0].body).toEqual(completed[1].body);
- expect(JSON.parse(state.calls.find(c=>c.path==='/api/cases').body).upload_session).toEqual(JSON.parse(completed[0].body));
+ const state=await fixture(page);state.putFailures=1;state.putPending=true;await form(page);
+ // Observe this synthetic page's original key without changing its randomness
+ // or replacing the application. Do not print the key or any request secret.
+ await page.evaluate(()=>{
+  const original=crypto.getRandomValues.bind(crypto);globalThis.__unknownRetryKeys=[];
+  crypto.getRandomValues=array=>{const result=original(array);if(array instanceof Uint8Array&&array.length===32)
+   globalThis.__unknownRetryKeys.push(Array.from(array,b=>b.toString(16).padStart(2,'0')).join(''));return result;};
+ });
+ await page.locator('#submit-button').click();
+ await expect(page.locator('#submission-error')).toContainText('上傳回覆尚未確認');
+ const firstError=await page.locator('#submission-error').textContent(),original=state.prepareRequests[0];
+ const originalKeys=await page.evaluate(()=>globalThis.__unknownRetryKeys.slice());expect(originalKeys).toHaveLength(1);
+ expect(state.calls.filter(c=>c.path.endsWith('/complete')||c.path==='/api/cases')).toHaveLength(0);
+ // Prove that the second click actually verifies the original missing object.
+ const missingReply=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/uploads/complete'&&r.request().method()==='POST');
+ await page.locator('#submit-button').click();const missing=await missingReply;
+ expect(missing.status()).toBe(400);expect((await missing.json()).error.code).toBe('UPLOAD_INCOMPLETE');
+ await expect(page.locator('#retry-note')).toBeVisible();await expect(page.locator('#retry-note')).toContainText('只核對原上傳');
+ await expect(page.locator('#submission-error')).toHaveText(firstError);
+ const incomplete=state.calls.filter(c=>c.path.endsWith('/complete'));expect(incomplete).toHaveLength(1);
+ const reference=JSON.parse(incomplete[0].body);expect(reference.session_id).toBe(original.session);expect(reference.keys).toHaveLength(1);
+ expect(state.puts).toHaveLength(1);expect(state.puts[0].session).toBe(original.session);
+ expect(state.prepareRequests).toHaveLength(1);expect(state.prepareSessions).toEqual([original.session]);
+ expect(state.calls.filter(c=>c.path==='/api/cases')).toHaveLength(0);expect(state.receipts.size).toBe(0);
+ await expect(page.locator('#batch-counts')).toContainText('結果待確認：1');
+ await expect(page.locator('#image-list .image-item')).toHaveCount(1);
+ expect(await page.evaluate(()=>globalThis.__unknownRetryKeys.slice())).toEqual(originalKeys);
+ // Simulate late availability in the local fixture, never by another PUT.
+ state.uploadStates.get(original.session).present=true;
+ const confirmedReply=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/uploads/complete'&&r.request().method()==='POST');
+ await page.locator('#submit-button').click();expect((await confirmedReply).status()).toBe(200);
+ await expect(page.locator('#submission-success')).toBeVisible();
+ expect(state.puts).toHaveLength(1);expect(state.prepareRequests).toHaveLength(1);expect(state.receipts.size).toBe(1);
+ const completed=state.calls.filter(c=>c.path.endsWith('/complete'));expect(completed).toHaveLength(2);expect(completed[0].body).toBe(completed[1].body);
+ const creates=state.calls.filter(c=>c.path==='/api/cases');expect(creates).toHaveLength(1);
+ expect(JSON.parse(creates[0].body).upload_session).toEqual(reference);expect(creates[0].idempotency).toBe(originalKeys[0]);
+ expect([...state.receipts.keys()]).toEqual(originalKeys);expect(await page.evaluate(()=>globalThis.__unknownRetryKeys.slice())).toEqual(originalKeys);
 });
 test("Turnstile rejection remains a failure, with no PUT/case bypass", async ({ page }) => {
   const state = await fixture(page); state.prepareReject = true; await form(page);

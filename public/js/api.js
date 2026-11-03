@@ -14,6 +14,23 @@ function putError(xhr,code){
   if(['expired','path','format','version','invalid'].includes(reason))error.grantReason=reason;
   error.putRejected=header('X-VoteProof-Upload-Rejected')==='1';return error;
 }
+// Diagnostics copy only fixed enums and numbers, never an Error message,
+// request/response body, URL, Grant, Cookie or arbitrary provider metadata.
+export function safeUploadDiagnostic(error,phase,elapsedMs){
+  const extra=new Set(['PUT_FAILED','NETWORK_ERROR','PUT_ACK_UNKNOWN','PUT_RESULT_UNCONFIRMED','HTTP_ACKNOWLEDGED',
+    'MEMBER_SUSPENDED','CSRF_REJECTED','INVALID_AUTH_REQUEST']);
+  const code=typeof error?.code==='string'&&(putCodes.has(error.code)||extra.has(error.code)||Object.hasOwn(messages,error.code))
+    ?error.code:'UNEXPECTED_ERROR';
+  const duration=Number.isFinite(error?.elapsedMs)?error.elapsedMs:elapsedMs;
+  return Object.freeze({
+    phase:['prepare','put','complete','case','gate','authorize','recovery'].includes(phase)?phase:'unknown',code,
+    http_status:Number.isInteger(error?.status)&&error.status>=100&&error.status<=599?error.status:null,
+    upload_stage:putStages.has(error?.uploadStage)?error.uploadStage:null,
+    put_state:['not_started','unknown','acknowledged'].includes(error?.putState)?error.putState:null,
+    transport_event:['network','timeout','abort','load'].includes(error?.transportEvent)?error.transportEvent:null,
+    duration_ms:Number.isFinite(duration)&&duration>=0&&duration<=3600000?Math.round(duration):null
+  });
+}
 export async function api(path, { method = "GET", body, headers = {} } = {}) {
   let response;
   try {
@@ -36,6 +53,9 @@ export function putImage(upload, file, onProgress) {
   if (PREVIEW) return Promise.reject(new PublicError("UI_PREVIEW_ONLY", 403));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const started=performance.now();
+    const elapsed=()=>Math.max(0,Math.round(performance.now()-started));
+    const acknowledged=()=>({code:'HTTP_ACKNOWLEDGED',status:xhr.status,elapsedMs:elapsed(),transportEvent:'load'});
     xhr.open("PUT", upload.upload_url);
     xhr.withCredentials = false;
     xhr.timeout = 120000;
@@ -44,16 +64,17 @@ export function putImage(upload, file, onProgress) {
     xhr.setRequestHeader('X-Upload-Grant', upload.headers['X-Upload-Grant']);
     xhr.upload.onprogress = (event) => onProgress(event.lengthComputable ? event.loaded / event.total : 0);
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) { onProgress(1); resolve(); }
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress(1); resolve(acknowledged()); }
       else {
         let code;try{code=JSON.parse(xhr.responseText)?.error?.code;}catch{/* Sanitized fallback. */}
         // Create-only replay does not attest to the retried body. Legacy
         // Complete or direct Case HEAD verifies the original provider checksum.
-        if(xhr.status===409&&code==='UPLOAD_ALREADY_UPLOADED'){onProgress(1);resolve();}
-        else reject(putError(xhr,code));
+        if(xhr.status===409&&code==='UPLOAD_ALREADY_UPLOADED'){onProgress(1);resolve(acknowledged());}
+        else reject(Object.assign(putError(xhr,code),{elapsedMs:elapsed(),transportEvent:'load'}));
       }
     };
-    xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new PublicError("PUT_ACK_UNKNOWN"));
+    for(const [event,transportEvent]of[['onerror','network'],['ontimeout','timeout'],['onabort','abort']])
+      xhr[event]=()=>reject(Object.assign(new PublicError('PUT_ACK_UNKNOWN'),{elapsedMs:elapsed(),transportEvent}));
     xhr.send(file);
   });
 }

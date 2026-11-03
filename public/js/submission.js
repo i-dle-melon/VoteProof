@@ -1,4 +1,4 @@
-import { PublicError } from "./api.js";
+import { PublicError, safeUploadDiagnostic } from "./api.js";
 // Client UX limits mirror the public contract; backend is authoritative.
 export const FILE_LIMITS = Object.freeze({ count: 5, bytes: 5 * 1024 * 1024, batch: 25 * 1024 * 1024 });
 export const IMAGE_TYPES = Object.freeze({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" });
@@ -58,6 +58,16 @@ function checkedPrepare(data, files) {
 export function queryInformation(result) {
   return `VoteProof\n案件編號：${result.case_id}\n查詢碼：${result.query_key}`;
 }
+export function uploadDiagnosticText(diagnostics) {
+  const text=d=>`${d.phase} · ${d.code} · HTTP ${d.http_status??'未知'} · 階段 ${d.upload_stage??'未知'} · PUT ${d.put_state??'未知'}${d.transport_event?' · '+d.transport_event:''}${d.duration_ms===null?' · 耗時未知':' · '+d.duration_ms+'ms'}`;
+  const lines=[];
+  if(diagnostics?.original_put)lines.push('最初PUT錯誤：'+text(diagnostics.original_put));
+  else if(diagnostics?.put_response)lines.push('PUT HTTP回應（不是R2成功收據）：'+text(diagnostics.put_response));
+  if(diagnostics?.first&&!diagnostics.original_put)lines.push('首次錯誤：'+text(diagnostics.first));
+  if(diagnostics?.latest&&JSON.stringify(diagnostics.latest)!==JSON.stringify(diagnostics.original_put??diagnostics.first))
+    lines.push('最近核對：'+text(diagnostics.latest));
+  return lines.join('\n');
+}
 
 const INVENTORY_WAIT_MS = 5000, INVENTORY_WAIT_LIMIT = 12, INVENTORY_WAIT_BUDGET_MS = 60000;
 export function canWaitForInventory(error) {
@@ -70,10 +80,15 @@ export function canWaitForInventory(error) {
 export class Submission {
   #context = null;
   #running = null;
+  #diagnostics = { first:null, original_put:null, latest:null, put_response:null };
+  #phase = 'recovery';
+  #phaseStarted = 0;
   constructor({ api, put, token, progress = () => {}, now = () => Date.now(),
-    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), retryGate = async () => {}, directIntent = false }) {
+    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), retryGate = async () => {}, directIntent = false,
+    onDiagnostic = () => {}, onUncertain = () => {} }) {
     this.api = api; this.put = put; this.token = token; this.progress = progress; this.now = now;
     this.sleep = sleep; this.retryGate = retryGate;
+    this.onDiagnostic=onDiagnostic;this.onUncertain=onUncertain;
     // Snapshot the server-advertised mode for this logical item. A later gate
     // refresh must never change the payload/endpoint of an in-flight retry.
     this.directIntent = typeof directIntent==='function'?Boolean(directIntent()):Boolean(directIntent);
@@ -104,21 +119,39 @@ export class Submission {
     return 'upload';
   }
   get busy() { return this.#running !== null; }
+  get diagnostics() { return Object.fromEntries(Object.entries(this.#diagnostics).map(([k,v])=>[k,v?{...v}:null])); }
+  #mark(phase) { this.#phase=phase;this.#phaseStarted=this.now(); }
+  #record(error,phase=this.#phase,elapsed=this.now()-this.#phaseStarted) {
+    const d=safeUploadDiagnostic(error,phase,elapsed);
+    this.#diagnostics.first??=d;
+    if(phase==='put')this.#diagnostics.original_put??=d;
+    this.#diagnostics.latest=d;
+    this.onDiagnostic(this.#diagnostics.original_put??this.#diagnostics.first);
+    return d;
+  }
   start(metadata, files, { caseApi } = {}) {
     if (this.pending) throw new PublicError("SUBMISSION_PENDING");
     validateImages(files);
     if(this.directIntent && files.length!==1)throw new PublicError('INVALID_UPLOAD_REFERENCE');
+    this.#diagnostics={first:null,original_put:null,latest:null,put_response:null};
     this.#context = { metadata: normalizedMetadata(metadata), files: [...files], idempotency: newIdempotencyKey(),
       prepared: null, digests:null, uploaded: new Set(), uncertainPuts:new Set(),putHold:false, completed: false, payload: null, caseApi };
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
     this.#context = null;
+    this.#diagnostics={first:null,original_put:null,latest:null,put_response:null};
   }
   attempt() {
     if (this.#running) return this.#running;
     if (!this.#context) return Promise.reject(new PublicError("SUBMISSION_MISSING"));
-    this.#running = this.#attempt().finally(() => { this.#running = null; });
+    this.#mark('recovery');
+    this.#running = this.#attempt().catch(error=>{
+      if(this.#phase!=='put')this.#record(error);
+      if(error.code==='UPLOAD_INCOMPLETE'||this.#phase==='complete'&&error.code==='NETWORK_ERROR')
+        this.onUncertain();
+      throw error;
+    }).finally(() => { this.#running = null; });
     return this.#running;
   }
   async #attempt() {
@@ -144,6 +177,7 @@ export class Submission {
       // for verifying these against actual bytes; a browser claim is not proof.
       if(!c.digests)await this.batchFile();
       const started = this.now();
+      this.#mark('prepare');
       try{c.prepared = checkedPrepare(await (c.caseApi??this.api)("/api/uploads/prepare", { method: "POST", body: {
         ...(c.files.length===1?{storage_version:2,campaign_id:c.metadata.campaign_id}:{}),
         ...(this.directIntent?{completion_mode:'direct'}:{}),
@@ -158,10 +192,16 @@ export class Submission {
         fraction: (c.uploaded.size + fraction) / c.files.length });
       update(0);
       let retryGateFailed = false;
+      let putStarted=this.now();
       try {
         let waits=0,deadline=null;
         for (;;) {
-          try { await this.put(c.prepared.uploads[i], c.files[i], update); break; }
+          try {
+            this.#mark('put');putStarted=this.now();
+            const ack=await this.put(c.prepared.uploads[i], c.files[i], update);
+            if(ack)this.#diagnostics.put_response=safeUploadDiagnostic(ack,'put',this.now()-putStarted);
+            break;
+          }
           catch (error) {
             const at=this.now();
             if(!canWaitForInventory(error)||waits>=INVENTORY_WAIT_LIMIT||
@@ -175,7 +215,7 @@ export class Submission {
             if(this.now()>=c.expiresAt||this.now()>deadline)throw error;
             // The application gate also revalidates the captured member/guest
             // identity. Gate failures happened before PUT, not an unknown PUT.
-            await this.retryGate();
+            this.#mark('gate');await this.retryGate();
             if(this.now()>=c.expiresAt||this.now()>deadline)throw error;
             retryGateFailed=false;
           }
@@ -183,6 +223,7 @@ export class Submission {
       }
       catch(error) {
         if(retryGateFailed){error.pauseBatch=true;throw error;}
+        this.#record(error,'put',this.now()-putStarted);
         // A rejected Grant cannot have reached native R2. Never turn a 403 into
         // a successful upload flag or a speculative Direct Case submission.
         if(error.code==='UPLOAD_GRANT_INVALID'&&error.status===403){
@@ -195,13 +236,16 @@ export class Submission {
           error.code==='UPLOAD_REPREPARE_REQUIRED'&&error.putState!=='not_started';
         if(ambiguous){
           c.uncertainPuts.add(i);
+          // Stop starting new images now, before potentially slow Case/Complete
+          // verification. Already-started lanes retain their exact state.
+          this.onUncertain();
           // This is verification, not success. Keep this exact intent and never
           // send PUT again, even when a later HEAD still reports missing bytes.
           if(this.directIntent)continue;
           throw error;
         }
         const rejected=error.putRejected||['UPLOAD_VALIDATION_FAILED','UPLOAD_INTENT_INVALID','UPLOAD_OWNER_MISMATCH','UPLOAD_SESSION_EXPIRED','SUBMISSIONS_DISABLED','SUBMISSIONS_UNAVAILABLE','AUTH_REQUIRED','AUTH_IDENTITY_CHANGED','MEMBER_BLOCKED','CSRF_INVALID','PRELAUNCH_MAINTENANCE','PRELAUNCH_EPOCH_CHANGED','PRELAUNCH_UPLOAD_RETIRED','PRELAUNCH_PROOF_RETIRED','PRELAUNCH_PROOF_GENERATION_RETIRED'].includes(error.code);
-        if(!rejected){c.putHold=true;error.pauseBatch=true;}
+        if(!rejected){c.putHold=true;error.pauseBatch=true;this.onUncertain();}
         throw error;
       }
       c.uploaded.add(i);
@@ -209,6 +253,7 @@ export class Submission {
     const reference = { session_id: c.prepared.session_id, keys: c.prepared.uploads.map((u) => u.key),
       ...(c.prepared.capability?{capability:c.prepared.capability}:{}) };
     if (!c.completed && !this.directIntent) {
+      this.#mark('complete');
       this.progress({ phase: "complete", fraction: 1 });
       // A missing/failed Complete response is never evidence that the original
       // PUT did not happen. Verify this same reference on retry; never re-PUT.
@@ -219,6 +264,7 @@ export class Submission {
     // Store the serialized body ONCE before POST. Lost success responses must
     // replay this exact body/key, even if the upload is already consumed.
     c.payload ??= JSON.stringify({ ...c.metadata, upload_session: reference });
+    this.#mark('case');
     this.progress({ phase: "case", fraction: 1 });
     const result = await (c.caseApi ?? this.api)(this.directIntent?"/api/cases/direct":"/api/cases", { method: "POST", headers: { "Idempotency-Key": c.idempotency }, body: c.payload });
     if (!/^VP-\d{8}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16}$/.test(result?.case_id ?? "") ||
@@ -241,6 +287,7 @@ export class BatchSubmission {
   #gateCheck = null;
   #inventoryWait = null;
   #inventoryRetryAt = 0;
+  #pauseScheduling = false;
   constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now = Date.now,
     sleep = ms => new Promise(resolve=>setTimeout(resolve,ms)), directIntent = false, concurrency = 2 }) {
     if(![1,2].includes(concurrency))throw new PublicError('INVALID_CASE_REQUEST');
@@ -255,10 +302,24 @@ export class BatchSubmission {
   get pending() { return this.#items.some(item => !item.result); }
   get busy() { return this.#running !== null; }
   get error() { return this.#error; }
+  #remember(diagnostic) {
+    if(!this.#error)this.#error=Object.assign(new PublicError(diagnostic.code,diagnostic.http_status??0),{diagnostic});
+  }
+  get diagnostics() {
+    const s=this.summary;
+    return {format:'voteproof-upload-diagnostic-v1',counts:{total:s.total,processed:s.processed,succeeded:s.succeeded,
+      unconfirmed:s.unknown,confirmed_failed:s.failed,queued:s.queued,processing:s.processing},
+      paused:s.paused,first_error:this.#error?safeUploadDiagnostic(this.#error.diagnostic?{
+        code:this.#error.diagnostic.code,status:this.#error.diagnostic.http_status,
+        uploadStage:this.#error.diagnostic.upload_stage,putState:this.#error.diagnostic.put_state,
+        transportEvent:this.#error.diagnostic.transport_event,elapsedMs:this.#error.diagnostic.duration_ms
+      }:this.#error,this.#error.diagnostic?.phase??'gate',null):null,
+      items:s.items.map((item,index)=>({index:index+1,status:item.status,...item.diagnostics}))};
+  }
   get summary() {
     const items = this.#items.map(({ file, status, result, error, flow, state }) => ({ name: file.name, status,
       result: result ? { ...result } : null, error: error?.code ?? null,
-      recovery:result?'none':flow.recovery, state:state?{...state}:null }));
+      recovery:result?'none':flow.recovery, state:state?{...state}:null,diagnostics:flow.diagnostics }));
     const succeeded = items.filter(item => item.result).length;
     const unknown = items.filter(item=>item.status==='unknown').length;
     const failed = items.filter(item=>item.status==='failed').length;
@@ -266,6 +327,7 @@ export class BatchSubmission {
     const processing=items.length-succeeded-unknown-failed-queued;
     return { items, total: items.length, succeeded, failed: items.filter(item => item.status === "failed").length,
       queued, processing, unknown, retryable:items.some(i=>i.recovery==='hold')?0:items.filter(i=>!i.result).length,
+      processed:succeeded+failed+unknown,paused:this.#pauseScheduling,
       fraction:items.length?items.reduce((n,i)=>n+(i.result?1:Math.min(.95,i.state?.fraction??0)*.95),0)/items.length:0,
       complete: items.length > 0 && succeeded === items.length };
   }
@@ -284,12 +346,14 @@ export class BatchSubmission {
     if (this.#items.length) throw new PublicError("SUBMISSION_PENDING");
     validateBatchImages(files);
     const input = normalizedMetadata(metadata);
-    this.#error = null; this.#metadata=input;this.#caseApi=options.caseApi??this.dependencies.api;
+    this.#error = null;this.#pauseScheduling=false; this.#metadata=input;this.#caseApi=options.caseApi??this.dependencies.api;
     this.#mode=typeof this.dependencies.directIntent==='function'?Boolean(this.dependencies.directIntent()):Boolean(this.dependencies.directIntent);
     this.#authorizationExpiresAt=null;
     this.#items = files.map((file, index) => {
       const item = { file, status: "queued", result: null, error: null, state:null };
       item.flow = new Submission({ ...this.dependencies,directIntent:this.#mode,
+        onDiagnostic:d=>this.#remember(d),
+        onUncertain:()=>{this.#pauseScheduling=true;this.changed(this.summary);},
         sleep:ms=>this.#waitInventory(ms),retryGate:()=>this.#checkGate(),progress: state => {
         if(state.phase==='capacity_wait'&&this.#inventoryWait)state={...state,nextRetryAt:this.#inventoryRetryAt};
         item.status = state.phase; item.state=state; this.changed(this.summary);
@@ -303,13 +367,13 @@ export class BatchSubmission {
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
-    this.#items = []; this.#error = null; this.#metadata = null;this.#caseApi=null;this.#authorizationExpiresAt=null; this.changed(this.summary);
+    this.#items = []; this.#error = null;this.#pauseScheduling=false; this.#metadata = null;this.#caseApi=null;this.#authorizationExpiresAt=null; this.changed(this.summary);
   }
   attempt() {
     if (this.#running) return this.#running;
     if (!this.pending) return this.#items.length ? Promise.resolve(this.summary) : Promise.reject(new PublicError("SUBMISSION_MISSING"));
     this.#running = this.#attempt().catch(error=>{
-      this.#error=error;
+      this.#error??=error;
       const pending=this.#items.filter(item=>!item.result);
       const verifying=pending.some(item=>item.status==='verify');
       for(const item of pending)if(item.status==='verify')item.status='queued';
@@ -319,11 +383,23 @@ export class BatchSubmission {
     return this.#running;
   }
   async #attempt() {
+    // Clear only this attempt's displayed error, never the item's first evidence.
+    this.#error=null;this.#pauseScheduling=false;
     // No prepare/PUT/complete/case happens before a fresh, fail-closed gate.
-    await this.#checkGate(); this.#error = null;
-    if(this.#items.some(i=>!i.result&&i.flow.recovery==='hold')){
-      this.#error=new PublicError('PUT_RESULT_UNCONFIRMED');
+    await this.#checkGate();
+    const held=this.#items.find(i=>!i.result&&i.flow.recovery==='hold');
+    if(held){
+      this.#pauseScheduling=true;
+      this.#remember(held.flow.diagnostics.original_put??held.flow.diagnostics.first??
+        safeUploadDiagnostic(new PublicError('PUT_RESULT_UNCONFIRMED'),'recovery',null));
       this.changed(this.summary);return this.summary;
+    }
+    // Reconcile uncertain original requests before authorizing/starting any
+    // untouched image. Only a fully confirmed reconciliation can resume them.
+    const uncertain=this.#items.filter(i=>!i.result&&i.status==='unknown');
+    if(uncertain.length){
+      await this.#run(uncertain);
+      if(this.#pauseScheduling||uncertain.some(i=>!i.result))return this.summary;
     }
     const needs=this.#items.filter(item=>!item.result&&item.flow.needsBatchTicket());
     if(this.#items.length>1&&needs.length){
@@ -350,31 +426,35 @@ export class BatchSubmission {
       for(let i=0;i<needs.length;i++){needs[i].flow.setBatchTicket(data.tickets[i],this.#authorizationExpiresAt);needs[i].status='queued';}
     }
     const pending=this.#items.filter(item=>!item.result&&item.flow.recovery!=='hold');
-    let cursor=0,paused=false;
-    const run=async()=>{while(!paused&&cursor<pending.length){
+    await this.#run(pending);
+    return this.summary;
+  }
+  async #run(pending){
+    let cursor=0;
+    const run=async()=>{while(!this.#pauseScheduling&&cursor<pending.length){
       // An inventory wait blocks starting further items, not the other active
       // PUT. All started lanes settle before attempt() reports a final result.
-      if(this.#inventoryWait){try{await this.#inventoryWait;}catch{paused=true;break;}}
-      if(paused||cursor>=pending.length)break;
+      if(this.#inventoryWait){try{await this.#inventoryWait;}catch{this.#pauseScheduling=true;break;}}
+      if(this.#pauseScheduling||cursor>=pending.length)break;
       const item=pending[cursor++];
       try {
         await this.#checkGate();
-        if(paused)break;
+        if(this.#pauseScheduling)break;
         item.error = null; item.result = await item.flow.attempt(); item.status = "success";
       } catch (error) {
         item.error = error;
-        item.status = item.flow.recovery==='confirm'||item.flow.recovery==='hold'?'unknown':'failed';
-        this.#error = error;
+        item.status = item.flow.recovery==='confirm'||item.flow.recovery==='hold'||error.code==='UPLOAD_INCOMPLETE'||
+          error.code==='NETWORK_ERROR'&&item.flow.diagnostics.latest?.phase==='complete'?'unknown':'failed';
+        this.#error??=error;
         // Global auth, campaign, gate or challenge failures pause the queue.
         if (error.pauseBatch||error.code==='PUT_RESULT_UNCONFIRMED'||error.code==='UPLOAD_OWNER_MISMATCH'||
             /^R2_STORAGE_(?:CAPACITY_EXCEEDED|INVENTORY_BUSY|SNAPSHOT_STALE)$/.test(error.code??'')||
             /^(AUTH_|MEMBER_|CSRF_|SUBMISSIONS_|CAMPAIGN_|TURNSTILE_|BATCH_AUTH_|DIRECT_INTENT_)/.test(error.code ?? "")) {
-          paused=true;
+          this.#pauseScheduling=true;
         }
       }
       this.changed(this.summary);
     }};
     await Promise.all(Array.from({length:Math.min(this.concurrency,pending.length)},run));
-    return this.summary;
   }
 }

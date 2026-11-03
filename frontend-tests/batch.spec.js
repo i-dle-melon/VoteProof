@@ -63,6 +63,87 @@ async function form(page, count = 20) {
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
 }
 
+test('1309 safety: 20-image UNKNOWN pauses queue, preserves PUT evidence and resumes original references',async({page},info)=>{
+ const state=await fixture(page);let missing=true,failedSession,release;
+ const twoStarted=new Promise(r=>release=r),counts=new Map();
+ await page.route('**/api/uploads/put/**',async route=>{
+  const session=new URL(route.request().url()).pathname.split('/')[4],index=state.sessions.get(session);
+  state.puts.push(index);counts.set(session,(counts.get(session)||0)+1);
+  if(!failedSession)failedSession=session;
+  if(state.puts.length===2)release();
+  await twoStarted;
+  if(session===failedSession)return route.fulfill({status:500,contentType:'application/json',
+   headers:{'X-VoteProof-Upload-Stage':'r2_put','X-VoteProof-Put-State':'unknown'},
+   body:JSON.stringify({ok:false,error:{code:'R2_UPLOAD_ERROR'}})});
+  await route.fulfill({body:''});
+ });
+ await page.route('**/api/uploads/complete',route=>{
+  const denied=route.request().postDataJSON().session_id===failedSession&&missing;
+  return route.fulfill({status:denied?400:200,contentType:'application/json',
+   body:JSON.stringify(denied?{ok:false,error:{code:'UPLOAD_INCOMPLETE'}}:{ok:true,data:{}})});
+ });
+ await form(page,20);await page.locator('#submit-button').click();
+ await expect(page.locator('#submit-button')).toBeEnabled();
+ await expect(page.locator('#batch-counts')).toContainText('尚未開始：18');
+ await expect(page.locator('#batch-counts')).toContainText('真正成功：1');
+ await expect(page.locator('#batch-counts')).toContainText('結果待確認：1');
+ expect(state.prepares).toHaveLength(2);expect(state.puts).toHaveLength(2);
+ await expect(page.locator('#batch-items [data-state="queued"]')).toHaveCount(18);
+ const success=state.posts[0];expect(success).toBeTruthy();
+ await page.locator('#submit-button').click();
+ await expect(page.locator('#submit-button')).toBeEnabled();
+ expect(state.prepares).toHaveLength(2);expect(state.puts).toHaveLength(2);
+ const unknown=page.locator('#batch-items [data-state="unknown"]');
+ await expect(unknown).toContainText('R2_UPLOAD_ERROR');await expect(unknown).toContainText('UPLOAD_INCOMPLETE');
+ await expect(unknown).toContainText('500');await expect(unknown).toContainText('r2_put');
+ const details=page.locator('#batch-results details').filter({hasText:'查看不含授權資訊的診斷摘要'});
+ await details.locator('summary').click();
+ await expect(details.locator('pre')).toContainText('voteproof-upload-diagnostic-v1');
+ const diagnostic=JSON.parse(await details.locator('pre').textContent());
+ expect(diagnostic.first_error.code).toBe('R2_UPLOAD_ERROR');
+ expect(diagnostic.items.find(i=>i.original_put).latest.code).toBe('UPLOAD_INCOMPLETE');
+ const text=JSON.stringify(diagnostic);
+ for(const secret of[state.member.csrf,...state.prepares.map(p=>p.batch_ticket).filter(Boolean),...state.capabilities.filter(Boolean),
+  ...state.posts.flatMap(p=>[p.key,p.body.upload_session.session_id]),...state.receipts.values()].map(x=>typeof x==='string'?x:JSON.stringify(x)))
+  expect(text).not.toContain(secret);
+ for(const theme of['dark','light']){
+  if(await page.locator('html').getAttribute('data-theme')!==theme)await page.locator('#theme-toggle').evaluate(b=>b.click());
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+ await page.locator('#batch-counts').screenshot({path:`.wrangler/frontend-previews/1309-paused-${info.project.name}.png`});
+ expect(await page.locator('#progress').evaluate(p=>p.value)).toBeLessThan(100);
+ await expect(page.locator('#submission-success')).not.toBeVisible();
+ missing=false;await page.locator('#submit-button').click();
+ await expect(page.locator('#submission-success')).toBeVisible();
+ expect(state.puts).toHaveLength(20);expect([...counts.values()].every(n=>n===1)).toBe(true);
+ expect(state.authorizations).toHaveLength(1);expect(state.receipts.size).toBe(20);
+ expect(state.posts.filter(p=>p.key===success.key)).toHaveLength(1);
+ expect(state.posts.find(p=>p.key===success.key).serialized).toBe(success.serialized);
+ expect(state.posts.find(p=>p.body.upload_session.session_id===failedSession)).toBeTruthy();
+});
+
+test('1309 safety: processed 20/20 with a confirmed rejection is not twenty successful cases',async({page},info)=>{
+ const state=await fixture(page);let rejected;
+ await page.route('**/api/uploads/put/**',async route=>{
+  const session=new URL(route.request().url()).pathname.split('/')[4];
+  state.puts.push(state.sessions.get(session));rejected??=session;
+  if(session===rejected)return route.fulfill({status:400,contentType:'application/json',
+   headers:{'X-VoteProof-Upload-Rejected':'1','X-VoteProof-Upload-Stage':'request_validation','X-VoteProof-Put-State':'not_started'},
+   body:JSON.stringify({ok:false,error:{code:'UPLOAD_VALIDATION_FAILED'}})});
+  return route.fulfill({body:''});
+ });
+ await form(page,20);await page.locator('#submit-button').click();
+ await expect(page.locator('#batch-counts')).toContainText('處理完成：20 / 20');
+ await expect(page.locator('#batch-counts')).toContainText('真正成功：19');
+ await expect(page.locator('#batch-counts')).toContainText('已確認失敗：1');
+ await expect(page.locator('#progress-label')).toContainText('成功 19');
+ expect(await page.locator('#progress').evaluate(p=>p.value)).toBeLessThan(100);
+ await expect(page.locator('#submission-success')).not.toBeVisible();
+ expect(state.receipts.size).toBe(19);expect(state.puts).toHaveLength(20);
+ expect(state.posts.some(p=>p.body.upload_session.session_id===rejected)).toBe(false);
+ await page.locator('#batch-counts').screenshot({path:`.wrangler/frontend-previews/1309-processed-${info.project.name}.png`});
+});
+
 test('UAT mobile: active batch progress and case counts are actually inside the viewport',async({page},info)=>{
   let release;const putWait=new Promise(r=>release=r);const state=await fixture(page,{putWait});
   await page.setViewportSize({width:390,height:844});
@@ -208,8 +289,10 @@ for(const authenticated of [false,true])test(`inventory Busy waits and resumes t
 test("partial batch keeps successes and retries only failed PUT/lost case items", async ({ page }) => {
   const state = await fixture(page, { partial: true }); await form(page, 3); await page.locator("#submit-button").click();
   await expect(page.locator("#retry-note")).toBeVisible();
-  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 1 · 未成功 2 · 等待 0");
+  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 1 · 未成功 1 · 等待 1");
   await expect(page.locator("#batch-items .credentials")).toHaveCount(1);
+  await page.locator("#submit-button").click();
+  await expect(page.locator("#batch-summary")).toHaveText("共 3 張 · 已送出 2 · 未成功 1 · 等待 0");
   await page.locator("#submit-button").click(); await expect(page.locator("#submission-success")).toBeVisible();
   await expect(page.locator("#batch-items .credentials")).toHaveCount(3);
   // Aborted transport is UNKNOWN. Mock Complete verifies the original bytes;

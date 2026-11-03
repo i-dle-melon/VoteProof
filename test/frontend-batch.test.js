@@ -47,8 +47,9 @@ test("partial batch retries only failed items and replays a lost case response w
   const second = await h.batch.attempt(); assert.equal(second.complete, true); assert.equal(h.receipts.size, 3);
   assert.deepEqual(h.puts, ["proof-0.png", "proof-1.png", "proof-2.png", "proof-1.png"]);
   const posts = h.calls.filter(c => c.path === "/api/cases");
-  assert.equal(posts.length, 4); assert.equal(posts[1].body, posts[3].body);
-  assert.equal(posts[1].headers["Idempotency-Key"], posts[3].headers["Idempotency-Key"]);
+  assert.equal(posts.length, 4);
+  const replay=posts.filter(p=>p.headers["Idempotency-Key"]===posts[1].headers["Idempotency-Key"]);
+  assert.equal(replay.length,2);assert.equal(replay[0].body,replay[1].body);
   assert.equal(new Set(posts.map(c => c.headers["Idempotency-Key"])).size, 3);
   for (const call of h.calls.filter(c => c.path.endsWith("prepare"))) assert.equal(call.body.files.length, 1);
   for (const call of posts) assert.equal(JSON.parse(call.body).upload_session.keys.length, 1);
@@ -77,7 +78,7 @@ test("lost completion response replays only that upload reference and does not r
     if (path.endsWith("complete") && lost) { lost = false; throw new PublicError("NETWORK_ERROR"); }
     return result;
   };
-  h.start(); assert.equal((await h.batch.attempt()).failed, 1);
+  h.start(); const uncertain=await h.batch.attempt();assert.equal(uncertain.unknown,1);assert.equal(uncertain.failed,0);
   assert.equal((await h.batch.attempt()).complete, true);
   const completions = h.calls.filter(call => call.path.endsWith("complete"));
   assert.equal(completions.length, 2); assert.deepEqual(completions[0].body, completions[1].body);
@@ -114,7 +115,8 @@ test('one explicit retry renews expired authorization only for the never-written
  assert.deepEqual(auth.map(c=>c.body.files.length),[3,1]);
  assert.equal(h.receipts.size,3);assert.deepEqual(h.puts,['proof-0.png','proof-1.png','proof-2.png','proof-1.png']);
  const posts=h.calls.filter(c=>c.path==='/api/cases');
- assert.equal(posts[1].body,posts[3].body);assert.equal(posts[1].headers['Idempotency-Key'],posts[3].headers['Idempotency-Key']);
+ const replay=posts.filter(p=>p.headers['Idempotency-Key']===posts[1].headers['Idempotency-Key']);
+ assert.equal(replay.length,2);assert.equal(replay[0].body,replay[1].body);
 });
 
 for(const count of [1,3,10,20])test(`${count}-image batch: ambiguous 502 never re-PUTs or invents a Case success`,async()=>{
@@ -129,10 +131,10 @@ for(const count of [1,3,10,20])test(`${count}-image batch: ambiguous 502 never r
   h.puts.push(file.name);if(first){first=false;const e=new PublicError('R2_UPLOAD_ERROR',502);e.putState='unknown';throw e;}
  };
  h.start();const initial=await h.batch.attempt();
- assert.equal(initial.items[0].result,null);assert.equal(h.receipts.size,count-1);
+ assert.equal(initial.items[0].result,null);assert.equal(h.receipts.size,0);assert.equal(initial.queued,count-1);
  const before=h.puts.length;await h.batch.attempt();
  assert.equal(h.puts.length,before);assert.equal(h.puts.filter(x=>x==='proof-0.png').length,1);
- assert.equal(h.calls.filter(c=>c.path==='/api/uploads/prepare').length,count);
+ assert.equal(h.calls.filter(c=>c.path==='/api/uploads/prepare').length,1);
  assert.equal(h.batch.summary.items[0].result,null);
  // Complete's authoritative missing-object response must not become success.
  // The original intent is still retained for later receipt verification.

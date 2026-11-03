@@ -52,8 +52,9 @@ for(const code of ['UPLOAD_INCOMPLETE','NETWORK_ERROR','UPLOAD_SESSION_EXPIRED']
 });
 test('unknown PUT remains distinct and retry can only confirm original bytes, not send another PUT',async()=>{
  let missing=true;const h=fixture(3,{put:async(_u,f)=>{if(f.name==='image-0.png')throw new PublicError('PUT_ACK_UNKNOWN');},complete:async o=>{if(o.body.session_id===h.puts[0]?.u.key&&missing)throw new PublicError('UPLOAD_INCOMPLETE',400);}});
- const first=await h.batch.attempt();assert.equal(first.unknown,1);assert.equal(first.succeeded,2);const receipt=first.items[1].result;
- await h.batch.attempt();assert.equal(h.puts.length,3);missing=false;const last=await h.batch.attempt();assert.equal(last.complete,true);assert.deepEqual(last.items[1].result,receipt);assert.equal(h.receipts.size,3);
+ const first=await h.batch.attempt();assert.equal(first.unknown,1);assert.equal(first.succeeded,1);assert.equal(first.queued,1);const receipt=first.items[1].result;
+ await h.batch.attempt();assert.equal(h.puts.length,2);assert.equal(h.batch.summary.queued,1);
+ missing=false;const last=await h.batch.attempt();assert.equal(last.complete,true);assert.equal(h.puts.length,3);assert.deepEqual(last.items[1].result,receipt);assert.equal(h.receipts.size,3);
 });
 test('lost Case ACK replays one immutable payload/key, other successful cases never repeated',async()=>{
  let lose=true;const h=fixture(20,{create:async()=>{if(lose){lose=false;throw new PublicError('NETWORK_ERROR');}}});
@@ -74,7 +75,11 @@ test('same batch concurrent attempts cannot duplicate authorize, PUT or Case',as
  const h=fixture(20);const a=h.batch.attempt(),b=h.batch.attempt();assert.equal(a,b);await a;await h.batch.attempt();assert.equal(h.puts.length,20);assert.equal(h.tokens(),1);assert.equal(h.receipts.size,20);
 });
 test('unknown rejection with no safe diagnostic permanently holds the item rather than offering upload',async()=>{
- const h=fixture(1,{put:async()=>{throw new PublicError('UNRECOGNIZED',502);}});const a=await h.batch.attempt();assert.equal(a.unknown,1);assert.equal(a.retryable,0);assert.equal(a.items[0].recovery,'hold');await h.batch.attempt();assert.equal(h.puts.length,1);
+ const h=fixture(20,{put:async(_u,f)=>{if(f.name==='image-0.png')throw new PublicError('UNRECOGNIZED',502);}});
+ const a=await h.batch.attempt();assert.equal(a.unknown,1);assert.equal(a.retryable,0);assert.equal(a.items[0].recovery,'hold');assert.equal(a.queued,18);
+ const diagnostic=a.items[0].diagnostics.original_put;
+ await h.batch.attempt();assert.equal(h.puts.length,2);assert.equal(h.batch.summary.paused,true);assert.equal(h.batch.summary.queued,18);
+ assert.deepEqual(h.batch.summary.items[0].diagnostics.original_put,diagnostic);
 });
 test('legacy multi-image confirmed writes cannot be reset after later Grant rejection',async()=>{
  const h=fixture(1),flow=new Submission({api:async(path,o)=>{

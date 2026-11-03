@@ -1,7 +1,7 @@
 import { setupUI } from "./ui-system.js";
 import { tierArtwork, renderTierArtwork } from "./tier-artwork.js";
 import { api, putImage, errorMessage, PublicError } from "./api.js";
-import { BatchSubmission, validateBatchImages, queryInformation, directIntentPocEnabled } from "./submission.js";
+import { BatchSubmission, validateBatchImages, queryInformation, directIntentPocEnabled, uploadDiagnosticText } from "./submission.js";
 import { Challenge } from "./turnstile.js";
 import { adminUI } from "./admin.js";
 import { memberUI } from "./member.js";
@@ -51,6 +51,7 @@ const challenge = new Challenge($("challenge-widget"), (text) => { $("challenge-
 const batchRows = new Map();
 let inventoryCountdown = null;
 let submissionProgressRevealed = false;
+let batchDiagnosticPanel=null;
 const submission = new BatchSubmission({ directIntent:()=>submissionFlow==='direct'||directIntentPocEnabled(), gate: async () => { await loadSubmissionStatus(); assertSubmissionOpen(); await submissionIdentityCheck(); },
 changed: renderBatch, api: async (path, options) => { await gateRequest; assertSubmissionOpen(); return api(path, options); },
 put: async (...args) => { await gateRequest; assertSubmissionOpen(); return putImage(...args); }, token: async () => {
@@ -69,10 +70,11 @@ function renderSubmissionProgress(state) {
   const labels = { verify: "正在確認人機驗證…", batch_verify: "正在確認人機驗證（本批共用一次）…", prepare: "準備安全上傳…", capacity_wait: "背景容量盤點中，安全等待後繼續…", put: `上傳圖片 ${state.file ?? 0}／${state.count ?? 0}`,
     complete: "正在確認圖片…", case: "正在建立案件，請勿關閉分頁…" };
   $("upload-progress").hidden = false;
-  $("progress").value = Math.round(state.fraction * 100);
+  $("progress").value = submission.summary.complete?100:Math.min(99,Math.round(state.fraction * 100));
   const waiting=submission.summary.items.some(i=>i.status==='capacity_wait');
+  const summary=submission.summary;
   $("progress-label").textContent = state.phase==='batch_verify' ? labels.batch_verify :
-    `圖片 ${state.file}／${state.count} · ${waiting?labels.capacity_wait:labels[state.phase]}`;
+    `處理完成 ${summary.processed}／${summary.total} · 成功 ${summary.succeeded} · 未確認 ${summary.unknown} · ${waiting?labels.capacity_wait:labels[state.phase]}`;
   // Reveal progress once after verification, without moving the challenge
   // away while the visitor still needs it or scrolling on every PUT update.
   if (state.phase==='prepare'&&!submissionProgressRevealed) {
@@ -309,7 +311,12 @@ function renderBatch(summary) {
   $("batch-title").textContent = summary.complete ? "本次投稿全部完成" :
     submission.busy ? "批次投稿進度" : summary.succeeded ? "本次投稿部分完成" : "批次投稿狀態";
   $("batch-summary").textContent = summary.total ? `共 ${summary.total} 張 · 已送出 ${summary.succeeded} · 未成功 ${summary.failed+summary.unknown} · 等待 ${summary.queued}` : "";
-  $("batch-counts").textContent = summary.total ? `成功：${summary.succeeded} · 處理中：${summary.processing} · 等待上傳：${summary.queued} · 失敗：${summary.failed} · 結果待確認：${summary.unknown}。已成功建立 ${summary.succeeded} / ${summary.total} 個案件。` : "";
+  $("batch-counts").textContent = summary.total ? `處理完成：${summary.processed} / ${summary.total} · 真正成功：${summary.succeeded} · 處理中：${summary.processing} · 尚未開始：${summary.queued} · 已確認失敗：${summary.failed} · 結果待確認：${summary.unknown}。已成功建立 ${summary.succeeded} / ${summary.total} 個案件。` : "";
+  if(summary.total&&!submission.busy){
+    $("progress").value=summary.complete?100:Math.min(99,Math.round(summary.fraction*100));
+    $("progress-label").textContent=`處理完成 ${summary.processed}／${summary.total} · 成功 ${summary.succeeded} · 未確認 ${summary.unknown} · 已確認失敗 ${summary.failed} · ${
+      summary.complete?'全部案件已確認成功':summary.paused?'已停止啟動新圖片，請保留分頁':'處理進度不代表投稿成功'}`;
+  }
   $("batch-new").hidden = !summary.complete;
   if(!summary.total){batchRows.clear();$("batch-items").replaceChildren();}
   for (const [index, item] of summary.items.entries()) {
@@ -323,13 +330,17 @@ function renderBatch(summary) {
     if (previewStatus&&previewStatus.textContent!==status) previewStatus.textContent = status;
     let parts=batchRows.get(index);
     if(!parts){
-      const row=node('article',undefined,'batch-item'),text=node('p'),wait=node('p',undefined,'tiny');
-      row.append(node('strong',`${index+1}. ${item.name}`),text,wait);$("batch-items").append(row);
-      parts={row,text,wait};batchRows.set(index,parts);
+      const row=node('article',undefined,'batch-item'),text=node('p'),wait=node('p',undefined,'tiny'),diagnostic=node('p',undefined,'tiny');
+      diagnostic.style.whiteSpace='pre-wrap';diagnostic.style.overflowWrap='anywhere';
+      row.append(node('strong',`${index+1}. ${item.name}`),text,diagnostic,wait);$("batch-items").append(row);
+      parts={row,text,wait,diagnostic};batchRows.set(index,parts);
     }
     const {row,text,wait}=parts;
     row.dataset.state=item.status;
     if(text.textContent!==status)text.textContent=status;
+    const diagnosticText=item.error?uploadDiagnosticText(item.diagnostics):'';
+    parts.diagnostic.hidden=!diagnosticText;
+    if(parts.diagnostic.textContent!==diagnosticText)parts.diagnostic.textContent=diagnosticText;
     wait.hidden=item.status!=='capacity_wait';
     if(!wait.hidden){
       const elapsed=Math.max(0,Math.floor((Date.now()-item.state.waitStartedAt)/1000)),next=Math.max(0,Math.ceil((item.state.nextRetryAt-Date.now())/1000));
@@ -349,6 +360,14 @@ function renderBatch(summary) {
   if(waiting&&!inventoryCountdown)inventoryCountdown=setInterval(()=>renderBatch(submission.summary),1000);
   if(!waiting&&inventoryCountdown){clearInterval(inventoryCountdown);inventoryCountdown=null;}
   $("batch-copy").disabled = summary.succeeded === 0;
+  if(!batchDiagnosticPanel){
+    const details=node('details'),title=node('summary','查看不含授權資訊的診斷摘要'),text=node('pre');
+    text.style.whiteSpace='pre-wrap';text.style.overflowWrap='anywhere';text.style.maxWidth='100%';
+    details.append(title,text);$("batch-results").append(details);batchDiagnosticPanel={details,text};
+    details.addEventListener('toggle',()=>{text.textContent=details.open?JSON.stringify(submission.diagnostics,null,2):'';});
+  }
+  batchDiagnosticPanel.details.hidden=summary.complete||!summary.items.some(i=>i.error);
+  batchDiagnosticPanel.text.textContent=batchDiagnosticPanel.details.hidden||!batchDiagnosticPanel.details.open?'':JSON.stringify(submission.diagnostics,null,2);
 }
 function downloadReceipts(results) {
   if(!results.length)return;

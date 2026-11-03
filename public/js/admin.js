@@ -272,8 +272,10 @@ export function adminUI(session) {
         allSelection={total:plan.total,cutoff:plan.cutoff};selectionMode='all';syncSelected();
       },born);
     }
-    const reviewButtons=node('div','','review-batch-actions');reviewButtons.append(approveSelected,rejectSelected);
-    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,reviewButtons,button('清除目前選取',clearSelection),progress,progressText,stop,node("p","選取不會審核；確認通過或不通過後才送出。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
+    const clearSelected=button('清除目前選取',clearSelection);clearSelected.id='admin-clear-selection';
+    const rightReviewButtons=node('div','','review-batch-end-actions');rightReviewButtons.append(clearSelected,rejectSelected);
+    const reviewButtons=node('div','','review-batch-actions');reviewButtons.append(approveSelected,rightReviewButtons);
+    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,reviewButtons,progress,progressText,stop,node("p","選取不會審核；確認通過或不通過後才送出。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
     const render = row => {
       const card=node("article","","member-case admin-case-row"),summary=node("div","","case-summary"),player=node("div","","review-person"),actions=node("div","","review-actions");
       const image=button("🖼️",()=>void caseDetail(row.case_id),"case-icon case-preview");image.setAttribute("aria-label","查看證明與審核 "+row.case_id);

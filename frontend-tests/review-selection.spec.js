@@ -89,3 +89,25 @@ test('selection colors and controls fit dark/light mobile and desktop without po
  const s=await setup(page,3);await page.locator('.case-preview').first().scrollIntoViewIfNeeded();await expect(page.locator('.case-preview img').first()).toBeVisible();for(const theme of ['dark','light']){await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await first(page).click();await expect(first(page)).toHaveClass(/btn-primary/);await expect(all(page)).toHaveClass(/btn-white/);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.locator('.batch-review-controls').scrollIntoViewIfNeeded();await page.screenshot({path:'.wrangler/selection-'+info.project.name+'-'+theme+'.png'});await first(page).click();}
  await page.clock.install();const before=s.reviewCalls.length;await page.clock.fastForward(120000);expect(s.reviewCalls.length).toBe(before);expect(posts(s)).toHaveLength(0);
 });
+
+test('review action layout keeps approve width and clear selection to the left of reject',async({page})=>{
+  const state=await setup(page,3);
+  const approveButton=page.locator('#admin-batch-approve');
+  const clearButton=page.locator('#admin-clear-selection');
+  const rejectButton=page.locator('#admin-batch-reject');
+  const rightGroup=page.locator('.review-batch-end-actions');
+  await expect(rightGroup.locator('button')).toHaveText(['清除目前選取','不通過已選案件']);
+  const a=await approveButton.boundingBox(),c=await clearButton.boundingBox(),r=await rejectButton.boundingBox();
+  expect(a.width).toBeGreaterThanOrEqual(178);
+  expect(c.x+c.width).toBeLessThanOrEqual(r.x+1);
+  expect(Math.abs(c.y-r.y)).toBeLessThanOrEqual(1);
+  expect(a.x).toBeLessThan(c.x);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await first(page).click();
+  await expect(approveButton).toBeEnabled();
+  await expect(rejectButton).toBeEnabled();
+  await clearButton.click();
+  await expect(approveButton).toBeDisabled();
+  await expect(rejectButton).toBeDisabled();
+  expect(posts(state)).toHaveLength(0);
+});

@@ -93,6 +93,7 @@ export function adminUI(session) {
       reviewWorking=false;
       if (sequence === expected) { busy = false; $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; for (const b of controls) if (b.isConnected) b.disabled = b.dataset.reviewCommitted==='true'||b.closest('form')?.inert?true:priorDisabled.get(b);if($("admin-batch-approve"))$("admin-batch-approve").disabled=Number($("admin-batch-approve").dataset.selectionCount??0)<1; }
       if(sequence===expected&&$('admin-batch-reject'))$('admin-batch-reject').disabled=Number($('admin-batch-reject').dataset.selectionCount??0)<1;
+      if(sequence===expected)$('admin-panel').querySelector('.batch-review-controls')?.dispatchEvent(new Event('review-selection-change'));
     }
   }
   const request = async (path, options = {}) => {
@@ -187,6 +188,9 @@ export function adminUI(session) {
     const batchBox=node("section","","batch-review-controls"),batchCount=node("p","尚未選擇案件"),batchStatus=node("div","","batch-review-results");batchStatus.setAttribute("role","status");
     let selectionMode='manual',allSelection=null;
     const selectable=new Map();
+    const listReview=reviewMode!=="album";
+    const actionsFor=row=>{const actions=reviewActions(row.status,access.actor.role);if(row.status==='pending'&&(row.review_stage??'initial')==='initial')actions.push('flag_detailed');return actions;};
+    const selectionAllows=action=>selectedReviews.size>0&&[...selectedReviews.values()].every(row=>actionsFor(row).includes(action));
     const inAllScope=row=>Boolean(allSelection&&row.created_at<=allSelection.cutoff&&row.updated_at<=allSelection.cutoff);
     function clearSelection(){selectionMode='manual';allSelection=null;selectedReviews.clear();syncSelected();}
     const progress=node('progress'),progressText=node('p');progress.hidden=true;progress.setAttribute('aria-label','審核進度');
@@ -195,9 +199,12 @@ export function adminUI(session) {
       if(busy)return;
       const all=selectionMode==='all',plan=allSelection;
       if(all?!plan?.total:!selectedReviews.size)return;
-      const rejecting=action==='reject';let reason=null;
-      if(rejecting){reason=window.prompt('不通過原因（必填，1～500字；同批案件共用）');if(reason===null)return;reason=reason.trim();if(!reason||[...reason].length>500||/[\u0000-\u001f\u007f]/.test(reason)){batchStatus.replaceChildren(node('p','請填寫1～500字有效的不通過原因。','notice error'));return;}}
-      const verb=rejecting?'不通過':'通過';
+      if(listReview&&!selectionAllows(action))return;
+      const rejecting=action==='reject',verb=action==='approve'?'通過':rejecting?'不通過':reviewNames[action];let reason=null,duplicateId=null;
+      if(['reject','mark_duplicate','revoke'].includes(action)||action==='flag_detailed'&&manualRisk.value==='other'){
+        reason=window.prompt((rejecting?'不通過原因':verb+'原因')+'（必填，1～500字；同批案件共用）');if(reason===null)return;reason=reason.trim();if(!reason||[...reason].length>500||/[\u0000-\u001f\u007f]/.test(reason)){batchStatus.replaceChildren(node('p','請填寫1～500字有效的審核原因。','notice error'));return;}}
+      if(action==='mark_duplicate'){duplicateId=window.prompt('原案件編號（必填；全部已選案件會綁定此原案，後端逐件驗證）');if(duplicateId===null)return;duplicateId=duplicateId.trim();if(!/^VP-\d{8}-[A-HJ-NP-Z2-9]{16}$/.test(duplicateId)){batchStatus.replaceChildren(node('p','請填寫有效的原案件編號。','notice error'));return;}}
+      const fields=listReview?{action,...(reason?{reason}:{}),...(duplicateId?{duplicate_of_case_id:duplicateId}:{}),...(action==='flag_detailed'?{review_risk_reason:manualRisk.value}:{})}:rejecting?{reason}:{};
       const born=sequence;let finished=false;
       await run(async current=>{
         let total,cutoff,queue=[],cursor=null,more=all;stopReview=false;
@@ -210,7 +217,7 @@ export function adminUI(session) {
           await nextPage();if(!current())return;
           if(!window.confirm('確定要'+verb+'已選的全站 '+total+' 件待審初審案件嗎？\n選取截止時間：'+cutoff+'\n'+(rejecting?'不通過原因：'+reason+'\n不發放或扣除積分。':'此操作將正式變更案件審核狀態，並可能發放會員積分。')+'截止後新增或變更的案件不會納入。'))return;
         }else{queue=[...selectedReviews.values()].map(r=>({case_id:r.case_id,expected_version:r.version}));total=queue.length;if(!total)return;
-          if(!window.confirm('確認'+verb+'已選 '+total+' 件案件？\n'+queue.map(r=>r.case_id).join('\n')+(rejecting?'\n不通過原因：'+reason:'')))return;}
+          if(!window.confirm('確認'+verb+'已選 '+total+' 件案件？\n'+queue.map(r=>r.case_id).join('\n')+(reason?'\n審核原因：'+reason:'')+(duplicateId?'\n共同原案件：'+duplicateId:'')+'\n每件案件仍會檢查權限、狀態與版本；結果不明不重送。'))return;}
         const report={summary:'',failures:[]};reviewReport=report;batchStatus.replaceChildren();progress.hidden=stop.hidden=false;progress.max=total;progress.value=0;
         let done=0,success=0,duplicates=0,failed=0,unconfirmed=0;
         const update=()=>{progress.value=done;progressText.textContent='已處理 '+done+'／'+total+' · '+Math.floor(done/total*100)+'% · 成功 '+success+(duplicates?' · 重複投稿 '+duplicates:'')+' · 失敗 '+failed+' · 未確認 '+unconfirmed+' · 剩餘 '+Math.max(0,total-done);};update();
@@ -218,16 +225,19 @@ export function adminUI(session) {
           while(current()&&!stopReview&&(queue.length||more)){
             if(!queue.length){await nextPage();if(!queue.length)continue;}
             const chunk=queue.splice(0,4);let result,uncertain=false;
-            try{result=await mutate('cases/batch-'+action,{cases:chunk,...(rejecting?{reason}:{})});}
+            try{result=await mutate(listReview?'cases/batch-review':'cases/batch-'+action,{cases:chunk,...fields});}
             catch(error){uncertain=true;stopReview=true;
-              try{result=rejecting?await mutate('cases/batch-reject/status',{cases:chunk,reason}):await request('cases/batch-status?items='+encodeURIComponent(JSON.stringify(chunk)));}
+              try{result=listReview?await mutate('cases/batch-review/status',{cases:chunk,...fields}):rejecting?await mutate('cases/batch-reject/status',{cases:chunk,reason}):await request('cases/batch-status?items='+encodeURIComponent(JSON.stringify(chunk)));}
               catch{result={results:chunk.map(r=>({case_id:r.case_id,ok:false,code:'REVIEW_RESULT_UNCONFIRMED'}))};}}
             if(!current())return;
             if(!Array.isArray(result.results)||result.results.length!==chunk.length||new Set(result.results.map(r=>r.case_id)).size!==chunk.length||result.results.some(r=>!chunk.some(c=>c.case_id===r.case_id)))throw new PublicError('SERVICE_UNAVAILABLE');
             for(const row of result.results){
               if(row.code==='REVIEW_NOT_SUBMITTED'){stopReview=true;continue;}done++;
-              if(row.ok&&(rejecting?row.status==='rejected':['approved','completed'].includes(row.status)||row.status==='duplicate'&&['duplicate','already_duplicate'].includes(row.outcome))){if(row.status==='duplicate')duplicates++;else success++;selectedReviews.delete(row.case_id);}
+              const expectedStatus={reject:'rejected',mark_duplicate:'duplicate',complete:'completed',revoke:'revoked',flag_detailed:'pending'}[action];
+              const accepted=action==='approve'?['approved','completed'].includes(row.status)||row.status==='duplicate'&&['duplicate','already_duplicate'].includes(row.outcome):row.status===expectedStatus&&(action!=='flag_detailed'||row.review_stage==='detailed');
+              if(row.ok&&accepted){if(row.status==='duplicate')duplicates++;else success++;selectedReviews.delete(row.case_id);}
               else{if(row.unknown||row.code==='REVIEW_RESULT_UNCONFIRMED'){unconfirmed++;stopReview=true;}else failed++;report.failures.push({case_id:row.case_id,reason:row.code==='REVIEW_RESULT_UNCONFIRMED'?'結果尚未確認；請重新讀取案件及稽核，未自動重送。':adminMessage(row)+' ('+(row.code??'SERVICE_UNAVAILABLE')+')'});}
+              if([401,403].includes(row.status))stopReview=true;
             }
             update();if(uncertain)progressText.textContent+=' · 上批回覆曾中斷，已停止後續提交。';
           }
@@ -250,16 +260,24 @@ export function adminUI(session) {
     const approveSelected=button('通過已選案件',()=>void executeReview(),'btn btn-primary');approveSelected.id='admin-batch-approve';
     const rejectSelected=button('不通過已選案件',()=>void executeReview('reject'),'btn btn-review-reject');rejectSelected.id='admin-batch-reject';
     const approveAll=button('選取全部未審案件',()=>void selectAll());approveAll.id='admin-approve-all';
-    const pickLoaded=button('選取前20張初審案件',()=>{
+    approveAll.hidden=listReview;
+    const selectLoaded=button('選取目前已載入案件',()=>{if(busy)return;clearSelection();for(const {row,box,card}of selectable.values())if(box.isConnected&&!box.disabled&&!card.hidden)selectedReviews.set(row.case_id,{...row});syncSelected();});selectLoaded.hidden=!listReview;
+    const pickLoaded=button(listReview?'選取前20筆可操作案件':'選取前20張初審案件',()=>{
       if(busy)return;if(selectionMode==='first20'){clearSelection();return;}clearSelection();
       for(const {row,box,card} of selectable.values()){if(selectedReviews.size>=20)break;if(!box.isConnected||box.disabled||card.hidden)continue;selectedReviews.set(row.case_id,row);}
       selectionMode=selectedReviews.size?'first20':'manual';syncSelected();
     });
     function syncSelected(){
       const total=selectionMode==='all'?allSelection.total:selectedReviews.size;
-      batchCount.textContent=selectionMode==='all'?'已選全站 '+total+' 件合格初審案件（含未載入；不受本頁篩選限制）':selectionMode==='first20'?'已選目前可見前 '+total+' 件初審案件':'已選 '+total+' 筆明確案件';
-      approveSelected.dataset.selectionCount=String(total);approveSelected.disabled=busy||!total;
-      rejectSelected.dataset.selectionCount=String(total);rejectSelected.disabled=busy||!total;
+      batchCount.textContent=selectionMode==='all'?'已選全站 '+total+' 件合格初審案件（含未載入；不受本頁篩選限制）':selectionMode==='first20'?'已選目前可見前 '+total+' 件'+(listReview?'可操作':'初審')+'案件':'已選 '+total+' 筆明確案件';
+      const approveCount=listReview&&!selectionAllows('approve')?0:total,rejectCount=listReview&&!selectionAllows('reject')?0:total;
+      approveSelected.dataset.selectionCount=String(approveCount);approveSelected.disabled=busy||!approveCount;
+      rejectSelected.dataset.selectionCount=String(rejectCount);rejectSelected.disabled=busy||!rejectCount;
+      for(const option of manualAction.options)option.disabled=!selectionAllows(option.value);
+      if(total&&!selectionAllows(manualAction.value))manualAction.value=['approve','reject','mark_duplicate','complete','revoke','flag_detailed'].find(selectionAllows)??'';
+      manualExecute.disabled=busy||!selectionAllows(manualAction.value);
+      manualRisk.closest('.field').hidden=manualAction.value!=='flag_detailed';
+      manualHint.textContent=total&&!selectionAllows(manualAction.value)?'已選案件沒有共同可執行的操作，請分別選取相容的案件狀態。':'只執行所有已選案件都允許的操作；不會自動包含未勾選或未載入的案件。';
       for(const [b,active]of [[pickLoaded,selectionMode==='first20'],[approveAll,selectionMode==='all']]){b.setAttribute('aria-pressed',String(active));b.classList.toggle('btn-primary',active);b.classList.toggle('btn-white',!active);}
       for(const {row,box}of selectable.values())box.checked=selectionMode==='all'?inAllScope(row):selectedReviews.has(row.case_id);
     }
@@ -273,9 +291,15 @@ export function adminUI(session) {
       },born);
     }
     const clearSelected=button('清除目前選取',clearSelection);clearSelected.id='admin-clear-selection';
+    const manualOptions=node('div','','manual-review-options');manualOptions.hidden=!listReview;
+    const manualAction=field(manualOptions,'batch-action','審核操作','select','approve',{choices:Object.entries(reviewNames)});
+    const manualRisk=field(manualOptions,'batch-risk','詳細審核原因','select','manual_flag',{choices:Object.entries(riskNames)});
+    const manualExecute=button('執行已選審核操作',()=>void executeReview(manualAction.value),'btn btn-primary');manualExecute.id='admin-batch-review';
+    const manualHint=node('p','','tiny');manualOptions.append(manualExecute,manualHint);manualAction.addEventListener('change',syncSelected);
     const rightReviewButtons=node('div','','review-batch-end-actions');rightReviewButtons.append(clearSelected,rejectSelected);
     const reviewButtons=node('div','','review-batch-actions');reviewButtons.append(approveSelected,rightReviewButtons);
-    batchBox.hidden=reviewMode!=="album";batchBox.append(batchCount,approveAll,pickLoaded,reviewButtons,progress,progressText,stop,node("p","選取不會審核；確認通過或不通過後才送出。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
+    batchBox.addEventListener('review-selection-change',syncSelected);
+    batchBox.append(batchCount,approveAll,selectLoaded,pickLoaded,reviewButtons,manualOptions,progress,progressText,stop,node("p","選取不會審核；確認操作後才送出，每批最多4件。成功不重送，版本衝突需重新載入。","tiny"),batchStatus);$("admin-panel").append(batchBox);renderReviewReport(batchStatus);
     const render = row => {
       const card=node("article","","member-case admin-case-row"),summary=node("div","","case-summary"),player=node("div","","review-person"),actions=node("div","","review-actions");
       const image=button("🖼️",()=>void caseDetail(row.case_id),"case-icon case-preview");image.setAttribute("aria-label","查看證明與審核 "+row.case_id);
@@ -291,12 +315,12 @@ export function adminUI(session) {
         card.classList.add("album-case");
         photo=node("div","","album-photo");photo.append(image);image.replaceChildren();
         summary.hidden=player.hidden=state.hidden=actions.hidden=true;
-        if(row.status==="pending" && (row.review_stage??"initial")==="initial" && !row.review_risk_reason){
-          const label=node("label","","album-select"),checkbox=node("input"),circle=node("span","","album-check");checkbox.type="checkbox";checkbox.dataset.reviewSelect="";checkbox.setAttribute("aria-label","選取案件 "+row.case_id);circle.setAttribute("aria-hidden","true");label.append(checkbox,circle);photo.append(label);
-          selectable.set(row.case_id,{row,box:checkbox,card});checkbox.checked=selectionMode==='all'?inAllScope(row):selectedReviews.has(row.case_id);
-          checkbox.addEventListener("change",()=>{const checked=checkbox.checked;if(selectionMode==='all')clearSelection();selectionMode='manual';if(checked && selectedReviews.size>=20 && !selectedReviews.has(row.case_id)){syncSelected();return;}if(checked)selectedReviews.set(row.case_id,{...row});else selectedReviews.delete(row.case_id);syncSelected();});
-        }
-
+      }
+      if(listReview||row.status==='pending'&&(row.review_stage??'initial')==='initial'&&!row.review_risk_reason){
+        const label=node('label','',listReview?'review-list-select':'album-select'),checkbox=node('input');checkbox.type='checkbox';checkbox.dataset.reviewSelect='';checkbox.setAttribute('aria-label','選取案件 '+row.case_id);checkbox.disabled=listReview&&!actionsFor(row).length;label.title=checkbox.disabled?'此狀態或目前權限沒有可執行的審核操作':'選取此案件';label.append(checkbox);
+        if(listReview){card.classList.add('review-list-case');photo=node('div','','review-list-proof');photo.append(label,image);}else{const circle=node('span','','album-check');circle.setAttribute('aria-hidden','true');label.append(circle);photo.append(label);}
+        selectable.set(row.case_id,{row,box:checkbox,card});checkbox.checked=selectionMode==='all'?inAllScope(row):selectedReviews.has(row.case_id);
+        checkbox.addEventListener('change',()=>{const checked=checkbox.checked;if(selectionMode==='all')clearSelection();selectionMode='manual';if(!listReview&&checked&&selectedReviews.size>=20&&!selectedReviews.has(row.case_id)){syncSelected();return;}if(checked)selectedReviews.set(row.case_id,{...row});else selectedReviews.delete(row.case_id);syncSelected();});
       }
       thumbnails.observe(image,row);
       if(row.review_stage==="detailed")summary.append(node("span","詳細審核 · "+(riskNames[row.review_risk_reason]??"其他原因"),"tiny"));
@@ -438,6 +462,7 @@ export function adminUI(session) {
             await request("overview").catch(()=>{});
             const state=card.querySelector(":scope > .status");if(state){state.className="status "+result.status;state.textContent=statusNames[result.status]??"已更新";}
             collapseReview();selectedReviews.delete(data.case_id);const check=card.querySelector("[data-review-select]");if(check){check.checked=false;check.disabled=true;check.dataset.reviewCommitted="true";}if($("admin-batch-approve"))$("admin-batch-approve").disabled=!selectedReviews.size;
+            $('admin-panel').querySelector('.batch-review-controls')?.dispatchEvent(new Event('review-selection-change'));
             if(result.review_stage==="detailed" && reviewMode==="album")card.hidden=true;
             const filter=$("admin-field-filter-status");if(filter?.value && result.status!==filter.value)card.hidden=true;
             if(card.hidden)thumbnails?.release(data.case_id);

@@ -120,6 +120,7 @@ export const adminCases=[...cases,{...cases[0],case_id:"VP-PREVIEW-006",nickname
 export const previewCampaigns=[campaign,{...campaign,campaign_id:"PREVIEW-GROUP",name:"展示團體活動・假資料",category:"團體",solo_target:null}];
 const soloTargets=['miyeon','minnie','soyeon','yuqi','shuhua'].map((target_id,i)=>({target_id,display_name:target_id.toUpperCase(),active:true,sort_order:i+1}));
 const partialFailures=new Set();
+const manualReviewAcks=new Map();
 const mailLookups=new Set(),mailSends=new Map();
 const paged = (key, data) => ({ [key]: state.data === "empty" ? [] : data, next_cursor: null });
 export async function fixtureResponse(path, { method = "GET",body } = {}) {
@@ -211,6 +212,26 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
       if(!row||input.expected_version!==row.version)return reply('LEADERBOARD_CONFLICT',409);
       if(typeof input.name!=='string'||!input.name.trim()||input.name.length>100||!Number.isInteger(input.top_n)||input.top_n<1||input.top_n>100||typeof input.is_public!=='boolean')return reply('INVALID_LEADERBOARD_REQUEST',400);
       Object.assign(row,{name:input.name,top_n:input.top_n,is_public:input.is_public,version:row.version+1});return reply({...row});
+    }
+    if(method==='POST'&&isStaff&&['/api/admin/cases/batch-review','/api/admin/cases/batch-review/status'].includes(p)){
+      const input=typeof body==='string'?JSON.parse(body):body,from={approve:['pending'],reject:['pending'],mark_duplicate:['pending'],complete:['approved'],revoke:['approved','completed'],flag_detailed:['pending']};
+      if(!Array.isArray(input?.cases)||!input.cases.length||input.cases.length>4||new Set(input.cases.map(c=>c.case_id)).size!==input.cases.length||!Object.hasOwn(from,input.action)||input.cases.some(c=>!Number.isSafeInteger(c.expected_version)||c.expected_version<0))return reply('INVALID_REVIEW_BATCH',400);
+      if(!isManager&&['complete','revoke'].includes(input.action))return reply('ADMIN_FORBIDDEN',403);
+      if(['reject','mark_duplicate','revoke'].includes(input.action)&&(!input.reason?.trim()||input.reason.trim().length>500))return reply('INVALID_REVIEW_REQUEST',400);
+      if(input.action==='flag_detailed'&&(!['manual_flag','exact_duplicate','auto_check_failed','other'].includes(input.review_risk_reason)||input.review_risk_reason==='other'&&!input.reason?.trim()))return reply('INVALID_REVIEW_REQUEST',400);
+      const results=input.cases.map(item=>{
+        const row=adminCases.find(c=>c.case_id===item.case_id),key=JSON.stringify([identity.member_id,item,input.action,input.reason??null,input.duplicate_of_case_id??null,input.review_risk_reason??null]),ack=manualReviewAcks.get(key);
+        if(ack&&row?.version===item.expected_version+1)return{...ack,outcome:'already_reviewed'};
+        if(p.endsWith('/status'))return{ok:false,unknown:true,case_id:item.case_id,code:'REVIEW_RESULT_UNCONFIRMED'};
+        if(!row||row.version!==item.expected_version||!from[input.action].includes(row.status))return{ok:false,case_id:item.case_id,code:'CASE_STATUS_CONFLICT',status:409};
+        if(input.action==='mark_duplicate'&&!adminCases.some(c=>c.case_id===input.duplicate_of_case_id&&c!==row&&['approved','completed'].includes(c.status)))return{ok:false,case_id:item.case_id,code:'INVALID_DUPLICATE_TARGET',status:400};
+        if(state.review==='error'||state.data==='error')return{ok:false,unknown:true,case_id:item.case_id,code:'REVIEW_RESULT_UNCONFIRMED',status:503};
+        row.status={approve:'approved',reject:'rejected',mark_duplicate:'duplicate',complete:'completed',revoke:'revoked',flag_detailed:'pending'}[input.action];row.version++;row.status_reason=input.reason??null;
+        if(input.action==='flag_detailed'){row.review_stage='detailed';row.review_risk_reason=input.review_risk_reason;}
+        if(input.action==='approve')row.points_awarded=row.source==='guest'?0:10;
+        if(input.action==='revoke')row.points_awarded=0;
+        const result={ok:true,...row,outcome:'reviewed'};manualReviewAcks.set(key,result);return result;
+      });return reply({results,succeeded:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok&&!r.unknown).length,unknown:results.filter(r=>r.unknown).length});
     }
     if(method==='POST'&&isStaff&&['/api/admin/cases/batch-reject','/api/admin/cases/batch-reject/status'].includes(p)){
       const input=typeof body==='string'?JSON.parse(body):body;

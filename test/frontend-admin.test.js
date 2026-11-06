@@ -37,6 +37,7 @@ test("reviewer actions mirror existing backend transitions", () => {
   assert.deepEqual(reviewActions("pending", "member"), []); assert.deepEqual(reviewActions("revoked", "admin"), []);
 });
 test("admin transport allows only supported relative routes, never private URLs", () => {
+  for(const path of ['/api/admin/cases/batch-review','/api/admin/cases/batch-review/status']){assert.equal(adminPath(path),true);assert.equal(adminPath(path+'?all=true'),false);assert.equal(adminPath(path+'/unexpected'),false);}
   for (const path of ["/api/admin/me", "/api/admin/campaigns/ACT/update", "/api/admin/leaderboards/BOARD/results", "/api/admin/member-tiers/bronze/update", "/api/admin/submissions/update", "/api/admin/cases?vote_type=%E5%9C%98%E9%AB%94&limit=20"]) assert.equal(adminPath(path), true);
   for (const path of ["https://other.example/api/admin/me", "/api/admin/../me", "/api/admin/%2e%2e/me", "/api/admin/roles", "/api/admin/me#secret", "/api/admin/me?x=1?extra=2"]) assert.equal(adminPath(path), false);
 });

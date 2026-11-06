@@ -1,4 +1,5 @@
 import {batchReviewInput,batchApprove,batchRejectInput,batchReject,initialReviewPage,reviewBatchStatus} from "../lib/review-batch.js";
+import {manualReviewBatchInput,manualReviewBatch} from '../lib/manual-review-batch.js';
 import { jsonSuccess } from "./response.js";
 import { adminHandler } from "./admin-response.js";
 import { authDatabase, csrfToken } from "../lib/auth-session.js";
@@ -131,6 +132,12 @@ const rejectBatch=statusOnly=>adminHandler(async(env,url,request)=>{
 const initialReview = adminHandler(async(env,url,request)=>{
   await adminIdentity(request,env);return jsonSuccess(await initialReviewPage(authDatabase(env),url));
 });
+const selectedReview=statusOnly=>adminHandler(async(env,url,request)=>{
+ const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);
+ if(url.search)throw new AdminError(400,'INVALID_REVIEW_BATCH','Unexpected query');
+ const {items,input}=manualReviewBatchInput(await readReviewJson(request),actor.role);
+ return jsonSuccess(await manualReviewBatch(authDatabase(env),actor,items,input,{statusOnly,exactClassification:exactClassificationEnabled(env)}));
+});
 const batchStatus = adminHandler(async(env,url,request)=>{
   await adminIdentity(request,env);
   if([...url.searchParams.keys()].some(k=>k!=='items')||url.searchParams.getAll('items').length!==1)throw new AdminError(400,'INVALID_REVIEW_BATCH','Invalid batch');
@@ -138,6 +145,8 @@ const batchStatus = adminHandler(async(env,url,request)=>{
   return jsonSuccess(await reviewBatchStatus(authDatabase(env),batchReviewInput({cases:parsed})));
 });
 const exactRoutes = new Map([
+  ["/api/admin/cases/batch-review",{method:"POST",handler:selectedReview(false)}],
+  ["/api/admin/cases/batch-review/status",{method:"POST",handler:selectedReview(true)}],
   ["/api/admin/cases/batch-reject",{method:"POST",handler:rejectBatch(false)}],
   ["/api/admin/cases/batch-reject/status",{method:"POST",handler:rejectBatch(true)}],
   ["/api/admin/cases/initial-review",{method:"GET",handler:initialReview}],

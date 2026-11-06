@@ -1,9 +1,10 @@
 import { actorBindings, REVIEW_AUTH_GUARD } from "./admin-identity.js";
-import { statusConflict, reviewTransition, invalidDuplicate } from "./case-review.js";
+import { statusConflict, reviewTransition, invalidDuplicate, reviewInput } from "./case-review.js";
 import { encodeCursor, filterSql } from "../api/admin-validation.js";
 import { reviewCampaign } from "./campaign-policy.js";
 import { reviewPointStatements } from "./point-ledger.js";
 import {AdminError} from './admin-identity.js';
+import {EXACT_REVIEW_MATCH} from './case-exact-classification.js';
 import {legacyProofMetadata} from './proof-storage-metadata.js';
 
 export const QUEUE_RANK = "CASE WHEN c.status = 'pending' THEN 0 ELSE 1 END";
@@ -34,8 +35,16 @@ export async function adminCase(db, caseId) {
 export const adminFiles = async (db, id) => (await legacyProofMetadata(db,()=>db.prepare(`SELECT f.id AS file_id,f.content_type,f.size,f.created_at,p.state storage_state
   FROM case_files f LEFT JOIN cold_proofs p ON p.file_id=f.id WHERE f.case_id = ? ORDER BY f.id`).bind(id).all(),()=>db.prepare('SELECT f.id AS file_id,f.content_type,f.size,f.created_at,NULL AS storage_state FROM case_files f WHERE f.case_id=? ORDER BY f.id').bind(id).all())).results;
 
-export async function applyReview(db, actor, row, input) {
+export async function applyReview(db, actor, row, input, automaticReference = null) {
   const status = reviewTransition(row, input);
+  if(input.action==='approve'&&input.exactClassification){
+    const reference=await db.prepare(EXACT_REVIEW_MATCH+" ORDER BY other.created_at,other.case_internal_id LIMIT 1").bind(row.id).first();
+    if(reference){
+      const duplicate={...reviewInput({action:'mark_duplicate',expected_version:input.expectedVersion,
+        reason:'R2 已驗證 SHA-256 相同；同會員同活動原案已通過，自動歸類重複投稿。',duplicate_of_case_id:reference.case_id},actor.role),initialOnly:input.initialOnly};
+      return applyReview(db,actor,row,duplicate,reference);
+    }
+  }
   const campaign = input.action === "approve" ? await reviewCampaign(db, row) : null;
   let target = null;
   if (input.duplicateCaseId) {
@@ -57,27 +66,29 @@ export async function applyReview(db, actor, row, input) {
       WHERE id = ? AND status = ? AND version = ? AND (?=0 OR (review_stage='initial' AND review_risk_reason IS NULL)) AND ${REVIEW_AUTH_GUARD}
       AND (? IS NULL OR EXISTS (SELECT 1 FROM cases t WHERE t.id = ? AND t.id != cases.id AND t.status IN ('approved', 'completed')))
       AND (? IS NULL OR EXISTS (SELECT 1 FROM campaigns p WHERE p.campaign_id = cases.campaign_id AND p.version = ?
-        AND p.status IN ('active', 'closed') AND cases.vote_date BETWEEN p.vote_start_date AND p.vote_end_date))`)
+        AND p.status IN ('active', 'closed') AND cases.vote_date BETWEEN p.vote_start_date AND p.vote_end_date))
+      ${automaticReference ? `AND EXISTS(SELECT 1 FROM (${EXACT_REVIEW_MATCH}) verified WHERE verified.id=? AND verified.version=?)` : ''}`)
       .bind(status, now, input.reason, now, actor.member.member_id, now, actor.member.member_id,
         target ? 1 : 0, target?.id ?? null, mutationId, input.action,input.action,input.riskReason??null,row.id, row.status, input.expectedVersion,input.initialOnly?1:0,
-        ...actorBindings(actor), target?.id ?? null, target?.id ?? null, campaign?.version ?? null, campaign?.version ?? null),
+        ...actorBindings(actor), target?.id ?? null, target?.id ?? null, campaign?.version ?? null, campaign?.version ?? null,
+        ...(automaticReference?[row.id,automaticReference.id,automaticReference.version]:[])),
     ...reviewPointStatements(db, actor, row, input, mutationId, now, campaign),
     db.prepare(`INSERT INTO admin_audit_logs (id, created_at, admin_member_id, admin_role, action, target_type,
       target_id, target_version, before_json, after_json, reason)
       SELECT ?, ?, ?, ?, ?, 'case', c.case_id, c.version, ?, json_object('status', c.status, 'version', c.version,
         'duplicate_of_case_id', ?, 'points_awarded', c.points_awarded, 'point_status', c.point_status,
-        'transaction_id', c.point_transaction_id, 'campaign_id', c.campaign_id,'review_stage',c.review_stage,'review_risk_reason',c.review_risk_reason), ? FROM cases c WHERE c.id = ? AND c.last_review_id = ?`)
-      .bind(mutationId, now, actor.member.member_id, actor.role, input.action, before, target?.case_id ?? null, input.reason, row.id, mutationId),
+        'transaction_id', c.point_transaction_id, 'campaign_id', c.campaign_id,'review_stage',c.review_stage,'review_risk_reason',c.review_risk_reason${automaticReference?`, 'automatic_exact_review',1,'requested_action','approve','reference_version',?`:''}), ? FROM cases c WHERE c.id = ? AND c.last_review_id = ?`)
+      .bind(mutationId, now, actor.member.member_id, actor.role, input.action, before, target?.case_id ?? null, ...(automaticReference?[automaticReference.version]:[]), input.reason, row.id, mutationId),
     db.prepare(`SELECT case_id, status, version, status_updated_at, status_updated_by, points_awarded, point_status,
       point_transaction_id,review_stage,review_risk_reason FROM cases WHERE id = ? AND last_review_id = ?`).bind(row.id, mutationId),
   ]);}catch(error){
     if(String(error?.message).includes('EXACT_DUPLICATE_APPROVAL_BLOCKED'))
-      throw new AdminError(409,'EXACT_DUPLICATE_REVIEW_CONFLICT','同會員同活動已有相同檔案通過；請確認原案後標記重複。');
+      throw new AdminError(409,'EXACT_DUPLICATE_REVIEW_CONFLICT','同會員同活動原案狀態已變更；請重新載入核對，未自動重送。');
     throw error;
   }
   if (result[0].meta.changes !== 1 || result.at(-2).meta.changes !== 1) throw statusConflict();
   return { ...result.at(-1).results[0],
-    duplicate_of_case_id: target?.case_id ?? null };
+    duplicate_of_case_id: target?.case_id ?? null, ...(automaticReference?{review_outcome:'auto_duplicate'}:{}) };
 }
 
 export async function auditLogs(db, page) {

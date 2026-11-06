@@ -15,8 +15,7 @@ export function exactDecisionStatement(db,input,record,file){
  WHERE v.status IN('approved','completed','pending')
  ORDER BY CASE WHEN v.status IN('approved','completed') THEN 0 ELSE 1 END,v.created_at,v.case_internal_id LIMIT 1)
  INSERT INTO case_sha256_decisions(case_internal_id,intent_id,decision,sha256,reference_case_id,reference_version,created_at)
- SELECT ?,i.session_id,CASE WHEN m.status IN('approved','completed') THEN 'exact_duplicate'
- WHEN m.status='pending' THEN 'pending_match'
+ SELECT ?,i.session_id,CASE WHEN m.status IN('approved','completed','pending') THEN 'exact_duplicate'
  WHEN EXISTS(SELECT 1 FROM cases old INDEXED BY idx_case_sha_legacy_scope
  WHERE old.member_id IS NOT NULL AND old.upload_intent_id IS NULL
  AND old.member_id=i.member_id AND old.campaign_id=i.campaign_id AND NOT EXISTS(
@@ -35,3 +34,12 @@ export async function exactSubmissionResult(db,id){
  return exactSubmissionResponse(await db.prepare('SELECT decision FROM case_sha256_decisions WHERE case_internal_id=?').bind(id).first());
 }
 export const exactSubmissionResponse=row=>row?{status:row.decision==='exact_duplicate'?'duplicate':'pending',exact_classification:{decision:row.decision}}:{status:'pending'};
+
+// Only read after the existing approval Trigger rejects a duplicate award.
+// Repeat this exact scoped match inside the winning CAS; never trust a UI selection.
+export const EXACT_REVIEW_MATCH = `SELECT other.case_internal_id id,other.case_id,other.version
+ FROM case_verified_sha256_sources own JOIN case_verified_sha256_sources other
+ ON other.member_id=own.member_id AND other.campaign_id=own.campaign_id AND other.sha256=own.sha256
+ WHERE own.case_internal_id=? AND own.status='pending' AND other.case_internal_id<>own.case_internal_id
+ AND other.status IN('approved','completed')
+ AND EXISTS(SELECT 1 FROM case_sha256_control WHERE id=1 AND enabled=1)`;

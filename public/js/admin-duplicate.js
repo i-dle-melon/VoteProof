@@ -7,9 +7,10 @@ export function renderDuplicateEvidence(evidence,doc=document){
   text('h3','檔案比對提示');
   if(evidence?.policy==='automatic_exact_v1'){
     const c=evidence.classification;
-    const labels={clear:'未發現同會員同活動相同檔案',pending_match:'疑似重複：原案仍待審核，本案未自動判重複',
+    const labels={clear:'未發現同會員同活動相同檔案',pending_match:'建案時疑似重複：當時原案仍待審核，保留歷史判定',
       exact_duplicate:'建案時已自動歸類為重複投稿，不重複發放積分',unknown:'歷史檔案缺少可信雜湊，結果 UNKNOWN'};
     text('p',labels[c.decision]??labels.unknown);
+    if(c.decision==='pending_match'&&c.current_case_status==='duplicate')text('p','本案目前已歸類重複投稿，不重複發放積分。');
     text('p','依據：R2 已驗證 SHA-256；同會員、同活動。分類時間：'+c.created_at);
     if(c.reference_case_id)text('p','原案：'+c.reference_case_id+' · 分類時版本 '+c.reference_version+' · 目前狀態 '+c.current_reference_status);
     if(c.source_changed)text('p','原案狀態或版本已改變；以上為不可變的建案時判定，請人工確認。');

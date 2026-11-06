@@ -68,7 +68,7 @@ export const getAdminCase = adminHandler(async (env, url, request) => {
   await adminIdentity(request, env);
   const db = authDatabase(env), { id, upload_intent_id, ...row } = await requireCase(db, url);
   let classification=null;
-  if(upload_intent_id&&exactClassificationEnabled(env)){await requireExactPolicy(env);classification=await exactDecision(db,id);}
+  if(upload_intent_id&&exactClassificationEnabled(env)){await requireExactPolicy(env);classification=await exactDecision(db,id);if(classification)classification.current_case_status=row.status;}
   return jsonSuccess({ ...row, files: await adminFiles(db, id), duplicate_evidence:upload_intent_id
     ?classification?{policy:'automatic_exact_v1',hash_state:'verified',classification}:null
     :await adminExactEvidence(db,id) });
@@ -76,7 +76,7 @@ export const getAdminCase = adminHandler(async (env, url, request) => {
 export const reviewAdminCase = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env);
   await adminCsrf(request, env, actor);
-  const input = reviewInput(await readReviewJson(request), actor.role), db = authDatabase(env);
+  const input = {...reviewInput(await readReviewJson(request), actor.role),exactClassification:exactClassificationEnabled(env)}, db = authDatabase(env);
   const row = await requireCase(db, url);
   return jsonSuccess(await applyReview(db, actor, row, input));
 });
@@ -121,7 +121,7 @@ const getAdminAuditDetail=adminHandler(async(env,url,request)=>{
   return jsonSuccess(await auditDetail(authDatabase(env),url));
 });
 
-export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);const items=batchReviewInput(await readReviewJson(request));return jsonSuccess(await batchApprove(authDatabase(env),actor,items));});
+export const approveAdminBatch=adminHandler(async(env,_url,request)=>{const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);const items=batchReviewInput(await readReviewJson(request));return jsonSuccess(await batchApprove(authDatabase(env),actor,items,{exactClassification:exactClassificationEnabled(env)}));});
 const rejectBatch=statusOnly=>adminHandler(async(env,url,request)=>{
  const actor=await adminIdentity(request,env);await adminCsrf(request,env,actor);
  if(url.search)throw new AdminError(400,'INVALID_REVIEW_BATCH','Unexpected query');

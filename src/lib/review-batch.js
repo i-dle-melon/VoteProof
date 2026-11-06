@@ -52,23 +52,25 @@ export async function batchReject(db,actor,items,reason,{statusOnly=false}={}){
 }
 async function acknowledgedApproval(db,item){
  const row=await db.prepare(`SELECT c.case_id,c.status,c.version,c.points_awarded,c.point_status,c.review_stage,c.review_risk_reason
-  FROM cases c JOIN admin_audit_logs a ON a.target_id=c.case_id AND a.target_type='case' AND a.action='approve' AND a.target_version=?
-  WHERE c.case_id=? AND c.status IN ('approved','completed')`).bind(item.expected_version+1,item.case_id).first();
- return row?{...row,outcome:'already_approved'}:null;
+  FROM cases c JOIN admin_audit_logs a ON a.target_id=c.case_id AND a.target_type='case' AND a.target_version=?
+  WHERE c.case_id=? AND ((a.action='approve' AND c.status IN ('approved','completed'))
+   OR (a.action='mark_duplicate' AND c.status='duplicate' AND c.version=a.target_version
+    AND json_extract(a.after_json,'$.automatic_exact_review')=1 AND json_extract(a.after_json,'$.requested_action')='approve'))`).bind(item.expected_version+1,item.case_id).first();
+ return row?{...row,outcome:row.status==='duplicate'?'already_duplicate':'already_approved'}:null;
 }
-export async function batchApprove(db,actor,items){
+export async function batchApprove(db,actor,items,{exactClassification=false}={}){
  const results=[];
  for(const item of items){
   try{
    const row=await adminCase(db,item.case_id);
    if(!row)throw new AdminError(404,'CASE_NOT_FOUND','案件不存在。');
-   if(row.status==='approved'||row.status==='completed'){
+   if(['approved','completed','duplicate'].includes(row.status)){
     const prior=await acknowledgedApproval(db,item);if(prior){results.push({ok:true,...prior});continue;}
    }
    if(row.review_stage!=='initial'||row.review_risk_reason!==null)throw new AdminError(409,'DETAILED_REVIEW_REQUIRED','案件需要詳細審核。');
-   const input={...reviewInput({action:'approve',expected_version:item.expected_version},actor.role),initialOnly:true};
+   const input={...reviewInput({action:'approve',expected_version:item.expected_version},actor.role),initialOnly:true,exactClassification};
    const result=await applyReview(db,actor,row,input);
-   results.push({ok:true,...result,outcome:'approved'});
+   results.push({ok:true,...result,outcome:result.review_outcome==='auto_duplicate'?'duplicate':'approved'});
   }catch(error){
    // A lost acknowledgement is resolved only through the authoritative audit,
    // never by issuing a second award or inventing success from a stale snapshot.

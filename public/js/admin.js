@@ -212,8 +212,8 @@ export function adminUI(session) {
         }else{queue=[...selectedReviews.values()].map(r=>({case_id:r.case_id,expected_version:r.version}));total=queue.length;if(!total)return;
           if(!window.confirm('確認'+verb+'已選 '+total+' 件案件？\n'+queue.map(r=>r.case_id).join('\n')+(rejecting?'\n不通過原因：'+reason:'')))return;}
         const report={summary:'',failures:[]};reviewReport=report;batchStatus.replaceChildren();progress.hidden=stop.hidden=false;progress.max=total;progress.value=0;
-        let done=0,success=0,failed=0,unconfirmed=0;
-        const update=()=>{progress.value=done;progressText.textContent='已處理 '+done+'／'+total+' · '+Math.floor(done/total*100)+'% · 成功 '+success+' · 失敗 '+failed+' · 未確認 '+unconfirmed+' · 剩餘 '+Math.max(0,total-done);};update();
+        let done=0,success=0,duplicates=0,failed=0,unconfirmed=0;
+        const update=()=>{progress.value=done;progressText.textContent='已處理 '+done+'／'+total+' · '+Math.floor(done/total*100)+'% · 成功 '+success+(duplicates?' · 重複投稿 '+duplicates:'')+' · 失敗 '+failed+' · 未確認 '+unconfirmed+' · 剩餘 '+Math.max(0,total-done);};update();
         try{
           while(current()&&!stopReview&&(queue.length||more)){
             if(!queue.length){await nextPage();if(!queue.length)continue;}
@@ -226,7 +226,7 @@ export function adminUI(session) {
             if(!Array.isArray(result.results)||result.results.length!==chunk.length||new Set(result.results.map(r=>r.case_id)).size!==chunk.length||result.results.some(r=>!chunk.some(c=>c.case_id===r.case_id)))throw new PublicError('SERVICE_UNAVAILABLE');
             for(const row of result.results){
               if(row.code==='REVIEW_NOT_SUBMITTED'){stopReview=true;continue;}done++;
-              if(row.ok&&(rejecting?row.status==='rejected':['approved','completed'].includes(row.status))){success++;selectedReviews.delete(row.case_id);}
+              if(row.ok&&(rejecting?row.status==='rejected':['approved','completed'].includes(row.status)||row.status==='duplicate'&&['duplicate','already_duplicate'].includes(row.outcome))){if(row.status==='duplicate')duplicates++;else success++;selectedReviews.delete(row.case_id);}
               else{if(row.unknown||row.code==='REVIEW_RESULT_UNCONFIRMED'){unconfirmed++;stopReview=true;}else failed++;report.failures.push({case_id:row.case_id,reason:row.code==='REVIEW_RESULT_UNCONFIRMED'?'結果尚未確認；請重新讀取案件及稽核，未自動重送。':adminMessage(row)+' ('+(row.code??'SERVICE_UNAVAILABLE')+')'});}
             }
             update();if(uncertain)progressText.textContent+=' · 上批回覆曾中斷，已停止後續提交。';
@@ -441,6 +441,7 @@ export function adminUI(session) {
             if(result.review_stage==="detailed" && reviewMode==="album")card.hidden=true;
             const filter=$("admin-field-filter-status");if(filter?.value && result.status!==filter.value)card.hidden=true;
             if(card.hidden)thumbnails?.release(data.case_id);
+            if(result.review_outcome==='auto_duplicate')$('admin-panel').prepend(node('p','已歸類重複投稿：同會員、同活動已有相同檔案通過；未重複發放積分。','notice'));
             scrollTo({top:Math.min(position,Math.max(0,document.documentElement.scrollHeight-innerHeight)),behavior:"instant"});
           } catch(error){
             errorText.textContent=adminMessage(error);

@@ -25,7 +25,8 @@ for (const [id, art] of Object.entries(TIER_ARTWORK)) test(`member ${id} shows o
 test("all eight admin artworks retain disabled labels and fit themes and small screens", async ({ page }) => {
   const state = await adminFixture(page); const violations = [];
   await page.addInitScript(() => { globalThis.__tierCsp = []; document.addEventListener("securitypolicyviolation", e => globalThis.__tierCsp.push(e.effectiveDirective)); });
-  await page.goto("/#admin"); await expect(page.locator("#admin-panel select")).toHaveCount(2);
+  await page.goto("/#admin"); await expect(page.locator("#admin-panel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#admin-panel .admin-filter select")).toHaveCount(2);
   await selectAdminTab(page,'會員管理');
   // WebKit reports style-src-attr for pre-existing native select internals.
   // Drain initial admin rendering, then assert the artwork introduces none.

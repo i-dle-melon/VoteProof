@@ -55,15 +55,22 @@ test('reject stop finishes only current chunk, and never runs approve concurrent
  let release;const wait=new Promise(r=>release=r),f=await reviewFixture(page,{wait});page.on('dialog',d=>d.accept(d.type()==='prompt'?'Reason':undefined));await enter(page);await page.getByRole('button',{name:'選取全部未審案件',exact:true}).click();
  try{await page.locator('#admin-batch-reject').click();await expect.poll(()=>f.posts.length).toBe(1);await expect(page.locator('#admin-batch-approve')).toBeDisabled();await page.getByRole('button',{name:'停止後續批次'}).click();release();await expect(page.locator('.batch-review-results')).toContainText('已停止');expect(f.posts).toHaveLength(1);expect(f.state.cases.filter(c=>c.status==='rejected')).toHaveLength(4);}finally{release();}
 });
-async function cleanupFixture(page,{unknown=false,wait=null,enabled=true}={}){
+async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFiles=false}={}){
  const state=await adminFixture(page,{autoConfirm:false}),at='2026-10-01T00:00:00.000Z',cutoff=new Date().toISOString(),calls=[];
  const rows=Array.from({length:25},(_,i)=>({file_id:randomUUID(),case_id:caseId(i),case_version:2,backup_version:1,size:3,status:'completed',eligible:true,cleanup_state:null,reason:'執行前將即時驗證Drive',ordinal:i}));
  Object.assign(rows[0],{archive_source:'export',backup_version:null,reason:'已確認下載；清理前會重新核對匯出紀錄及 R2'});
  await page.route('**/api/admin/storage/manual**',async route=>{
-  const r=route.request(),u=new URL(r.url()),p=u.pathname,body=r.postData()?r.postDataJSON():null;calls.push({p,method:r.method(),body});
+  const r=route.request(),u=new URL(r.url()),p=u.pathname,body=r.postData()?r.postDataJSON():null;
+  const allowEarlyExport=u.searchParams.get('allow_early_export')==='1';calls.push({p,method:r.method(),body,allowEarlyExport});
   if(p==='/api/admin/storage/manual'){
-   const all=rows.filter(r=>r.cleanup_state===null),after=Number(u.searchParams.get('cursor')??-1),chosen=all.filter(r=>r.ordinal>after).slice(0,20);
-   return ok(route,{enabled,cutoff,total:all.length,eligible_count:all.length,eligible_bytes:all.length*3,items:chosen,next_cursor:all.filter(r=>r.ordinal>after).length>20?String(chosen.at(-1).ordinal):null});
+   const all=rows.filter(r=>r.cleanup_state===null).map(row=>{
+    const eligible=!earlyFiles||row.ordinal>1||(row.archive_source==='export'&&allowEarlyExport);
+    return {...row,eligible,reason:eligible?row.reason:'結案後尚未滿7天'};
+   });
+   const eligibleCount=all.filter(r=>r.eligible).length;
+   const filtered=u.searchParams.get('eligible')==='yes'?all.filter(r=>r.eligible):all;
+   const after=Number(u.searchParams.get('cursor')??-1),available=filtered.filter(r=>r.ordinal>after),chosen=available.slice(0,20);
+   return ok(route,{enabled,cutoff,total:all.length,eligible_count:eligibleCount,eligible_bytes:eligibleCount*3,items:chosen,next_cursor:available.length>20?String(chosen.at(-1).ordinal):null});
   }
   const row=rows.find(x=>p.includes(x.file_id));if(p.endsWith('/verify'))return ok(route,{file_id:row.file_id,state:'verified',attempt_id:body.attempt_id});
   if((p.endsWith('/delete')||p.endsWith('/clean'))){if(wait)await wait;row.cleanup_state=unknown?'deleting':'cold';return ok(route,{file_id:row.file_id,state:unknown?'unknown':'deleted',message:row.archive_source==='export'?'圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。':undefined});}
@@ -85,7 +92,37 @@ test('manual cleanup all covers 25 files over pages, first20 is stable and each 
 });
 test('manual cleanup unknown stops without re-delete',async({page})=>{
  const f=await cleanupFixture(page,{unknown:true});page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('未確認 1');
- expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(1);await expect(page.locator('#admin-panel input[type=checkbox]').first()).toBeDisabled();
+ expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(1);await expect(page.getByRole('checkbox',{name:'選取圖片 '+f.rows[0].file_id,exact:true})).toBeDisabled();
+});
+test('early export checkbox resets selection and only opts in confirmed downloads',async({page})=>{
+ const f=await cleanupFixture(page,{earlyFiles:true}),[exported,driveOnly]=f.rows;
+ const early=page.getByRole('checkbox',{name:'未滿 7 天也可清理（僅限已確認下載）',exact:true});
+ const exportedBox=page.getByRole('checkbox',{name:'選取圖片 '+exported.file_id,exact:true});
+ const driveBox=page.getByRole('checkbox',{name:'選取圖片 '+driveOnly.file_id,exact:true});
+ const execute=page.getByRole('button',{name:'確認清理已選圖片',exact:true});
+ const label=page.locator('.manual-cleanup-early');
+ await expect(label).toHaveCSS('background-color','rgb(252, 227, 231)');
+ await expect(label).toHaveCSS('border-top-color','rgb(232, 160, 170)');
+ await expect(label.locator('+ button')).toHaveText('確認清理已選圖片');
+ await expect(early).not.toBeChecked();
+ await expect(exportedBox).toBeDisabled();
+ await early.check();
+ await expect(exportedBox).toBeEnabled();
+ await expect(driveBox).toBeDisabled();
+ await exportedBox.check();
+ await expect(execute).toBeEnabled();
+ await early.uncheck();
+ await expect(exportedBox).toBeDisabled();
+ await expect(execute).toBeDisabled();
+ expect(f.calls.filter(c=>c.method==='POST')).toHaveLength(0);
+ await early.check();
+ await expect(exportedBox).toBeEnabled();
+ await exportedBox.check();
+ page.on('dialog',d=>{expect(d.message()).toContain('已勾選提早清理');return d.accept();});
+ await execute.click();
+ await expect(page.locator('#admin-panel')).toContainText('已清理 1');
+ expect(f.calls.filter(c=>c.method==='POST').map(c=>[c.body.file_id,c.body.backup_version,c.body.allow_early_export]))
+  .toEqual([[exported.file_id,null,true]]);
 });
 test('manual all-page selection retains individual exclusions across pagination',async({page})=>{
  const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張');

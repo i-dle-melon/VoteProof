@@ -133,7 +133,11 @@ export function adminPath(path) {
   if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
   if(pathname==='/api/admin/overview'){const p=new URLSearchParams(query??''),keys=p.has('from_at')||p.has('to_at')?['from_at','to_at']:['from','to'];return keys.every(k=>p.getAll(k).length===1)&&[...p.keys()].every(k=>keys.includes(k));}
-  if(pathname==='/api/admin/storage/manual'){const p=new URLSearchParams(query??'');return [...p.keys()].every(k=>['campaign_id','from','to','status','backup','eligible','cutoff','cursor'].includes(k)&&p.getAll(k).length===1);}
+  if(pathname==='/api/admin/storage/manual'){
+    const p=new URLSearchParams(query??'');
+    return [...p.keys()].every(k=>['campaign_id','from','to','status','backup','eligible','cutoff','cursor','allow_early_export'].includes(k)&&p.getAll(k).length===1)
+      &&(!p.has('allow_early_export')||p.get('allow_early_export')==='1');
+  }
   if(/^\/api\/admin\/storage\/manual\/[a-f0-9-]{36}\/(verify|delete|clean|status)$/.test(pathname)&&query===undefined)return true;
   if(pathname==='/api/admin/staff' && query===undefined)return true;
   if(pathname==='/api/admin/member-blocks')return true;

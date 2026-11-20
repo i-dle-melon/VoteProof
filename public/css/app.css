@@ -2827,6 +2827,8 @@ button.legacy-case-row:hover {
 .admin-panel-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
 .admin-panel-toolbar>button{margin-left:auto}.admin-panel-toolbar .tabs{margin:0}
 .review-batch-actions,.manual-cleanup-actions{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+.manual-cleanup-early{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:.45rem .7rem;border:1px solid #e8a0aa;border-radius:.6rem;background:#fce3e7;color:#6e262d;cursor:pointer}
+.manual-cleanup-early input{flex:none;width:1rem;height:1rem;min-height:0;margin:0;padding:0;accent-color:#a83e4c}
 .batch-review-controls > .review-batch-actions{grid-column:1/-1;justify-content:space-between;width:100%}
 .review-batch-actions > #admin-batch-approve{flex:1 1 356px;min-width:min(100%,356px)}
 .review-batch-end-actions{display:flex;gap:.6rem;align-items:center;margin-left:auto;max-width:100%}

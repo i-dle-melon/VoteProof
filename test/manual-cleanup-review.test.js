@@ -142,6 +142,59 @@ test('manual cleanup rejects export evidence for a different image version',asyn
  assert.equal((await f.call({...c,input:{...c.input,backup_version:null}},'clean')).status,409);
  assert.equal(f.driveCalls(),0);assert.equal(f.deleteCalls(),0);
 });
+test('opt-in early cleanup requires an exact confirmed export and still protects unresolved R2 writes',async t=>{
+ const f=await fixture(t,{count:2}),[exported,driveOnly]=f.cases;
+ for(const c of f.cases)await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',ago(1),c.row.id);
+ const regular={...exported,input:{...exported.input,backup_version:null}};
+ const early={...regular,input:{...regular.input,allow_early_export:true}};
+ const path='/api/admin/storage/manual';
+ const list=async opt=>{
+  const r=await f.fetch(path+(opt?'?allow_early_export=1':''),'GET',undefined,f.admin.headers);
+  assert.equal(r.status,200);return (await r.json()).data;
+ };
+ assert.equal((await list(true)).eligible_count,0);
+ assert.equal((await f.call(early,'verify')).status,409);
+ await f.write('INSERT INTO export_completed_files VALUES(?,?,?,?,?,?,?,?)',exported.file.id,'old-etag',exported.file.size,
+  exported.file.content_type,randomUUID(),1,f.admin.memberId,ago(1));
+ assert.equal((await list(true)).eligible_count,0);
+ assert.equal((await f.call(early,'verify')).status,409);
+ await f.write('INSERT INTO export_completed_files VALUES(?,?,?,?,?,?,?,?)',exported.file.id,exported.file.etag,exported.file.size,
+  exported.file.content_type,randomUUID(),1,f.admin.memberId,ago(1));
+ assert.equal((await list(false)).eligible_count,0);
+ const earlyList=await list(true);
+ assert.equal(earlyList.eligible_count,1);
+ assert.equal(earlyList.items.find(r=>r.eligible).file_id,exported.file.id);
+ assert.match(earlyList.items.find(r=>r.eligible).reason,/結案未滿 7 天/);
+ assert.equal((await f.call(regular,'verify')).status,409);
+ assert.equal((await f.call({...driveOnly,input:{...driveOnly.input,allow_early_export:true}},'verify')).status,409);
+ assert.equal((await f.call({...early,input:{...early.input,allow_early_export:'1'}},'verify')).status,400);
+ await f.write("UPDATE cases SET status='approved' WHERE id=?",exported.row.id);
+ assert.equal((await list(true)).eligible_count,0);
+ assert.equal((await f.call(early,'verify')).status,409);
+ await f.write("UPDATE cases SET status='completed' WHERE id=?",exported.row.id);
+ for(const badDate of ['invalid-close-date',ago(-1)]){
+  await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',badDate,exported.row.id);
+  assert.equal((await list(true)).eligible_count,0);
+  assert.equal((await f.call(early,'verify')).status,409);
+ }
+ await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',ago(1),exported.row.id);
+ const uncertain=randomUUID();
+ f.sqlite.prepare("INSERT INTO prelaunch_reset_operations VALUES(?,1,'unknown',1,1,?,NULL)").run(uncertain,ago(2));
+ assert.equal((await list(true)).eligible_count,0);
+ assert.notEqual((await f.call(early,'verify')).status,200);
+ assert.equal(f.deleteCalls(),0);
+ // Remove only the injected local fixture fault before testing the success path.
+ f.sqlite.prepare('DELETE FROM prelaunch_reset_operations WHERE id=?').run(uncertain);
+ assert.equal((await f.call(early,'verify')).status,200);
+ assert.equal((await f.call(regular,'delete')).status,409);
+ assert.equal(f.deleteCalls(),0);
+ const deleted=await f.call(early,'delete');
+ assert.equal(deleted.status,200);
+ assert.equal((await deleted.json()).data.state,'deleted');
+ assert.equal(f.deleteCalls(),1);assert.equal(f.driveCalls(),0);
+ const receipt=await f.db.prepare("SELECT detail FROM storage_audit WHERE action='manual_cleanup_deleted'").first();
+ assert.equal(JSON.parse(receipt.detail).allow_early_export,true);
+});
 for(const variant of['missing','sha','binding'])test('Drive '+variant+' blocks manual DELETE and releases only its known pre-dispatch verification',async t=>{
  const f=await fixture(t),c=f.cases[0];f.setDrive({failure:variant==='missing',sha:variant==='sha',binding:variant==='binding'});assert.notEqual((await f.call(c,'verify')).status,200);assert.equal(f.deleteCalls(),0);assert.ok(await f.bucket.head(c.file.object_key));
  assert.equal(f.driveCalls(),1);

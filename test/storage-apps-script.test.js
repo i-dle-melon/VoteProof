@@ -295,7 +295,7 @@ test("Worker verifies the Apps Script archive receipt through the content redire
     etag: "fixture-etag", source_etag: "fixture-etag",
   };
   const sha = hash(Buffer.from([1, 2, 3]));
-  const relay = "https://script.google.com/macros/s/local-fixture/exec";
+  const relay = new URL("/macros/s/local-fixture/exec", "https://script.google.com").href;
   const echo = "https://script.googleusercontent.com/macros/echo?fixture=1";
   const env = { DRIVE_COLD_RELAY_URL: relay, DRIVE_BACKUP_RELAY_SECRET: f.secret };
   const before = [...f.properties];

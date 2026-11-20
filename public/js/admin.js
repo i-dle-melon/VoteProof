@@ -431,7 +431,7 @@ export function adminUI(session) {
       const preview = node("div", "", "admin-proof-grid"); panel.append(preview);
       for (const [index,file] of data.files.entries()) {
         const imageCard=node("article","正在載入證明…","member-case");preview.append(imageCard);
-        if(['cold','deleting'].includes(file.storage_state)){imageCard.textContent=file.storage_state==='cold'?'圖片已清理，備份保存在 Google Drive':'圖片清理結果待確認，暫不提供讀取。';continue;}
+        if(['cold','deleting'].includes(file.storage_state)){imageCard.textContent=file.storage_state==='cold'?'圖片已從網站清理，無法預覽。':'圖片清理結果待確認，暫不提供讀取。';continue;}
         try {
           await access.check(controller.signal);
           const blob=await session.adminProof("/api/admin/cases/"+data.case_id+"/files/"+file.file_id,controller.signal);
@@ -439,7 +439,7 @@ export function adminUI(session) {
           const url=URL.createObjectURL(blob),img=node("img");urls.push(url);img.src=url;img.alt=copy("admin-copy-053")+(index+1);imageCard.replaceChildren(img);
         } catch(error) {
           if(["ADMIN_FORBIDDEN","ADMIN_STEP_UP_REQUIRED","AUTH_REQUIRED","MEMBER_SUSPENDED"].includes(error.code))throw error;
-          if(error.code==='PROOF_ARCHIVED_IN_DRIVE'){imageCard.replaceChildren(node('p','圖片已清理，備份保存在 Google Drive'));continue;}
+          if(['PROOF_ARCHIVED_IN_DRIVE','PROOF_ARCHIVED_IN_EXPORT'].includes(error.code)){imageCard.replaceChildren(node('p',error.message));continue;}
           imageCard.replaceChildren(node("p",adminMessage(error)),button("重試載入案件",()=>{collapseReview();void caseDetail(id);}));
         }
       }

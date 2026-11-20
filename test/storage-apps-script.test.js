@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { createHmac, createHash, randomBytes, randomUUID } from "node:crypto";
 import { storageSignature, shaBytes } from "../src/lib/cold-storage.js";
+import { verifyDriveArchive } from "../src/lib/storage-archive.js";
 const backupSource = readFileSync("apps-script/drive-backup/Code.gs", "utf8"),
   alertSource = readFileSync("apps-script/storage-alert/Code.gs", "utf8");
 function fixture(source, { email = "idle.voteproof.verify@gmail.com" } = {}) {
@@ -274,6 +275,52 @@ test('Apps Script archive_verify returns a bounded signed SHA receipt, never raw
   assert.equal(post(await signed({timestamp:request.timestamp-121})).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   assert.equal(post(await signed({nonce:'invalid'})).error,'DRIVE_VERIFICATION_UNAVAILABLE');
   assert.equal(f.state.calls.length,before);
+});
+
+test("Worker verifies the Apps Script archive receipt through the content redirect", async () => {
+  const f = fixture(backupSource);
+  coldFiles(f);
+  f.files.get("proof").appProperties = {
+    source: "voteproof", storage_source: "r2",
+    voteproof_case_id: "VP-fixture", voteproof_proof_id: "proof-id",
+  };
+  const hash = value => createHash("sha256").update(value).digest("hex");
+  f.files.get("campaign").appProperties.folder_key = hash("campaign-key");
+  f.files.get("day").appProperties.folder_key = hash("date-key");
+  const row = {
+    file_id: "proof-id", case_id: "VP-fixture", backup_status: "confirmed",
+    drive_file_id: "proof", drive_folder_id: "day", root_folder_id: "root", campaign_folder_id: "campaign",
+    campaign_key: "campaign-key", date_key: "date-key", object_key: "fixture.png", source_object_key: "fixture.png",
+    size: 3, source_size: 3, content_type: "image/png", source_mime: "image/png",
+    etag: "fixture-etag", source_etag: "fixture-etag",
+  };
+  const sha = hash(Buffer.from([1, 2, 3]));
+  const relay = "https://script.google.com/macros/s/local-fixture/exec";
+  const echo = "https://script.googleusercontent.com/macros/echo?fixture=1";
+  const env = { DRIVE_COLD_RELAY_URL: relay, DRIVE_BACKUP_RELAY_SECRET: f.secret };
+  const before = [...f.properties];
+  const calls = [];
+  let reply;
+  const fetcher = async (url, options) => {
+    calls.push(options.method);
+    if (url === relay) {
+      assert.equal(options.method, "POST");
+      assert.equal(options.redirect, "manual");
+      reply = f.context.doPost({ postData: { contents: options.body } }).value;
+      return new Response(null, { status: 302, headers: { Location: echo } });
+    }
+    assert.equal(url, echo);
+    assert.equal(options.method, "GET");
+    assert.equal(options.body, undefined);
+    assert.equal(options.headers, undefined);
+    return new Response(reply);
+  };
+  const verified = await verifyDriveArchive(env, row, sha, { fetcher });
+  assert.equal(verified.sha256, sha);
+  assert.equal(JSON.parse(verified.receipt.payload).file_id, "proof");
+  assert.deepEqual(calls, ["POST", "GET"]);
+  assert.deepEqual([...f.properties], before);
+  assert.deepEqual(f.state.calls.map(({ url }) => url), ["https://www.googleapis.com/drive/v3/files/proof?alt=media"]);
 });
 
 test('automatic maintenance cannot dispatch cleanup after manual-only storage policy',()=>{const f=fixture(backupSource);assert.equal(f.context.runStorageMaintenance().state,'retired_manual_cleanup_only');assert.equal(f.state.calls.length,0);});

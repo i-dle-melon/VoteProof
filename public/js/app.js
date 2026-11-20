@@ -495,7 +495,7 @@ $("lookup-form").addEventListener("submit", async (event) => {
       if (label === "案件狀態") { description.replaceChildren(node("span", value, "status")); }
       $("case-details").append(node("dt", label), description);
     }
-    if(data.files?.some(f=>f.storage_state==='cold'))$('case-details').append(node('dt','證明圖片'),node('dd','圖片已清理，備份保存在 Google Drive'));
+    if(data.files?.some(f=>f.storage_state==='cold'))$('case-details').append(node('dt','證明圖片'),node('dd','圖片已從網站清理，無法預覽。'));
     $("lookup-result").hidden = false; $("lookup-message").textContent = "查詢完成。";
   } catch (e) { $("lookup-message").textContent = e.status === 404 ? lookupGeneric : errorMessage(e); }
   finally { lookupBusy = false; $("lookup-button").disabled = false; $("lookup-id").disabled = $("lookup-key").disabled = false; $("lookup-button").textContent = "查詢案件"; $("lookup-form").setAttribute("aria-busy", "false"); }

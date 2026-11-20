@@ -1,9 +1,11 @@
 import { backupReadiness, requireBackupReady } from './drive-backup-relay.js';
 import { BackupError } from './google-drive.js';
+import {legacyProofMetadata} from './proof-storage-metadata.js';
 export const seconds = () => Math.floor(Date.now() / 1000);
 export const MAX_BACKUP_JOBS = 1;
 export const MAX_BACKUP_ATTEMPTS = 8;
 export const BACKUP_LEASE_SECONDS = 300;
+export const backupSourceAvailable="NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=proof_backups.file_id AND p.state IN('verifying','deleting','cold'))";
 export const backupInsert = (db, fileId, now, guard = '1=1', bindings = []) => db.prepare(`INSERT INTO proof_backups
   (id,file_id,provider,source_object_key,source_size,source_mime,source_etag,created_at,next_attempt_at)
   SELECT ?,f.id,'google_drive',f.object_key,f.size,f.content_type,f.etag,?,? FROM case_files f JOIN cases c ON c.id=f.case_id
@@ -55,11 +57,12 @@ export async function backfillBackups(env, { dryRun = true, ...page } = {}) {
   }
   return { ...result, dry_run: dryRun, enqueued };
 }
-export function claimBackupStatement(db, now = seconds(), { id, manual = false, version, root } = {}) {
+export function claimBackupStatement(db, now = seconds(), { id, manual = false, version, root, legacy = false } = {}) {
   // Explicit manual ID never selects another job. Legacy global block/active lease
   // remains authoritative; current processors use an atomic per-row lease only.
   const eligible = `((attempts<? AND ((status IN('pending','failed') AND next_attempt_at IS NOT NULL ${manual ? '' : 'AND next_attempt_at<=?'} )
-    OR (status='processing' AND lease_until<=?))) OR (status='processing' AND lease_until<=? AND attempts>=?))`;
+    OR (status='processing' AND lease_until<=?))) OR (status='processing' AND lease_until<=? AND attempts>=?))
+    ${legacy?'':'AND '+backupSourceAvailable}`;
   const args = [MAX_BACKUP_ATTEMPTS, ...(manual ? [] : [now]), now, now, MAX_BACKUP_ATTEMPTS];
   return db.prepare(`UPDATE proof_backups SET
     status=CASE WHEN attempts>=${MAX_BACKUP_ATTEMPTS} THEN 'failed' ELSE 'processing' END,
@@ -75,7 +78,9 @@ export function claimBackupStatement(db, now = seconds(), { id, manual = false, 
     RETURNING *`).bind(crypto.randomUUID(), now + BACKUP_LEASE_SECONDS, now, root ?? null,
       ...(id ? [id] : []), ...args, ...(version === undefined ? [] : [version]), now);
 }
-export const claimBackup = (db, now = seconds(), options) => claimBackupStatement(db, now, options).first();
+export const claimBackup = (db, now = seconds(), options) => legacyProofMetadata(db,
+ () => claimBackupStatement(db, now, options).first(),
+ () => claimBackupStatement(db, now, {...options,legacy:true}).first());
 export async function reserveFileId(db, job, id) {
   const row = await db.prepare(`UPDATE proof_backups SET drive_file_id=coalesce(drive_file_id,?)
     WHERE id=? AND status='processing' AND lease_token=? AND lease_until>? RETURNING drive_file_id`)

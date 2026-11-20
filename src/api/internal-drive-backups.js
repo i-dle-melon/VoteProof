@@ -4,7 +4,8 @@ import { UUID_PATTERN } from './admin-validation.js';
 import { authenticateRelay, RelayError } from '../lib/drive-backup-relay.js';
 import { DRIVE_ID, BackupError } from '../lib/google-drive.js';
 import { backupRoute } from '../lib/proof-backup-processor.js';
-import { seconds, MAX_BACKUP_ATTEMPTS, backoff } from '../lib/proof-backup-store.js';
+import { seconds, MAX_BACKUP_ATTEMPTS, backoff, backupSourceAvailable } from '../lib/proof-backup-store.js';
+import {legacyProofMetadata} from '../lib/proof-storage-metadata.js';
 import { authAtomic } from '../lib/auth-store.js';
 export const RELAY_LEASE_SECONDS = 600;
 const fail = (status, code) => { throw new RelayError(status, code); };
@@ -39,20 +40,21 @@ async function claim(env, _url, request) {
   // Only the genuinely empty path is read-only. Include all existing request
   // IDs (root/replay checks still apply) and expired exhausted leases. A job
   // arriving after this read is picked up by the next poll; no lease is lost.
-  const work=await db.prepare(`SELECT b.id,b.status,b.attempts,b.next_attempt_at,b.lease_until,b.root_folder_id
+  const peek=async available=>({available,work:await db.prepare(`SELECT b.id,b.status,b.attempts,b.next_attempt_at,b.lease_until,b.root_folder_id
     FROM (SELECT 1) anchor LEFT JOIN proof_backups b ON b.lease_token=? WHERE b.id IS NOT NULL OR
-    EXISTS(SELECT 1 FROM proof_backups WHERE status='processing' AND lease_until<=? AND attempts>=?) OR
+    EXISTS(SELECT 1 FROM proof_backups WHERE status='processing' AND lease_until<=? AND attempts>=? AND ${available}) OR
     EXISTS(SELECT 1 FROM proof_backups WHERE attempts<? AND
       ((status IN('pending','failed') AND next_attempt_at IS NOT NULL AND next_attempt_at<=?)
-       OR (status='processing' AND lease_until<=?)) AND (root_folder_id IS NULL OR root_folder_id=?))`)
-    .bind(v.request_id,now,MAX_BACKUP_ATTEMPTS,MAX_BACKUP_ATTEMPTS,now,now,v.root_folder_id).first();
+       OR (status='processing' AND lease_until<=?)) AND (root_folder_id IS NULL OR root_folder_id=?) AND ${available})`)
+    .bind(v.request_id,now,MAX_BACKUP_ATTEMPTS,MAX_BACKUP_ATTEMPTS,now,now,v.root_folder_id).first()});
+  const {available,work}=await legacyProofMetadata(db,()=>peek(backupSourceAvailable),()=>peek('1=1'));
   if(!work)return jsonSuccess({state:'idle'});
   // Bound maintenance to one exhausted lease per tick. Same terminal policy as
   // claimBackupStatement: no ninth attempt, no retry, sanitized INTERNAL fallback.
   await db.prepare(`UPDATE proof_backups SET status='failed',next_attempt_at=NULL,
     lease_token=NULL,lease_until=NULL,last_error_code=coalesce(last_error_code,'INTERNAL'),version=version+1
     WHERE id IN (SELECT id FROM proof_backups WHERE status='processing' AND lease_until<=?
-      AND attempts>=? ORDER BY lease_until,id LIMIT 1)`).bind(now,MAX_BACKUP_ATTEMPTS).run();
+      AND attempts>=? AND ${available} ORDER BY lease_until,id LIMIT 1)`).bind(now,MAX_BACKUP_ATTEMPTS).run();
   let row=work.id?work:null;
   if(row){
     if(row.root_folder_id!==v.root_folder_id)fail(409,'RELAY_ROOT_CONFLICT');
@@ -61,7 +63,7 @@ async function claim(env, _url, request) {
     if(row.status==='processing'&&row.lease_until>now)return jsonSuccess({state:'claimed',job:safeJob(await context(db,row.id))});
   }
   const selected=row?.id;
-  const eligible=`attempts<${MAX_BACKUP_ATTEMPTS} AND ((status IN('pending','failed') AND next_attempt_at IS NOT NULL AND next_attempt_at<=?) OR (status='processing' AND lease_until<=?))`;
+  const eligible=`attempts<${MAX_BACKUP_ATTEMPTS} AND ((status IN('pending','failed') AND next_attempt_at IS NOT NULL AND next_attempt_at<=?) OR (status='processing' AND lease_until<=?)) AND ${available}`;
   const sql=`UPDATE proof_backups SET status='processing',attempts=attempts+1,lease_token=?,lease_until=?,started_at=?,last_error_code=NULL,
     root_folder_id=coalesce(root_folder_id,?),version=version+1 WHERE id=${selected?'?':`(SELECT id FROM proof_backups WHERE ${eligible} AND (root_folder_id IS NULL OR root_folder_id=?) ORDER BY created_at,id LIMIT 1)`}
     ${selected?`AND ${eligible}`:''} AND (root_folder_id IS NULL OR root_folder_id=?)

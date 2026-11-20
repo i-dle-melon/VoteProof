@@ -5,6 +5,7 @@ import { authAtomic } from './auth-store.js';
 import { MIME_EXTENSIONS, UPLOAD_LIMITS } from '../api/upload-validation.js';
 import { CASE_ID_PATTERN } from './case-keys.js';
 import { legacyBackupTransport } from './drive-backup-relay.js';
+import {legacyProofMetadata} from './proof-storage-metadata.js';
 const blocking = new Set(['CONFIG_MISSING','OAUTH_REVOKED','OAUTH_CONFIG','ROOT_INACCESSIBLE','DRIVE_ACCESS_DENIED','DRIVE_FULL']);
 export function backupRoute(row) {
   if (!CASE_ID_PATTERN.test(row.case_id) || !MIME_EXTENSIONS[row.source_mime] || row.source_size <= 0 ||
@@ -67,11 +68,12 @@ export async function processBackups(env, { fetcher = fetch, maxJobs = MAX_BACKU
       await authAtomic(db, guards, [audit('0')]);
       return { id: backupId, processed: 0, confirmed: 1, state: 'already_confirmed' };
     }
-    const result = await authAtomic(db, guards, [
-      claimBackupStatement(db, start, { id: backupId, manual: true, version: row.version, root: env.GOOGLE_DRIVE_ROOT_FOLDER_ID }),
+    const claim = legacy => authAtomic(db, guards, [
+      claimBackupStatement(db, start, { id: backupId, manual: true, version: row.version, root: env.GOOGLE_DRIVE_ROOT_FOLDER_ID, legacy }),
       // changes() is from the claim in this same atomic transaction.
       audit('changes()'),
     ]);
+    const result = await legacyProofMetadata(db,()=>claim(false),()=>claim(true));
     job = result[1].results[0];
     if (!job) throw new AdminError(409, 'BACKUP_CONFLICT', 'Backup state changed or is not eligible');
     row = { ...row, ...job };

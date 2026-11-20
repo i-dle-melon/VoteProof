@@ -12,4 +12,4 @@ export async function legacyProofMetadata(db,read,legacyRead){
  }
 }
 export const proofStorageState=(db,key)=>legacyProofMetadata(db,
- ()=>db.prepare('SELECT p.state FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?').bind(key).first(),()=>null);
+ ()=>db.prepare('SELECT p.* FROM case_files f JOIN cold_proofs p ON p.file_id=f.id WHERE f.object_key=?').bind(key).first(),()=>null);

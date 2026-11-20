@@ -7,6 +7,8 @@ const at=()=>Math.floor(Date.now()/1000),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]
 const fail=(code='MANUAL_CLEANUP_BLOCKED',status=409)=>new AdminError(status,code,'圖片清理安全條件未成立；未重送刪除。');
 const message='圖片已清理，備份保存在 Google Drive';
 export const CLEANED_PROOF_MESSAGE=message;
+const exportMessage='圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。';
+const cleanedMessage=saved=>saved?.archive_source==='export'?exportMessage:message;
 // The prior valid=1 INSERT + DELETE cost three written rows per guard.
 // A failed assertion still INSERTs valid=0 and aborts the entire D1 batch;
 // success writes no guard row. Fence/Permit and all business writes remain.
@@ -18,25 +20,34 @@ async function authAtomic(db,guards,statements){
 // Read-only historical UNKNOWN (r2_writes=0) is not invented into an R2 write.
 const globalSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations WHERE pending_r2>0 OR (state='unknown' AND r2_writes>0))
  AND EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND anomaly IS NULL AND inventory_id IS NULL)`;
+const unfinishedExport=until=>`EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id
+ LEFT JOIN export_packages pkg ON pkg.job_id=e.job_id AND pkg.number=e.package_no
+ WHERE e.file_id=f.id AND j.expires_at>${until} AND pkg.status IS NOT 'completed')`;
 const fileSafe=`NOT EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved')
  AND NOT EXISTS(SELECT 1 FROM proof_upload_intents i WHERE i.object_key=f.object_key AND i.write_token IS NOT NULL)
- AND NOT EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id WHERE e.file_id=f.id AND j.expires_at>?)
+ AND NOT ${unfinishedExport('?')}
  AND NOT EXISTS(SELECT 1 FROM export_file_claims e WHERE e.file_id=f.id AND e.lease_until>?)`;
+const backupQuiet=`NOT EXISTS(SELECT 1 FROM proof_backups busy WHERE busy.file_id=f.id AND (busy.status='processing' OR busy.lease_until IS NOT NULL))`;
+const driveBound=`b.status='confirmed' AND b.lease_until IS NULL AND b.drive_file_id IS NOT NULL
+ AND b.source_object_key=f.object_key AND b.source_size=f.size AND b.source_etag=f.etag AND b.source_mime=f.content_type`;
+const exportMatch=`d.file_id=f.id AND d.etag=f.etag AND d.file_size=f.size AND d.content_type=f.content_type`;
 const candidateSql=`SELECT f.id file_id,c.id case_internal_id,c.case_id,c.campaign_id,c.status,c.created_at,c.updated_at,c.version case_version,
- f.size,f.object_key,b.version backup_version,b.status backup_status,p.state cleanup_state,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,
- (b.source_object_key=f.object_key AND b.source_size=f.size AND b.source_etag=f.etag AND b.source_mime=f.content_type AND b.lease_until IS NULL AND b.drive_file_id IS NOT NULL) backup_bound,
+ f.size,f.object_key,CASE WHEN d.file_id IS NULL THEN b.version END backup_version,b.status backup_status,
+ CASE WHEN d.file_id IS NOT NULL THEN 'export' WHEN ${driveBound} THEN 'drive' END archive_source,
+ p.state cleanup_state,p.verification_context,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,
+ (${backupQuiet}) backup_quiet,
  EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved') has_reservation,
  EXISTS(SELECT 1 FROM proof_upload_intents i WHERE i.object_key=f.object_key AND i.write_token IS NOT NULL) has_pin,
- (EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id WHERE e.file_id=f.id AND j.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ (${unfinishedExport("strftime('%Y-%m-%dT%H:%M:%fZ','now')")}
  OR EXISTS(SELECT 1 FROM export_file_claims e WHERE e.file_id=f.id AND e.lease_until>CAST(strftime('%s','now') AS INTEGER))) has_export,
  (${globalSafe}) global_safe,
- CASE WHEN b.status='confirmed' AND b.lease_until IS NULL AND b.drive_file_id IS NOT NULL
- AND b.source_object_key=f.object_key AND b.source_size=f.size AND b.source_etag=f.etag AND b.source_mime=f.content_type
+ CASE WHEN (d.file_id IS NOT NULL OR (${driveBound})) AND ${backupQuiet} AND f.size BETWEEN 1 AND 5242880
  AND c.status IN('completed','rejected','duplicate','revoked') AND c.reviewed_at IS NOT NULL
  AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday(?,'-7 days')
  AND (p.file_id IS NULL OR p.state IN('blocked','dry_run')) AND ${fileSafe} AND ${globalSafe}
  AND NOT EXISTS(SELECT 1 FROM storage_audit a WHERE a.id='manual-cleanup:dispatch:'||f.id) THEN 1 ELSE 0 END eligible
  FROM case_files f JOIN cases c ON c.id=f.case_id LEFT JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive'
+ LEFT JOIN export_completed_files d ON ${exportMatch}
  LEFT JOIN cold_proofs p ON p.file_id=f.id`;
 function filters(url){
  const p=url.searchParams,allowed=['campaign_id','from','to','status','backup','eligible','cutoff','cursor'];
@@ -62,18 +73,21 @@ export async function cleanupCandidates(db,url){
  const page=(await db.prepare(query+' ORDER BY created_at,file_id LIMIT 21').bind(...base,...f.args).all()).results;
  let summary=null;if(!f.p.has('cursor'))summary=await db.prepare(`SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN eligible=1 THEN 1 ELSE 0 END),0) eligible_count,COALESCE(SUM(CASE WHEN eligible=1 THEN size ELSE 0 END),0) eligible_bytes FROM (${query})`).bind(...base,...f.args).first();
  const rows=page.slice(0,20),last=rows.at(-1);
- return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,case_internal_id,has_reservation,has_pin,has_export,global_safe,backup_bound,...r})=>{
-  const reasons=[];if(r.backup_status!=='confirmed')reasons.push('Drive備份尚未confirmed');if(!backup_bound)reasons.push('備份來源綁定不符或仍有lease');
+ return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,case_internal_id,has_reservation,has_pin,has_export,global_safe,backup_quiet,verification_context,...r})=>{
+  const reasons=[];if(!r.archive_source)reasons.push('尚無符合目前圖片版本的 Drive 備份或已確認下載的匯出');
+  if(!backup_quiet)reasons.push('Drive 備份作業尚未結束');
   if(!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at)reasons.push('案件尚未完成可清理審核');
   if(!Number.isFinite(Date.parse(r.closed_at))||Date.parse(r.closed_at)>Date.parse(f.cutoff)-86400000*ARCHIVE_RETENTION_DAYS)reasons.push('結案後尚未滿7天');
   if(has_reservation)reasons.push('有未決Reservation');if(has_pin)reasons.push('有Write Pin');if(has_export)reasons.push('有效匯出或下載lease尚未結束');
   if(!global_safe)reasons.push('未決原生R2／UNKNOWN、Inventory或容量異常尚未排除');
-  if(r.cleanup_state==='verifying')reasons.push('已有驗證作業；不按逾時接管');if(r.cleanup_state==='deleting')reasons.push('DELETE結果待人工核對，不會重送');if(r.cleanup_state==='cold')reasons.push(message);
-  return{...r,eligible:!!r.eligible,reason:r.eligible?'執行時仍須即時驗證Drive及R2':reasons.join('；')||'清理狀態需人工確認'};
+  if(r.cleanup_state==='verifying')reasons.push('已有驗證作業；不按逾時接管');if(r.cleanup_state==='deleting')reasons.push('DELETE結果待人工核對，不會重送');
+  if(r.cleanup_state==='cold')return{...r,eligible:false,reason:cleanedMessage(context({verification_context}))};
+  return{...r,eligible:!!r.eligible,reason:r.eligible?(r.archive_source==='export'?'已確認下載；清理前會重新核對匯出紀錄及 R2':'清理前會即時驗證 Drive 和 R2'):reasons.join('；')||'清理狀態需人工確認'};
  }),next_cursor:page.length>20?btoa(JSON.stringify([f.scope,last.created_at,last.file_id])):null};
 }
 export function cleanupInput(body){
- if(!body||Object.keys(body).sort().join(',')!=='attempt_id,backup_version,case_version,file_id'||!uuid.test(body.file_id??'')||!uuid.test(body.attempt_id??'')||![body.case_version,body.backup_version].every(x=>Number.isSafeInteger(x)&&x>=0))throw fail('INVALID_CLEANUP_REQUEST',400);
+ const version=v=>Number.isSafeInteger(v)&&v>=0;
+ if(!body||Object.keys(body).sort().join(',')!=='attempt_id,backup_version,case_version,file_id'||!uuid.test(body.file_id??'')||!uuid.test(body.attempt_id??'')||!version(body.case_version)||(body.backup_version!==null&&!version(body.backup_version)))throw fail('INVALID_CLEANUP_REQUEST',400);
  return body;
 }
 async function readiness(env){
@@ -82,28 +96,49 @@ async function readiness(env){
  if(row.n!==8)throw fail('MANUAL_CLEANUP_SCHEMA_REQUIRED',503);
 }
 async function source(db,input){
- const f=await db.prepare('SELECT object_key FROM case_files WHERE id=?').bind(input.file_id).first();
- const r=f?await coldContext(db,f.object_key):null;
- if(!validColdSource(r)||r.file_id!==input.file_id||r.case_version!==input.case_version||r.backup_version!==input.backup_version||!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at||!r.closed_at||Date.parse(r.closed_at)>(at()-86400*ARCHIVE_RETENTION_DAYS)*1000)throw fail();
+ const exportSource=input.backup_version===null;
+ let r;
+ if(exportSource){
+  r=await db.prepare(`SELECT f.id file_id,f.object_key,f.size,f.etag,f.content_type,c.id case_internal_id,c.status,c.version case_version,
+   c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,d.job_id,d.package_no,d.confirmed_at,d.confirmed_by,
+   (SELECT sha256 FROM proof_exact_hashes h WHERE h.file_id=f.id AND h.source_etag=f.etag AND h.source_size=f.size) known_sha
+   FROM case_files f JOIN cases c ON c.id=f.case_id JOIN export_completed_files d ON ${exportMatch}
+   WHERE f.id=? AND ${backupQuiet}`).bind(input.file_id).first();
+  if(r)r={...r,archive_source:'export',backup_version:null};
+ }else{
+  const f=await db.prepare('SELECT object_key FROM case_files WHERE id=?').bind(input.file_id).first();
+  const drive=f?await coldContext(db,f.object_key):null;
+  if(validColdSource(drive))r={...drive,archive_source:'drive'};
+ }
+ const closedAt=Date.parse(r?.closed_at);
+ if(!r||r.file_id!==input.file_id||r.case_version!==input.case_version||r.backup_version!==input.backup_version||r.size<1||r.size>5242880
+  ||!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at
+  ||!Number.isFinite(closedAt)||closedAt>(at()-86400*ARCHIVE_RETENTION_DAYS)*1000)throw fail();
  return r;
 }
-function guards(row,actor){return[
+function guards(row,actor){
+ const durableSource=row.archive_source==='export'
+  ?{sql:`EXISTS(SELECT 1 FROM export_completed_files d WHERE ${exportMatch} AND d.job_id=? AND d.package_no=? AND d.confirmed_at=? AND d.confirmed_by=?)`,
+    args:[row.job_id,row.package_no,row.confirmed_at,row.confirmed_by]}
+  :{sql:`EXISTS(SELECT 1 FROM proof_backups b WHERE b.file_id=f.id AND b.provider='google_drive' AND b.id=? AND b.version=?
+    AND ${driveBound} AND b.drive_file_id=? AND b.drive_folder_id=? AND b.root_folder_id=?)`,
+    args:[row.backup_id,row.backup_version,row.drive_file_id,row.drive_folder_id,row.root_folder_id]};
+ return[
  {sql:ELEVATED_AUTH_GUARD,args:actorBindings(actor)},
  {sql:globalSafe,args:[]},
- {sql:`EXISTS(SELECT 1 FROM cases c JOIN case_files f ON f.case_id=c.id JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive'
+ {sql:`EXISTS(SELECT 1 FROM cases c JOIN case_files f ON f.case_id=c.id
  WHERE f.id=? AND c.id=? AND c.version=? AND c.status=? AND coalesce(c.status_updated_at,c.updated_at)=?
- AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND b.id=? AND b.version=? AND b.status='confirmed' AND b.lease_until IS NULL
- AND b.drive_file_id=? AND b.drive_folder_id=? AND b.root_folder_id=? AND b.source_object_key=f.object_key AND b.source_size=f.size AND b.source_etag=f.etag AND b.source_mime=f.content_type AND ${fileSafe})`,
- args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,row.backup_id,row.backup_version,row.drive_file_id,row.drive_folder_id,row.root_folder_id,new Date().toISOString(),at()]},
+ AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe})`,
+ args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at()]},
  ];}
-const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,...detail}));
+const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,archive_source:row.archive_source,...detail}));
 function context(p){try{return JSON.parse(p?.verification_context??'null');}catch{return null;}}
 const sameObject=(o,row,sha,version)=>o&&o.etag===row.etag&&o.size===row.size&&o.httpMetadata?.contentType===row.content_type&&o.version&&(!version||o.version===version)&&r2VerifiedSha256(o)===sha;
 export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}={}){
  await readiness(env);const db=env.DB,row=await source(db,input),prior=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first();
  if(prior&&['verifying','deleting','cold'].includes(prior.state))throw fail('MANUAL_CLEANUP_PENDING');
  if(await db.prepare('SELECT id FROM storage_audit WHERE id=?').bind('manual-cleanup:dispatch:'+row.file_id).first())throw fail('MANUAL_CLEANUP_PENDING');
- const data={manual:true,attempt_id:input.attempt_id,owner:actor.member.member_id,epoch:env.PRELAUNCH_RESET_CONTEXT?.epoch};
+ const data={manual:true,attempt_id:input.attempt_id,owner:actor.member.member_id,epoch:env.PRELAUNCH_RESET_CONTEXT?.epoch,archive_source:row.archive_source};
  await authAtomic(db,guards(row,actor),[db.prepare(`INSERT INTO cold_proofs(file_id,state,lease_token,lease_until,attempts,updated_at,verification_context)
  SELECT ?,'verifying',operation_id,?,1,?,? FROM prelaunch_reset_permit WHERE id=1 AND purpose='normal'
  ON CONFLICT(file_id) DO UPDATE SET state='verifying',lease_token=excluded.lease_token,lease_until=excluded.lease_until,attempts=attempts+1,updated_at=excluded.updated_at,verification_context=excluded.verification_context
@@ -113,7 +148,10 @@ export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}=
  try{
   const object=await env.PROOFS_BUCKET.head(row.object_key),sha=r2VerifiedSha256(object);
   if(!sha||!sameObject(object,row,sha)||row.known_sha&&row.known_sha!==sha)throw fail('MANUAL_CLEANUP_R2_MISMATCH');
-  const v=await verify(env,row,sha),verifiedAt=v.verified_at;
+  const v=row.archive_source==='export'
+   ?{sha256:sha,verified_at:at(),receipt:{job_id:row.job_id,package_no:row.package_no,confirmed_at:row.confirmed_at,confirmed_by:row.confirmed_by}}
+   :await verify(env,row,sha);
+  const verifiedAt=v.verified_at;
   if(v.sha256!==sha||!Number.isSafeInteger(verifiedAt)||verifiedAt>at()||at()-verifiedAt>ARCHIVE_VERIFICATION_TTL)throw fail('MANUAL_CLEANUP_DRIVE_MISMATCH');
   if(!sameObject(await env.PROOFS_BUCKET.head(row.object_key),row,sha,object.version))throw fail('MANUAL_CLEANUP_R2_MISMATCH');
   await authAtomic(db,[...guards(row,actor),{sql:"EXISTS(SELECT 1 FROM cold_proofs WHERE file_id=? AND state='verifying' AND lease_token=?)",args:[row.file_id,claim.lease_token]}],[
@@ -128,8 +166,13 @@ export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}=
 }
 export async function deleteCleanup(env,actor,input){
  await readiness(env);const db=env.DB,row=await source(db,input),p=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first(),saved=context(p);
- if(p?.state==='cold')return{file_id:row.file_id,state:'deleted',message};
- if(p?.state!=='verifying'||saved?.manual!==true||saved.attempt_id!==input.attempt_id||saved.owner!==actor.member.member_id||saved.epoch!==env.PRELAUNCH_RESET_CONTEXT?.epoch||!p.verified_at||at()-p.verified_at>ARCHIVE_VERIFICATION_TTL)throw fail('MANUAL_CLEANUP_VERIFICATION_REQUIRED');
+ if(p?.state==='cold')return{file_id:row.file_id,state:'deleted',message:cleanedMessage(saved)};
+ if(p?.state!=='verifying'||saved?.manual!==true||saved.attempt_id!==input.attempt_id||saved.owner!==actor.member.member_id
+  ||saved.epoch!==env.PRELAUNCH_RESET_CONTEXT?.epoch||!Number.isSafeInteger(p.verified_at)
+  ||p.verified_at>at()||at()-p.verified_at>ARCHIVE_VERIFICATION_TTL)throw fail('MANUAL_CLEANUP_VERIFICATION_REQUIRED');
+ if((saved.archive_source??'drive')!==row.archive_source||p.case_version!==row.case_version||p.backup_version!==row.backup_version
+  ||(row.archive_source==='export'&&(saved.receipt?.job_id!==row.job_id||saved.receipt?.package_no!==row.package_no||
+   saved.receipt?.confirmed_at!==row.confirmed_at||saved.receipt?.confirmed_by!==row.confirmed_by)))throw fail('MANUAL_CLEANUP_VERIFICATION_REQUIRED');
  if(await db.prepare('SELECT id FROM storage_audit WHERE id=?').bind('manual-cleanup:dispatch:'+row.file_id).first())throw fail('MANUAL_CLEANUP_PENDING');
  if(!sameObject(await env.PROOFS_BUCKET.head(row.object_key),row,p.sha256,p.r2_version))throw fail('MANUAL_CLEANUP_R2_MISMATCH');
  await authAtomic(db,[...guards(row,actor),{sql:"EXISTS(SELECT 1 FROM cold_proofs WHERE file_id=? AND state='verifying' AND lease_token=? AND verified_at=? AND sha256=? AND r2_version=?)",args:[row.file_id,p.lease_token,p.verified_at,p.sha256,p.r2_version]}],[
@@ -144,18 +187,18 @@ export async function deleteCleanup(env,actor,input){
    audit(db,row,actor,'manual_cleanup_deleted',{attempt_id:input.attempt_id,sha256:p.sha256,r2_version:p.r2_version},'manual-cleanup:deleted:'+row.file_id),
    db.prepare('UPDATE storage_capacity SET used_bytes=used_bytes-?,inventory_dirty=1,inventory_version=inventory_version+1 WHERE id=1').bind(row.size),
    db.prepare("UPDATE cold_proofs SET state='cold',lease_token=NULL,lease_until=NULL,error_code=NULL,updated_at=? WHERE file_id=? AND state='deleting'").bind(at(),row.file_id)]);
-  return{file_id:row.file_id,state:'deleted',message,released_bytes:row.size};
+  return{file_id:row.file_id,state:'deleted',message:cleanedMessage(saved),released_bytes:row.size};
  }catch{return{file_id:row.file_id,state:'unknown',code:'MANUAL_CLEANUP_DELETE_UNCONFIRMED',message:'刪除結果待人工核對；已保留鎖及不可變Dispatch，不會重送。'};}
 }
 export async function cleanupStatus(db,fileId){
- const row=await db.prepare('SELECT state,error_code,verified_at,updated_at FROM cold_proofs WHERE file_id=?').bind(fileId).first();
- return{file_id:fileId,state:row?.state==='cold'?'deleted':row?.state==='deleting'?'unknown':row?.state??'not_started',message:row?.state==='cold'?message:undefined};
+ const row=await db.prepare('SELECT state,verification_context FROM cold_proofs WHERE file_id=?').bind(fileId).first();
+ return{file_id:fileId,state:row?.state==='cold'?'deleted':row?.state==='deleting'?'unknown':row?.state??'not_started',message:row?.state==='cold'?cleanedMessage(context(row)):undefined};
 }
 // One file per authenticated HTTP request, never an unbounded DELETE batch.
 // One Operation covers verification and dispatch; uncertain writes stop here.
 export async function cleanCleanup(env,actor,input,options){
  const status=await cleanupStatus(env.DB,input.file_id);
- if(status.state==='deleted')return{...status,message};
+ if(status.state==='deleted')return status;
  await verifyCleanup(env,actor,input,options);
  return deleteCleanup(env,actor,input);
 }

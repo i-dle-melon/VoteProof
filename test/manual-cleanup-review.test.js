@@ -19,6 +19,16 @@ test('single cleanup refuses source changes and global unresolved R2 before DELE
  f.sqlite.prepare("INSERT INTO prelaunch_reset_operations VALUES(?,1,'unknown',1,1,?,NULL)").run(randomUUID(),new Date().toISOString());
  assert.equal((await f.call(c,'clean')).status,400);assert.equal(f.deleteCalls(),0);
 });
+test('manual cleanup refuses a malformed closing date before accessing R2 or Drive',async t=>{
+ const f=await fixture(t),c=f.cases[0];
+ await f.write('UPDATE cases SET status_updated_at=? WHERE id=?','invalid-close-date',c.row.id);
+ const list=await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers);
+ assert.equal((await list.json()).data.items[0].eligible,false);
+ const rawHead=f.bucket.head;let heads=0;
+ f.bucket.head=async key=>{heads++;return rawHead(key);};
+ assert.equal((await f.call(c,'clean')).status,409);
+ assert.equal(heads,0);assert.equal(f.driveCalls(),0);assert.equal(f.deleteCalls(),0);
+});
 test('single cleanup ACK loss after DELETE retains unknown and never auto re-dispatches',async t=>{
  const f=await fixture(t),c=f.cases[0],raw=f.bucket.delete;
  f.bucket.delete=async(...a)=>{await raw(...a);throw Error('lost synthetic ACK');};
@@ -75,6 +85,62 @@ test('manual cleanup verifies signed Drive identity/checksum; preserves Case, po
  const b=await f.db.prepare('SELECT * FROM proof_backups WHERE file_id=?').bind(c.file.id).first();
  const relay=await f.fetch('/api/internal/drive-backup/'+b.id+'/content','GET',undefined,{Authorization:'Bearer '+f.env.DRIVE_BACKUP_RELAY_SECRET,'X-VoteProof-Reset-Epoch':'1','X-VoteProof-Backup-Lease':randomUUID(),'X-VoteProof-Backup-Attempt':'1'});assert.equal(relay.status,409);assert.equal(f.gets(),0);assert.equal(f.driveCalls(),1);
  assert.equal((await(await f.call(c,'delete')).json()).data.state,'deleted');assert.equal(f.deleteCalls(),1);
+});
+test('manual cleanup accepts a confirmed export and skips its queued Drive backup',async t=>{
+ const f=await fixture(t,{count:2}),[c,next]=f.cases;
+ const data=async r=>{assert.equal(r.status,200,await r.clone().text());return (await r.json()).data;};
+ const candidate=async()=> (await data(await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers))).items.find(row=>row.file_id===c.file.id);
+ for(const [i,item] of f.cases.entries())await f.write(
+  "UPDATE proof_backups SET status='pending',created_at=?,completed_at=NULL,drive_file_id=NULL,next_attempt_at=1 WHERE file_id=?",i+1,item.file.id);
+ const input={...c,input:{...c.input,backup_version:null}};
+ assert.equal((await candidate()).eligible,false);
+ assert.equal((await f.call(input,'clean')).status,409);
+ const post=(path,body)=>f.fetch('/api/admin/image-exports/'+path,'POST',body,f.admin.headers);
+ const job=await data(await post('jobs',{job_id:randomUUID(),filters:{campaign_id:'MANUAL',entire_campaign:true,
+  statuses:['approved'],vote_types:['團體'],sources:['member']}}));
+ assert.equal(job.image_count,2);
+ const pkg=`jobs/${job.id}/packages/1`, attempt=randomUUID();
+ await data(await post(pkg+'/start',{attempt_id:attempt,expected_attempt_id:null}));
+ assert.equal((await candidate()).eligible,false);
+ assert.equal((await f.call(input,'clean')).status,409);
+ const response=await f.fetch('/api/admin/image-exports/'+pkg+'/attempts/'+attempt+'/files/'+c.file.id,'GET',undefined,f.admin.headers);
+ assert.equal(response.status,200);assert.equal((await response.arrayBuffer()).byteLength,c.file.size);
+ await data(await post(pkg+'/state',{attempt_id:attempt,status:'completed',confirmed:true}));
+ const ready=await candidate();assert.equal(ready.eligible,true);assert.equal(ready.archive_source,'export');assert.equal(ready.backup_version,null);
+ await f.write("UPDATE proof_backups SET status='processing',lease_until=2147483647 WHERE file_id=?",c.file.id);
+ assert.equal((await candidate()).eligible,false);
+ assert.equal((await f.call(input,'clean')).status,409);
+ await f.write("UPDATE proof_backups SET status='pending',lease_until=NULL WHERE file_id=?",c.file.id);
+ // An active re-download still holds the file until the client releases it.
+ const redownload=randomUUID();
+ await data(await post(pkg+'/start',{attempt_id:redownload,expected_attempt_id:attempt}));
+ assert.equal((await candidate()).eligible,false);
+ assert.notEqual((await f.call(input,'clean')).status,200);
+ assert.equal(f.deleteCalls(),0);
+ await data(await post(pkg+'/state',{attempt_id:redownload,status:'completed',confirmed:true}));
+ const removed=await data(await f.call(input,'clean'));
+ assert.equal(removed.state,'deleted');assert.match(removed.message,/匯出 ZIP/);
+ assert.equal((await data(await f.call(input,'status'))).message,removed.message);
+ assert.equal(f.deleteCalls(),1);assert.equal(f.driveCalls(),0);
+ const preview=await f.fetch('/api/admin/cases/'+c.data.case_id+'/files/'+c.file.id,'GET',undefined,f.admin.headers);
+ assert.equal(preview.status,410);assert.equal((await preview.json()).error.code,'PROOF_ARCHIVED_IN_EXPORT');
+ assert.ok(await f.bucket.head(next.file.object_key));
+ const receipt=await f.db.prepare("SELECT detail FROM storage_audit WHERE action='manual_cleanup_deleted'").first();
+ assert.equal(JSON.parse(receipt.detail).archive_source,'export');
+ const claim=await data(await f.fetch('/api/internal/drive-backup/claim','POST',{request_id:randomUUID(),root_folder_id:'root'},
+  {Authorization:'Bearer '+f.env.DRIVE_BACKUP_RELAY_SECRET,'X-VoteProof-Reset-Epoch':'1'}));
+ assert.equal(claim.state,'claimed');assert.equal(claim.job.proof_id,next.file.id);
+ assert.equal((await f.db.prepare('SELECT status FROM proof_backups WHERE file_id=?').bind(c.file.id).first()).status,'pending');
+});
+test('manual cleanup rejects export evidence for a different image version',async t=>{
+ const f=await fixture(t),c=f.cases[0];
+ await f.write("UPDATE proof_backups SET status='pending',completed_at=NULL WHERE file_id=?",c.file.id);
+ await f.write('INSERT INTO export_completed_files VALUES(?,?,?,?,?,?,?,?)',c.file.id,'different-version',c.file.size,
+  c.file.content_type,randomUUID(),1,f.admin.memberId,new Date().toISOString());
+ const list=await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers);
+ assert.equal((await list.json()).data.items[0].eligible,false);
+ assert.equal((await f.call({...c,input:{...c.input,backup_version:null}},'clean')).status,409);
+ assert.equal(f.driveCalls(),0);assert.equal(f.deleteCalls(),0);
 });
 for(const variant of['missing','sha','binding'])test('Drive '+variant+' blocks manual DELETE and releases only its known pre-dispatch verification',async t=>{
  const f=await fixture(t),c=f.cases[0];f.setDrive({failure:variant==='missing',sha:variant==='sha',binding:variant==='binding'});assert.notEqual((await f.call(c,'verify')).status,200);assert.equal(f.deleteCalls(),0);assert.ok(await f.bucket.head(c.file.object_key));

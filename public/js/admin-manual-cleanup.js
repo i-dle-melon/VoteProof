@@ -2,7 +2,7 @@ const el=(tag,text='',cls)=>{const n=document.createElement(tag);n.textContent=t
 const button=(text,action,cls='btn btn-white')=>{const b=el('button',text,cls);b.type='button';b.addEventListener('click',action);return b;};
 export async function renderManualCleanup({container,request,run,isCurrent,loadProof}){
  const selected=new Map(),filters=el('form','','admin-filter'),list=el('section','','grid grid-2'),status=el('p','','notice info'),count=el('p'),progress=el('p');status.setAttribute('role','status');
- container.append(el('h2','R2 手動清理'),el('p','僅清理已結案並超過7天、備份確認且無衝突的圖片；每張仍須即時驗證Drive與R2。只刪R2原始檔，保留案件、積分及永久Drive備份。不啟用自動清理。','tiny'));
+ container.append(el('h2','R2 手動清理'),el('p','圖片須結案滿 7 天、無作業占用，並有可驗證的 Drive 備份或符合目前版本的已確認下載紀錄。清理僅刪除 R2 原圖。','tiny'));
  const control=(name,title,type,choices)=>{const l=el('label',title),n=el(type==='select'?'select':'input');n.name=name;n.setAttribute('aria-label',title);if(type==='select')for(const[v,t]of choices)n.append(new Option(t,v));else n.type=type;l.append(n);filters.append(l);return n;};
  const campaign=control('campaign_id','Campaign','text'),choices=el('datalist');choices.id='manual-cleanup-campaigns';campaign.setAttribute('list',choices.id);filters.append(choices);
  void request('campaigns?limit=50').then(d=>{if(isCurrent())for(const c of d.campaigns??[]){const option=new Option(c.name,c.campaign_id);choices.append(option);}}).catch(()=>{});
@@ -13,12 +13,12 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
  const search=el('button','搜尋','btn btn-primary');search.type='submit';filters.append(search);
  let query=new URLSearchParams(),cutoff=null,cursor=null,all=null,working=false,stopRequested=false,epoch=0,enabled=false,preview=null;
  const closePreview=()=>{if(preview){const d=preview;preview=null;d.close();d.remove();}};
- async function showProof(row){if(working||!loadProof)return;const n=epoch;try{const blob=await loadProof(row);if(!active(n))return;closePreview();const d=el('dialog','','proof-preview-dialog'),image=el('img'),url=URL.createObjectURL(blob);image.src=url;image.alt='清理前圖片預覽';d.append(button('關閉',()=>d.close()),image);container.append(d);preview=d;d.addEventListener('close',()=>{URL.revokeObjectURL(url);d.remove();if(preview===d)preview=null;},{once:true});d.showModal();}catch(e){if(isCurrent())status.textContent=e.code==='PROOF_ARCHIVED_IN_DRIVE'?'圖片已清理，備份保存在 Google Drive':e.message??'圖片暫時無法預覽';}}
+ async function showProof(row){if(working||!loadProof)return;const n=epoch;try{const blob=await loadProof(row);if(!active(n))return;closePreview();const d=el('dialog','','proof-preview-dialog'),image=el('img'),url=URL.createObjectURL(blob);image.src=url;image.alt='清理前圖片預覽';d.append(button('關閉',()=>d.close()),image);container.append(d);preview=d;d.addEventListener('close',()=>{URL.revokeObjectURL(url);d.remove();if(preview===d)preview=null;},{once:true});d.showModal();}catch(e){if(isCurrent())status.textContent=e.code==='PROOF_ARCHIVED_IN_DRIVE'?'圖片已從網站清理，無法預覽。':e.message??'圖片暫時無法預覽';}}
  const checkboxes=new Map(),actions=el('div','','manual-cleanup-actions'),stop=button('停止後續圖片',()=>{stopRequested=true;});stop.dataset.reviewStop='';stop.hidden=true;
  const execute=button('確認清理已選圖片',()=>void clean(),'btn btn-review-reject'),more=button('載入更多',()=>void page(false));
  const active=n=>isCurrent()&&n===epoch;
  function markFile(row,text){selected.delete(row.file_id);const b=checkboxes.get(row.file_id);if(b){b.disabled=true;b.dataset.eligible='false';b.dataset.reviewCommitted='true';const card=b.closest('article');card.lastElementChild.textContent=text;for(const button of card.querySelectorAll('button')){button.disabled=true;button.dataset.reviewCommitted='true';}}}
- const markDeleted=row=>markFile(row,'圖片已清理，備份保存在 Google Drive');
+ const markDeleted=(row,result)=>markFile(row,result.message??'圖片已從網站清理，無法預覽。');
  const markUnknown=row=>markFile(row,'DELETE結果待人工核對；不會重送。');
  function sync(){const n=all?all.total-all.excluded.size:selected.size,bytes=all?all.bytes-[...all.excluded.values()].reduce((s,r)=>s+r.size,0):[...selected.values()].reduce((s,r)=>s+r.size,0);count.textContent='已選 '+n+' 張 · 預計釋放 '+bytes.toLocaleString()+' bytes'+(all?'（符合目前篩選的全部分頁）':'');execute.dataset.reviewCommitted=String(n===0||!enabled);execute.disabled=working||n===0||!enabled;for(const[id,b]of checkboxes)b.checked=all?b.dataset.eligible==='true'&&!all.excluded.has(id):selected.has(id);}
  const params=()=>{const p=new URLSearchParams(query);if(cutoff)p.set('cutoff',cutoff);return p;};
@@ -39,16 +39,16 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
  }
  async function clean(){
   if(working||!enabled||(!all&&!selected.size))return;closePreview();const plan=all?{...all,query:new URLSearchParams(all.query),excluded:new Map(all.excluded)}:null,items=[...selected.values()],total=plan?plan.total-plan.excluded.size:items.length;if(!total)return;
-  if(!confirm('確認清理已選 '+total+' 張R2原始圖片？\n案件、積分及Drive備份保留；圖片不再提供線上讀取或匯出。遇到未知ACK立即停止，不重送DELETE。'))return;
+  if(!confirm('確認清理已選 '+total+' 張R2原始圖片？\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。遇到未知ACK立即停止，不重送DELETE。'))return;
   await run(async()=>{working=true;stopRequested=false;stop.hidden=false;let done=0,deleted=0,failed=0,unknown=0,next=null,queue=items,morePages=!!plan;
    try{while(isCurrent()&&!stopRequested&&(queue.length||morePages)){
     if(!queue.length){const p=new URLSearchParams(plan.query);if(next)p.set('cursor',next);const d=await request('storage/manual?'+p);queue=d.items;next=d.next_cursor;morePages=!!next;if(!queue.length)continue;}
     const row=queue.shift();if(plan?.excluded.has(row.file_id))continue;const input={file_id:row.file_id,case_version:row.case_version,backup_version:row.backup_version,attempt_id:crypto.randomUUID()};
     try{const d=await request('storage/manual/'+row.file_id+'/clean',{method:'POST',body:input});
-     if(d.state==='deleted'){deleted++;markDeleted(row);}else{unknown++;markUnknown(row);stopRequested=true;}
+     if(d.state==='deleted'){deleted++;markDeleted(row,d);}else{unknown++;markUnknown(row);stopRequested=true;}
     }catch(e){
      // Read only after any failed request. No automatic re-verify/re-DELETE.
-     try{const s=await request('storage/manual/'+row.file_id+'/status');if(s.state==='deleted'){deleted++;markDeleted(row);}else if(['unknown','verifying','deleting'].includes(s.state)){unknown++;markUnknown(row);stopRequested=true;}else{failed++;status.textContent=e.code??e.message;}}catch{unknown++;markUnknown(row);stopRequested=true;}
+     try{const s=await request('storage/manual/'+row.file_id+'/status');if(s.state==='deleted'){deleted++;markDeleted(row,s);}else if(['unknown','verifying','deleting'].includes(s.state)){unknown++;markUnknown(row);stopRequested=true;}else{failed++;status.textContent=e.code??e.message;}}catch{unknown++;markUnknown(row);stopRequested=true;}
     }
     done++;progress.textContent='已處理 '+done+'/'+total+' · 已清理 '+deleted+' · 失敗 '+failed+' · 未確認 '+unknown;
    }}finally{working=false;stop.hidden=true;all=null;sync();status.textContent=unknown?'結果不明，已停止；保留鎖、稽核及待對帳狀態。':stopRequested?'已停止後續清理。':'本次處理完成；需要重新搜尋取得最新資格。';}

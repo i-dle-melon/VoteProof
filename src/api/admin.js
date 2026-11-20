@@ -91,14 +91,20 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
   if (!file) throw missing();
   return privateProofResponse(env,file);
 });
+function archivedProof(lifecycle) {
+  let source;
+  try { source=JSON.parse(lifecycle.verification_context)?.archive_source; } catch {}
+  if(source==='export')return new AdminError(410,'PROOF_ARCHIVED_IN_EXPORT','圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。');
+  return new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已清理，備份保存在 Google Drive');
+}
 export async function privateProofResponse(env,file) {
   const lifecycle=await proofStorageState(env.DB,file.object_key);
-  if(lifecycle?.state==='cold')throw new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已清理，備份保存在 Google Drive');
+  if(lifecycle?.state==='cold')throw archivedProof(lifecycle);
   if(lifecycle?.state==='deleting')throw new AdminError(409,'PROOF_CLEANUP_PENDING','圖片清理結果待確認，暫不提供讀取。');
   let object = await env.PROOFS_BUCKET.get(file.object_key);
   if (!object) {
     const archived=await proofStorageState(env.DB,file.object_key);
-    if(archived?.state==='cold')throw new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已封存至 Google Drive，請由管理員手動開啟備份。');
+    if(archived?.state==='cold')throw archivedProof(archived);
     throw new AdminError(404,'PROOF_NOT_FOUND','Proof not found');
   }
   if (!allowedMime(file.content_type) || object.httpMetadata?.contentType !== file.content_type ||

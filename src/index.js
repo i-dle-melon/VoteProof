@@ -2,10 +2,19 @@ import { routeApi } from "./api/router.js";
 import { processBackups } from "./lib/proof-backup-processor.js";
 import { legacyBackupTransport } from "./lib/drive-backup-relay.js";
 import { fencedRequest, resetControlRoute, resetEnabled } from './lib/prelaunch-reset-fence.js';
+import { CASE_COMPLETION_CRON, completeDueCases } from './lib/case-auto-completion.js';
 
 export default {
-  async scheduled(_event, env, ctx) {
-    // No trigger is configured by this change; activation is a separate rollout.
+  async scheduled(event, env, ctx) {
+    if (event?.cron === CASE_COMPLETION_CRON) {
+      if (env.CASE_AUTO_COMPLETE_ENABLED !== 'true') return;
+      const request = new Request('https://scheduled.invalid/case-auto-completion', { method: 'POST' });
+      await fencedRequest(env, request, async scoped => {
+        await completeDueCases(scoped.DB);
+        return new Response(null, { status: 204 });
+      });
+      return;
+    }
     // Deprecated direct OAuth executor is opt-in for isolated rollback comparison only.
     // Apps Script owns scheduling; a Worker Cron cannot run the pull transport.
     if (resetEnabled(env)) throw new Error('RESET_SCHEDULED_REQUIRES_REQUEST_ADMISSION');

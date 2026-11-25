@@ -4,6 +4,7 @@ import{installResetExtensionLocal}from'../scripts/lib/prelaunch-selective-reset.
 import{memberSession,csrfToken}from'../src/lib/auth-session.js';
 import{storageSignature,shaBytes,coldContext}from'../src/lib/cold-storage.js';
 import{fencedRequest}from'../src/lib/prelaunch-reset-fence.js';
+import{publicLeaderboardData}from'../src/lib/public-leaderboards.js';
 const ago=n=>new Date(Date.now()-86400000*n).toISOString();
 test('single cleanup keeps one Operation, all guards and durable receipt; replay never repeats DELETE',async t=>{
  const f=await fixture(t),c=f.cases[0],before=f.sqlite.prepare('SELECT COUNT(*) n FROM prelaunch_reset_operations').get().n;
@@ -124,6 +125,63 @@ test('batch prepare replay keeps its original Intent and exact key across flag c
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM prelaunch_reset_issuance WHERE session_id=?').get(first.session_id).n,1);
  }
 });
+async function reviewedLegacyFixture(t,createdTimes){
+ const rolloutTime=Date.parse('2026-11-25T12:00:00.000Z');
+ if(Date.now()<rolloutTime)t.mock.timers.enable({apis:['Date'],now:rolloutTime});
+ const count=createdTimes.length,f=await fixture(t,{count,isolatedFrom:count,createdTimes});
+ f.env.R2_ISOLATED_PROOF_KEYS_ENABLED='true';
+ const insert=f.sqlite.prepare("INSERT INTO prelaunch_reset_operations(id,epoch,state,pending_r2,r2_writes,started_at) VALUES(?,1,?,1,1,'2026-11-06T18:38:36.141Z')");
+ const ids=Array.from({length:7},()=>randomUUID());
+ ids.forEach((id,n)=>insert.run(id,n<4?'active':'unknown'));
+ f.env.R2_MANUAL_CLEANUP_REVIEWED_LEGACY_OPERATIONS=JSON.stringify(ids);
+ const history=()=>f.sqlite.prepare("SELECT * FROM prelaunch_reset_operations WHERE pending_r2>0 ORDER BY id").all();
+ const list=async(extra='')=>{
+  const r=await f.fetch('/api/admin/storage/manual?eligible=yes'+extra,'GET',undefined,f.admin.headers);
+  assert.equal(r.status,200,await r.clone().text());
+  return(await r.json()).data;
+ };
+ return{...f,insert,ids,history,list};
+}
+test('reviewed legacy cutoff lists only eligible pre-November 25 pictures and keeps cases, points and leaderboards',async t=>{
+ const f=await reviewedLegacyFixture(t,['2026-11-24T15:59:59.999Z','2026-11-24T16:00:00.000Z',
+  '2026-10-25T10:00:00.000Z','2026-10-25T10:00:00.000Z']),[target,cutoff,download,missing]=f.cases;
+ await f.write('UPDATE storage_reservations SET object_version=NULL WHERE object_key=?',missing.file.object_key);
+ await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',ago(1),download.row.id);
+ await f.write('INSERT INTO export_completed_files VALUES(?,?,?,?,?,?,?,?)',download.file.id,download.file.etag,download.file.size,download.file.content_type,randomUUID(),1,f.admin.memberId,ago(1));
+ assert.deepEqual((await f.list()).items.map(x=>x.file_id),[target.file.id]);
+ const withEarly=await f.list('&allow_early_export=1');
+ assert.equal(withEarly.eligible_count,2);
+ assert.deepEqual(new Set(withEarly.items.map(x=>x.file_id)),new Set([target.file.id,download.file.id]));
+ const relay=f.env.DRIVE_COLD_RELAY_URL;
+ delete f.env.DRIVE_COLD_RELAY_URL;
+ assert.deepEqual((await f.list('&allow_early_export=1')).items.map(x=>x.file_id),[download.file.id]);
+ assert.equal((await f.call(target,'clean')).status,400);
+ f.env.DRIVE_COLD_RELAY_URL=relay;
+ assert.equal((await f.call(cutoff,'clean')).status,400);
+ assert.equal((await f.call(missing,'clean')).status,400);
+ const tables=['cases','case_files','members','point_transactions','leaderboards','proof_backups'];
+ const snapshot=()=>tables.map(name=>f.sqlite.prepare('SELECT * FROM '+name+' ORDER BY rowid').all());
+ const board=async()=>(await publicLeaderboardData(f.db,'system-history')).leaderboards[0].rankings;
+ const before=snapshot(),beforeBoard=await board(),history=f.history();
+ assert.equal(before[3].length,4);
+ assert.equal(beforeBoard.find(x=>x.member_id===f.member.memberId).points,12);
+ const result=await f.call(target,'clean');
+ assert.equal(result.status,200,await result.clone().text());
+ assert.equal((await result.json()).data.state,'deleted');
+ assert.deepEqual(snapshot(),before);
+ assert.deepEqual(await board(),beforeBoard);
+ assert.deepEqual(f.history(),history);
+ assert.equal(f.deleteCalls(),1);
+ assert.equal(f.driveCalls(),1);
+});
+test('a future or unreviewed R2 operation still blocks a verified legacy image before DELETE',async t=>{
+ const f=await reviewedLegacyFixture(t,['2026-10-29T00:00:00.000Z']),[target]=f.cases;
+ assert.equal((await f.call(target,'verify')).status,200);
+ f.insert.run(randomUUID(),'unknown');
+ assert.equal((await f.call(target,'delete')).status,400);
+ assert.equal(f.deleteCalls(),0);
+ assert.ok(await f.bucket.head(target.file.object_key));
+});
 test('manual cleanup refuses a malformed closing date before accessing R2 or Drive',async t=>{
  const f=await fixture(t),c=f.cases[0];
  await f.write('UPDATE cases SET status_updated_at=? WHERE id=?','invalid-close-date',c.row.id);
@@ -141,7 +199,7 @@ test('single cleanup ACK loss after DELETE retains unknown and never auto re-dis
  assert.equal((await f.call(c,'clean')).status,409);assert.equal(f.deleteCalls(),1);
  assert.equal(f.sqlite.prepare("SELECT state FROM cold_proofs WHERE file_id=?").get(c.file.id).state,'deleting');
 });
-async function fixture(t,{manualSchema=true,count=1,closed=true,isolatedFrom=null,scopeSchema=true}={}){
+async function fixture(t,{manualSchema=true,count=1,closed=true,isolatedFrom=null,scopeSchema=true,createdTimes=null}={}){
  const f=await embeddedCaseRuntime();t.after(()=>f.close());const admin=await f.identity('super_admin'),other=await f.identity('admin'),member=await f.identity();
  // This older embedded bucket lacks provider versions; model that required
  // native field in this fixture, rather than relaxing the Runtime guard.
@@ -165,7 +223,19 @@ async function fixture(t,{manualSchema=true,count=1,closed=true,isolatedFrom=nul
  const cases=[];
  for(let n=0;n<count;n++){
   if(n===isolatedFrom)f.env.R2_ISOLATED_PROOF_KEYS_ENABLED='true';
-  const u=await f.upload('MANUAL',member),r=await f.fetch('/api/cases/direct','POST',{campaign_id:'MANUAL',vote_date:now.slice(0,10),upload_session:u.ref},{...member.headers,'Idempotency-Key':randomUUID()});assert.equal(r.status,201,await r.clone().text());const data=(await r.json()).data;
+  const {prepare}=f.db;
+  // Seed the old timestamp on INSERT. Keep the production immutability
+  // trigger and the actual grant clock active in this historical fixture.
+  if(createdTimes)f.db.prepare=sql=>{
+   const s=prepare(sql);
+   if(!sql.startsWith('INSERT INTO case_files(id,case_id,object_key,content_type,size,etag,created_at,upload_intent_id)'))return s;
+   return {...s,bind(...args){args[6]=createdTimes[n];return s.bind(...args);}};
+  };
+  let data;
+  try{
+   const u=await f.upload('MANUAL',member),r=await f.fetch('/api/cases/direct','POST',{campaign_id:'MANUAL',vote_date:new Date().toISOString().slice(0,10),upload_session:u.ref},{...member.headers,'Idempotency-Key':randomUUID()});
+   assert.equal(r.status,201,await r.clone().text());data=(await r.json()).data;
+  }finally{f.db.prepare=prepare;}
   const row=await f.db.prepare('SELECT * FROM cases WHERE case_id=?').bind(data.case_id).first(),file=await f.db.prepare('SELECT * FROM case_files WHERE case_id=?').bind(row.id).first();
   if(closed){for(const[action,v]of[['approve',0],['complete',1]]){const rr=await f.fetch('/api/admin/cases/'+data.case_id+'/review','POST',{action,expected_version:v},admin.headers);assert.equal(rr.status,200,await rr.clone().text());}
   await write('UPDATE cases SET reviewed_at=?,status_updated_at=? WHERE id=?',ago(8),ago(8),row.id);}

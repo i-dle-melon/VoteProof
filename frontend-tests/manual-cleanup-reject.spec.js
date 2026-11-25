@@ -124,6 +124,33 @@ test('early export checkbox resets selection and only opts in confirmed download
  expect(f.calls.filter(c=>c.method==='POST').map(c=>[c.body.file_id,c.body.backup_version,c.body.allow_early_export]))
   .toEqual([[exported.file_id,null,true]]);
 });
+test('selectable older photos use the same checkboxes, bulk selection and early-download filter',async({page})=>{
+ const f=await cleanupFixture(page,{earlyFiles:true}),[earlyDownload,driveTooNew,oldVerified]=f.rows;
+ const box=row=>page.getByRole('checkbox',{name:'選取圖片 '+row.file_id,exact:true});
+ const first=page.getByRole('button',{name:'選取前20張可清理圖片',exact:true});
+ const all=page.getByRole('button',{name:'選取全部可清理圖片',exact:true});
+ const clear=page.getByRole('button',{name:'清除目前選取',exact:true});
+ await box(oldVerified).check();
+ await expect(box(oldVerified)).toBeChecked();
+ await clear.click();
+ await expect(box(oldVerified)).not.toBeChecked();
+ await first.click();
+ await expect(box(oldVerified)).toBeChecked();
+ await expect(box(earlyDownload)).toBeDisabled();
+ await clear.click();
+ await expect(box(oldVerified)).not.toBeChecked();
+ await page.getByRole('checkbox',{name:'未滿 7 天也可清理（僅限已確認下載）',exact:true}).check();
+ await expect(box(earlyDownload)).toBeEnabled();
+ await all.click();
+ await expect(page.locator('#admin-panel')).toContainText('已選 24 張');
+ await expect(box(earlyDownload)).toBeChecked();
+ await expect(box(oldVerified)).toBeChecked();
+ await expect(box(driveTooNew)).toBeDisabled();
+ await clear.click();
+ await expect(box(earlyDownload)).not.toBeChecked();
+ await expect(box(oldVerified)).not.toBeChecked();
+ expect(f.calls.filter(c=>c.method==='POST')).toHaveLength(0);
+});
 test('manual all-page selection retains individual exclusions across pagination',async({page})=>{
  const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張');
  const omitted=f.rows[0].file_id;await page.getByRole('checkbox',{name:'選取圖片 '+omitted,exact:true}).uncheck();await expect(page.locator('#admin-panel')).toContainText('已選 24 張 · 預計釋放 72 bytes');

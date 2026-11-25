@@ -576,3 +576,5 @@ Pages 使用 Production `admin.js` + `admin-storage.js`，只替換 fixture adap
 手動清理需對到同一份已消耗的 Intent、不可變的 Key 簽發紀錄、已結算的 PUT 版本與目前 R2 版本，並照常檢查備份或已確認下載的匯出，以及原有結案、Pin、Reservation 與盤點保護。
 
 發布時先以兩個開關關閉的方式驗證相容 Worker，再另行套用 `migrations-manual-cleanup/0002_isolated_r2_scope.sql`。核對正式 R2 寫入邊界後，才另行啟用 `R2_ISOLATED_PROOF_KEYS_ENABLED`。手動清理另由 `R2_MANUAL_CLEANUP_ENABLED` 控制。回復時關閉兩個開關，保留認得隔離 Key 的 Worker 與 D1 欄位，讓已簽發的 Intent 和案件圖片仍可使用。
+
+台灣時間 2026/11/25 00:00 前建立的舊格式圖片，可在核對七筆歷史 Operation 後加入同一份候選清單。正式變數 `R2_MANUAL_CLEANUP_REVIEWED_LEGACY_OPERATIONS` 接受七筆已核對的 Operation ID 陣列。額外的未決操作會維持舊格式圖片的封鎖。舊圖仍須符合已結案、備份或下載、原始版本收據與目前版本等清理條件。僅有 Drive 備份的舊圖還需要設定 Drive 即時驗證入口。管理者可用原本的個別勾選、全部或前 20 張選取，送出前仍會重新驗證。

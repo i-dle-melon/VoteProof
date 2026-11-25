@@ -2,10 +2,10 @@ import {adminHandler} from './admin-response.js';
 import {adminIdentity,adminCsrf,ELEVATED_ROLES,AdminError} from '../lib/admin-identity.js';
 import {jsonSuccess} from './response.js';
 import {readReviewJson} from './admin-validation.js';
-import {cleanupCandidates,cleanupInput,verifyCleanup,deleteCleanup,cleanupStatus,cleanCleanup} from '../lib/manual-r2-cleanup.js';
+import {cleanupCandidates,cleanupEligibility,cleanupInput,verifyCleanup,deleteCleanup,cleanupStatus,cleanCleanup} from '../lib/manual-r2-cleanup.js';
 const handler=kind=>adminHandler(async(env,url,request)=>{
  const actor=await adminIdentity(request,env,ELEVATED_ROLES);
- if(kind==='list')return jsonSuccess({...await cleanupCandidates(env.DB,url,env.PRELAUNCH_RESET_CONTEXT),enabled:env.R2_MANUAL_CLEANUP_ENABLED==='true'});
+ if(kind==='list')return jsonSuccess({...await cleanupCandidates(env.DB,url,cleanupEligibility(env)),enabled:env.R2_MANUAL_CLEANUP_ENABLED==='true'});
  const file=url.pathname.split('/')[5];
  if(!/^[a-f0-9-]{36}$/.test(file??'')||url.search)throw new AdminError(400,'INVALID_CLEANUP_REQUEST','Invalid file');
  if(kind==='status')return jsonSuccess(await cleanupStatus(env.DB,file));

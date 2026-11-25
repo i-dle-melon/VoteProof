@@ -1,3 +1,4 @@
+-- Apply separately after the published 0028 application migration chain.
 CREATE INDEX idx_cases_auto_completion_due ON cases(julianday(COALESCE(status_updated_at, reviewed_at)), id)
 WHERE status = 'approved' AND COALESCE(status_updated_at, reviewed_at) GLOB '????-??-??*';
 

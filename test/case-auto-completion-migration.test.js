@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { unstable_splitSqlQuery } from 'wrangler';
 import worker from '../src/index.js';
 import { CASE_COMPLETION_CRON, completeDueCases } from '../src/lib/case-auto-completion.js';
 import { installResetExtensionLocal } from '../scripts/lib/prelaunch-selective-reset.mjs';
+import { localAdminRuntime } from '../scripts/lib/local-admin-runtime.mjs';
+import { measuredD1 } from '../scripts/lib/measured-d1.mjs';
 import { embeddedCaseRuntime, origin } from './helpers/embedded-case-runtime.mjs';
 
 const now = new Date('2026-11-20T06:00:00.000Z');
@@ -14,6 +17,11 @@ const approvals = new Map([
   ['fresh', ['2026-11-13T06:00:00.001Z', cutoff]],
   ['invalid', ['now', cutoff]]
 ]);
+
+async function installCompletion(db) {
+  const sql = await readFile(new URL('../migrations-case-completion/0001_automatic_completion.sql', import.meta.url), 'utf8');
+  await db.batch(unstable_splitSqlQuery(sql).map(statement => db.prepare(statement)));
+}
 
 async function fixture(t, names) {
   const f = await embeddedCaseRuntime();
@@ -52,10 +60,41 @@ async function fixture(t, names) {
     f.sqlite.prepare('UPDATE cases SET status_updated_at=?, reviewed_at=? WHERE case_id=?')
       .run(...(approvals.get(name) ?? [cutoff, cutoff]), ids[name]);
   }
+  await installCompletion(f.db);
   const getCase = name => ({ ...f.sqlite.prepare('SELECT * FROM cases WHERE case_id=?').get(ids[name]) });
   const audits = () => f.sqlite.prepare('SELECT * FROM case_auto_completion_audit ORDER BY case_id').all();
   return { ...f, getCase, audits, ids };
 }
+
+test('native local D1 installs completion separately on populated 0028 and preserves checked data', async t => {
+  const h = await localAdminRuntime(), db = h.local.db;
+  t.after(() => h.local.runtime.dispose());
+  const admin = await h.identity({ role: 'super_admin' }), member = await h.identity();
+  const item = await h.makeCase({ member });
+  assert.equal((await h.review(admin, item.case_id, 'approve')).status, 200);
+  await db.prepare('UPDATE cases SET reviewed_at=?,status_updated_at=? WHERE id=?').bind(cutoff,cutoff,item.id).run();
+  const storedCase = () => db.prepare('SELECT * FROM cases WHERE id=?').bind(item.id).first();
+  const points = async () => (await db.prepare('SELECT * FROM point_transactions ORDER BY transaction_id').all()).results;
+  const schema = async () => (await db.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").all()).results;
+  const beforeCase = await storedCase(), beforePoints = await points(), beforeSchema = await schema();
+  await installCompletion(db);
+  assert.deepEqual(await storedCase(), beforeCase);
+  const afterSchema = await schema();
+  const added = afterSchema.filter(row => !beforeSchema.some(prior => prior.name === row.name));
+  assert.equal(added.length, 5);
+  assert.deepEqual(afterSchema.filter(row => !added.includes(row)), beforeSchema);
+  const native = measuredD1(db);
+  assert.equal(await completeDueCases(native.db, now), 1);
+  const after = await storedCase();
+  const receipt = await db.prepare('SELECT * FROM case_auto_completion_audit WHERE id=?').bind(after.last_review_id).first();
+  assert.equal(after.status, 'completed');
+  assert.equal(receipt.approval_review_id, beforeCase.last_review_id);
+  assert.equal(receipt.completed_version, beforeCase.version + 1);
+  assert.equal(receipt.approved_at, beforeCase.status_updated_at);
+  assert.deepEqual(await points(), beforePoints);
+  assert.deepEqual((await db.prepare('PRAGMA foreign_key_check').all()).results, []);
+  t.diagnostic('one synthetic completion native D1 metadata: ' + JSON.stringify(native.totals()));
+});
 
 test('seven-day boundary and legacy timestamp preserve human approval and awarded points', async t => {
   const f = await fixture(t, [...approvals.keys(), 'pending']);

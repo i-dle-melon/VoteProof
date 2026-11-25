@@ -1,4 +1,4 @@
-import {proofKeyEpoch} from '../lib/proof-generation.js';
+import {ISOLATED_FINAL_PREFIX,proofKeyEpoch} from '../lib/proof-generation.js';
 export const UPLOAD_LIMITS = Object.freeze({
   maxFiles: 5,
   maxFileBytes: 5 * 1024 * 1024,
@@ -126,8 +126,8 @@ export function validateComplete(body) {
   const sessionId = body.session_id.toLowerCase();
   if (new Set(body.keys).size !== body.keys.length) invalid("Duplicate object keys are not allowed");
   for (const key of body.keys) {
-    if(typeof key==='string'&&/^proofs\/(?:staging|final)\/g/.test(key)&&proofKeyEpoch(key)===null)invalid('Invalid proof generation');
-    const final=typeof key==='string' && /^proofs\/final\/(?:g(?:0|[1-9]\d{0,15})\/)?([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/.exec(key);
+    if(typeof key==='string'&&(/^proofs\/(?:staging|final)\/g/.test(key)||key.startsWith(ISOLATED_FINAL_PREFIX))&&proofKeyEpoch(key)===null)invalid('Invalid proof generation');
+    const final=typeof key==='string' && /^proofs\/final\/(?:(?:isolated\/)?g(?:0|[1-9]\d{0,15})\/)?([0-9a-f-]{36})\/([0-9a-f-]{36})\.(png|jpg|webp)$/.exec(key);
     if(final) {
       if(body.keys.length!==1 || final[1]!==sessionId || !UUID_PATTERN.test(final[2]) || Object.keys(body).some(k=>!['session_id','keys','capability'].includes(k))) invalid('Invalid final proof reference');
       continue;

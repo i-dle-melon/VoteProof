@@ -52,5 +52,20 @@ test('native local D1 extensions, manual cleanup and review costs preserve real 
  await measure('fixed_presentation',e=>scoped(e,x=>saveSystemPresentation(x.DB,actor,'system-history',{expected_version:0,name:'歷史累計',top_n:20,is_public:true})));
  assert.deepEqual((await local.db.prepare('PRAGMA foreign_key_check').all()).results,[]);
  assert.equal((await local.db.prepare('SELECT COUNT(*) n FROM prelaunch_reset_permit').first()).n,0);
+ const historical=randomUUID(),stamp=new Date().toISOString();
+ await local.db.prepare("INSERT INTO prelaunch_reset_operations(id,epoch,state,pending_r2,r2_writes,started_at) VALUES(?,1,'unknown',1,1,?)").bind(historical,stamp).run();
+ await local.db.batch(unstable_splitSqlQuery(fs.readFileSync('migrations-manual-cleanup/0002_isolated_r2_scope.sql','utf8')).map(sql=>local.db.prepare(sql)));
+ const preserved=await local.db.prepare('SELECT state,pending_r2,r2_writes,isolated_r2_key FROM prelaunch_reset_operations WHERE id=?').bind(historical).first();
+ assert.deepEqual(preserved,{state:'unknown',pending_r2:1,r2_writes:1,isolated_r2_key:null});
+ await local.db.prepare('UPDATE prelaunch_reset_control SET epoch=1 WHERE id=1').run();
+ const isolatedKey='proofs/final/isolated/g1/'+randomUUID()+'/'+randomUUID()+'.png';
+ const native=await fencedRequest({...env,PROOFS_BUCKET:local.bucket,R2_ISOLATED_PROOF_KEYS_ENABLED:'true'},request(),async scoped=>{
+  assert.equal(scoped.PRELAUNCH_RESET_CONTEXT.isolatedProofs,true);
+  const object=await scoped.PROOFS_BUCKET.put(isolatedKey,'synthetic', {onlyIf:new Headers({'If-None-Match':'*'})});
+  return Response.json({version:object.version});
+ });
+ assert.ok((await native.json()).version);
+ const scopedReceipt=await local.db.prepare('SELECT state,pending_r2,r2_writes FROM prelaunch_reset_operations WHERE isolated_r2_key=?').bind(isolatedKey).first();
+ assert.deepEqual(scopedReceipt,{state:'completed',pending_r2:0,r2_writes:1});
  fs.mkdirSync('.wrangler',{recursive:true});fs.writeFileSync('.wrangler/manual-cleanup-native-cost.json',JSON.stringify({evidence:'local workerd D1 meta only; cloud CPU UNKNOWN',fixture:{cases:3,bytesPerImage:3},costs,r2:{head:heads,delete:deletes,get:gets}},null,2));
 });

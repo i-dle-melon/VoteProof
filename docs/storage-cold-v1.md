@@ -568,3 +568,11 @@ Pages 使用 Production `admin.js` + `admin-storage.js`，只替換 fixture adap
 補充升級相容性驗證：57 項相關 migration/storage 測試 PASS（包含重測的 storage integration，不與前述數字重複加總）；實際 Wrangler --local registry 至 0025，投稿 OFF、既有資料／物件、FK 與 quick_check 均保留。線上 Pages 15 項 smoke PASS，沒有正式 API／mutation request。
 
 結構量測補充：相同 immutable V2 舊 flow / Direct flow 都新增容量預留的 3 statements / 3 trips，Case 本身不增加額外 R2 工作。含 foreground backup 的 Direct member 為 19/17、guest 為 16/14；舊 immutable+Complete member 為 30/22、guest 為 26/18。R2 仍各 PUT 1，Direct HEAD 1、舊 flow HEAD 2。這是結構計數，不能拿來宣稱 CPU 10 ms PASS。
+
+## 手動清理的隔離物件
+
+開啟隔離格式後，新建的 immutable V2 與 Direct Intent 使用 `proofs/final/isolated/g<epoch>/`。前版 Fence 在現行正數 epoch 會拒絕該格式，新版則在派送 R2 PUT 或 DELETE 前隨既有 Operation 寫入物件 Key。若單一 Operation 涉及多個隔離 Key 且結果不明，整個隔離格式暫停清理。舊格式遇到歷史未結算操作時仍維持封鎖。
+
+手動清理需對到同一份已消耗的 Intent、不可變的 Key 簽發紀錄、已結算的 PUT 版本與目前 R2 版本，並照常檢查備份或已確認下載的匯出，以及原有結案、Pin、Reservation 與盤點保護。
+
+發布時先以兩個開關關閉的方式驗證相容 Worker，再另行套用 `migrations-manual-cleanup/0002_isolated_r2_scope.sql`。核對正式 R2 寫入邊界後，才另行啟用 `R2_ISOLATED_PROOF_KEYS_ENABLED`。手動清理另由 `R2_MANUAL_CLEANUP_ENABLED` 控制。回復時關閉兩個開關，保留認得隔離 Key 的 Worker 與 D1 欄位，讓已簽發的 Intent 和案件圖片仍可使用。

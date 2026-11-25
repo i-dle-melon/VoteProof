@@ -3,6 +3,7 @@ import {invalidVerification} from '../api/auth-validation.js';
 import {coldContext,validColdSource} from './cold-storage.js';
 import {verifyDriveArchive,ARCHIVE_RETENTION_DAYS,ARCHIVE_VERIFICATION_TTL} from './storage-archive.js';
 import {r2VerifiedSha256} from './r2-verified-checksum.js';
+import {ISOLATED_FINAL_PREFIX,isIsolatedFinalKey} from './proof-generation.js';
 const at=()=>Math.floor(Date.now()/1000),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const fail=(code='MANUAL_CLEANUP_BLOCKED',status=409)=>new AdminError(status,code,'圖片清理安全條件未成立；未重送刪除。');
 const message='圖片已清理，備份保存在 Google Drive';
@@ -16,10 +17,26 @@ async function authAtomic(db,guards,statements){
  try{return await db.batch([db.prepare(`INSERT INTO auth_atomic_guards(id,valid) SELECT ?,0 WHERE (${guards.map(g=>'('+g.sql+')').join(' AND ')}) IS NOT 1`).bind(crypto.randomUUID(),...guards.flatMap(g=>g.args)),...statements]);}
  catch(error){if(String(error?.message).includes('CHECK constraint failed: valid=1'))throw invalidVerification();throw error;}
 }
-// A legacy native operation without per-key terminal evidence blocks cleanup.
-// Read-only historical UNKNOWN (r2_writes=0) is not invented into an R2 write.
-const globalSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations WHERE pending_r2>0 OR (state='unknown' AND r2_writes>0))
- AND EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND anomaly IS NULL AND inventory_id IS NULL)`;
+const unresolvedR2="pending_r2>0 OR (state='unknown' AND r2_writes>0)";
+const legacyOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations WHERE ${unresolvedR2})`;
+const isolatedOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations
+ WHERE isolated_r2_key IN(f.object_key,'*') AND (${unresolvedR2}))`;
+const capacitySafe='EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND anomaly IS NULL AND inventory_id IS NULL)';
+// Match the exact server-issued key of a consumed final Intent and its original
+// native PUT version. Old records and live HEAD responses cannot create a receipt.
+const isolatedReceipt=`SELECT CASE WHEN count(*)=1 THEN min(r.object_version) END
+ FROM proof_upload_intents i JOIN prelaunch_reset_issuance s ON s.session_id=i.session_id
+ JOIN prelaunch_reset_control x ON x.id=1 AND x.epoch=s.epoch
+ JOIN storage_reservations r ON r.object_key=i.object_key AND r.state='committed'
+ WHERE i.proof_id=f.id AND i.consumed_case_id=c.id AND i.state='consumed' AND i.object_key=f.object_key
+ AND i.size=f.size AND i.content_type=f.content_type AND s.kind IN('direct','v2') AND s.keys_json=json_array(f.object_key)
+ AND s.epoch>0 AND f.object_key='${ISOLATED_FINAL_PREFIX}g'||s.epoch||'/'||i.session_id||'/'||i.proof_id||
+ CASE f.content_type WHEN 'image/png' THEN '.png' WHEN 'image/jpeg' THEN '.jpg' WHEN 'image/webp' THEN '.webp' END
+ AND r.bytes=f.size AND r.etag=f.etag AND length(r.object_version)>0`;
+const candidateSafety=isolatedProofs=>isolatedProofs
+ ?`(CASE WHEN f.object_key GLOB '${ISOLATED_FINAL_PREFIX}*'
+ THEN (${isolatedReceipt}) IS NOT NULL AND ${isolatedOperationsSafe} ELSE ${legacyOperationsSafe} END) AND ${capacitySafe}`
+ :`${legacyOperationsSafe} AND ${capacitySafe}`;
 const unfinishedExport=until=>`EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id
  LEFT JOIN export_packages pkg ON pkg.job_id=e.job_id AND pkg.number=e.package_no
  WHERE e.file_id=f.id AND j.expires_at>${until} AND pkg.status IS NOT 'completed')`;
@@ -31,7 +48,7 @@ const backupQuiet=`NOT EXISTS(SELECT 1 FROM proof_backups busy WHERE busy.file_i
 const driveBound=`b.status='confirmed' AND b.lease_until IS NULL AND b.drive_file_id IS NOT NULL
  AND b.source_object_key=f.object_key AND b.source_size=f.size AND b.source_etag=f.etag AND b.source_mime=f.content_type`;
 const exportMatch=`d.file_id=f.id AND d.etag=f.etag AND d.file_size=f.size AND d.content_type=f.content_type`;
-const candidateSql=`SELECT f.id file_id,c.id case_internal_id,c.case_id,c.campaign_id,c.status,c.created_at,c.updated_at,c.version case_version,
+const candidateSql=isolatedProofs=>`SELECT f.id file_id,c.id case_internal_id,c.case_id,c.campaign_id,c.status,c.created_at,c.updated_at,c.version case_version,
  f.size,f.object_key,CASE WHEN d.file_id IS NULL THEN b.version END backup_version,b.status backup_status,
  CASE WHEN d.file_id IS NOT NULL THEN 'export' WHEN ${driveBound} THEN 'drive' END archive_source,
  p.state cleanup_state,p.verification_context,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,
@@ -40,12 +57,12 @@ const candidateSql=`SELECT f.id file_id,c.id case_internal_id,c.case_id,c.campai
  EXISTS(SELECT 1 FROM proof_upload_intents i WHERE i.object_key=f.object_key AND i.write_token IS NOT NULL) has_pin,
  (${unfinishedExport("strftime('%Y-%m-%dT%H:%M:%fZ','now')")}
  OR EXISTS(SELECT 1 FROM export_file_claims e WHERE e.file_id=f.id AND e.lease_until>CAST(strftime('%s','now') AS INTEGER))) has_export,
- (${globalSafe}) global_safe,
+ (${candidateSafety(isolatedProofs)}) r2_safe,
  CASE WHEN (d.file_id IS NOT NULL OR (${driveBound})) AND ${backupQuiet} AND f.size BETWEEN 1 AND 5242880
  AND c.status IN('completed','rejected','duplicate','revoked') AND c.reviewed_at IS NOT NULL
  AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday(?,
   CASE WHEN ?=1 AND d.file_id IS NOT NULL THEN '0 days' ELSE '-${ARCHIVE_RETENTION_DAYS} days' END)
- AND (p.file_id IS NULL OR p.state IN('blocked','dry_run')) AND ${fileSafe} AND ${globalSafe}
+ AND (p.file_id IS NULL OR p.state IN('blocked','dry_run')) AND ${fileSafe} AND ${candidateSafety(isolatedProofs)}
  AND NOT EXISTS(SELECT 1 FROM storage_audit a WHERE a.id='manual-cleanup:dispatch:'||f.id) THEN 1 ELSE 0 END eligible
  FROM case_files f JOIN cases c ON c.id=f.case_id LEFT JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive'
  LEFT JOIN export_completed_files d ON ${exportMatch}
@@ -70,13 +87,13 @@ function filters(url){
   clauses.push('(created_at>? OR (created_at=? AND file_id>?))');args.push(v[1],v[1],v[2]);}
  return{p,cutoff,allowEarlyExport,scope,where:clauses.join(' AND '),args};
 }
-export async function cleanupCandidates(db,url){
+export async function cleanupCandidates(db,url,{isolatedProofs=false}={}){
  const f=filters(url),cutoffMs=Date.parse(f.cutoff),time=Math.floor(cutoffMs/1000),base=[f.cutoff,Number(f.allowEarlyExport),f.cutoff,time];
- const query=`SELECT * FROM (${candidateSql}) WHERE ${f.where}`;
+ const query=`SELECT * FROM (${candidateSql(isolatedProofs)}) WHERE ${f.where}`;
  const page=(await db.prepare(query+' ORDER BY created_at,file_id LIMIT 21').bind(...base,...f.args).all()).results;
  let summary=null;if(!f.p.has('cursor'))summary=await db.prepare(`SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN eligible=1 THEN 1 ELSE 0 END),0) eligible_count,COALESCE(SUM(CASE WHEN eligible=1 THEN size ELSE 0 END),0) eligible_bytes FROM (${query})`).bind(...base,...f.args).first();
  const rows=page.slice(0,20),last=rows.at(-1);
- return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,case_internal_id,has_reservation,has_pin,has_export,global_safe,backup_quiet,verification_context,...r})=>{
+ return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,case_internal_id,has_reservation,has_pin,has_export,r2_safe,backup_quiet,verification_context,...r})=>{
   const reasons=[];if(!r.archive_source)reasons.push('尚無符合目前圖片版本的 Drive 備份或已確認下載的匯出');
   if(!backup_quiet)reasons.push('Drive 備份作業尚未結束');
   if(!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at)reasons.push('案件尚未完成可清理審核');
@@ -86,7 +103,7 @@ export async function cleanupCandidates(db,url){
   if(!Number.isFinite(closedAt)||closedAt>cutoffMs)reasons.push('無法確認結案時間');
   else if(withinRetention&&!earlyExport)reasons.push('結案後尚未滿7天');
   if(has_reservation)reasons.push('有未決Reservation');if(has_pin)reasons.push('有Write Pin');if(has_export)reasons.push('有效匯出或下載lease尚未結束');
-  if(!global_safe)reasons.push('未決原生R2／UNKNOWN、Inventory或容量異常尚未排除');
+  if(!r2_safe)reasons.push('未決 R2 操作、隔離收據不足、盤點或容量異常尚未排除');
   if(r.cleanup_state==='verifying')reasons.push('已有驗證作業；不按逾時接管');if(r.cleanup_state==='deleting')reasons.push('DELETE結果待人工核對，不會重送');
   if(r.cleanup_state==='cold')return{...r,eligible:false,reason:cleanedMessage(context({verification_context}))};
   const archiveReason=r.archive_source==='export'
@@ -107,7 +124,8 @@ async function readiness(env){
  const row=await env.DB.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' AND name IN('manual_cleanup_cold_owner','manual_cleanup_backup_pin','manual_cleanup_file_pin','manual_cleanup_inventory_pin','manual_cleanup_export_claim_insert','manual_cleanup_export_claim_update','manual_cleanup_dispatch_guard','manual_cleanup_terminal_guard')").first();
  if(row.n!==8)throw fail('MANUAL_CLEANUP_SCHEMA_REQUIRED',503);
 }
-async function source(db,input){
+async function source(env,input){
+ const db=env.DB;
  const exportSource=input.backup_version===null;
  let r;
  if(exportSource){
@@ -128,9 +146,18 @@ async function source(db,input){
  if(!r||r.file_id!==input.file_id||r.case_version!==input.case_version||r.backup_version!==input.backup_version||r.size<1||r.size>5242880
   ||!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at
   ||!Number.isFinite(closedAt)||closedAt>latestAllowed)throw fail();
+ if(env.PRELAUNCH_RESET_CONTEXT?.isolatedProofs&&isIsolatedFinalKey(r.object_key)){
+  const version=await db.prepare(`SELECT (${isolatedReceipt}) AS version
+   FROM case_files f JOIN cases c ON c.id=f.case_id WHERE f.id=?`).bind(r.file_id).first('version');
+  if(!version)throw fail('MANUAL_CLEANUP_ISOLATION_RECEIPT_REQUIRED');
+  r.isolated_r2_version=version;
+ }
  return {...r,allow_early_export:allowEarlyExport};
 }
 function guards(row,actor){
+ const operations=row.isolated_r2_version
+  ?{sql:`${isolatedOperationsSafe} AND (${isolatedReceipt})=?`,args:[row.isolated_r2_version]}
+  :{sql:legacyOperationsSafe,args:[]};
  const durableSource=row.archive_source==='export'
   ?{sql:`EXISTS(SELECT 1 FROM export_completed_files d WHERE ${exportMatch} AND d.job_id=? AND d.package_no=? AND d.confirmed_at=? AND d.confirmed_by=?)`,
     args:[row.job_id,row.package_no,row.confirmed_at,row.confirmed_by]}
@@ -139,17 +166,17 @@ function guards(row,actor){
     args:[row.backup_id,row.backup_version,row.drive_file_id,row.drive_folder_id,row.root_folder_id]};
  return[
  {sql:ELEVATED_AUTH_GUARD,args:actorBindings(actor)},
- {sql:globalSafe,args:[]},
+ {sql:capacitySafe,args:[]},
  {sql:`EXISTS(SELECT 1 FROM cases c JOIN case_files f ON f.case_id=c.id
  WHERE f.id=? AND c.id=? AND c.version=? AND c.status=? AND coalesce(c.status_updated_at,c.updated_at)=?
- AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe})`,
- args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at()]},
+ AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe} AND ${operations.sql})`,
+ args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at(),...operations.args]},
  ];}
 const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,archive_source:row.archive_source,...(row.allow_early_export?{allow_early_export:true}:{}),...detail}));
 function context(p){try{return JSON.parse(p?.verification_context??'null');}catch{return null;}}
 const sameObject=(o,row,sha,version)=>o&&o.etag===row.etag&&o.size===row.size&&o.httpMetadata?.contentType===row.content_type&&o.version&&(!version||o.version===version)&&r2VerifiedSha256(o)===sha;
 export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}={}){
- await readiness(env);const db=env.DB,row=await source(db,input),prior=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first();
+ await readiness(env);const db=env.DB,row=await source(env,input),prior=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first();
  if(prior&&['verifying','deleting','cold'].includes(prior.state))throw fail('MANUAL_CLEANUP_PENDING');
  if(await db.prepare('SELECT id FROM storage_audit WHERE id=?').bind('manual-cleanup:dispatch:'+row.file_id).first())throw fail('MANUAL_CLEANUP_PENDING');
  const data={manual:true,attempt_id:input.attempt_id,owner:actor.member.member_id,epoch:env.PRELAUNCH_RESET_CONTEXT?.epoch,archive_source:row.archive_source,
@@ -162,7 +189,7 @@ export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}=
  if(context(claim)?.attempt_id!==input.attempt_id)throw fail('MANUAL_CLEANUP_PENDING');
  try{
   const object=await env.PROOFS_BUCKET.head(row.object_key),sha=r2VerifiedSha256(object);
-  if(!sha||!sameObject(object,row,sha)||row.known_sha&&row.known_sha!==sha)throw fail('MANUAL_CLEANUP_R2_MISMATCH');
+  if(!sha||!sameObject(object,row,sha,row.isolated_r2_version)||row.known_sha&&row.known_sha!==sha)throw fail('MANUAL_CLEANUP_R2_MISMATCH');
   const v=row.archive_source==='export'
    ?{sha256:sha,verified_at:at(),receipt:{job_id:row.job_id,package_no:row.package_no,confirmed_at:row.confirmed_at,confirmed_by:row.confirmed_by}}
    :await verify(env,row,sha);
@@ -180,11 +207,12 @@ export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}=
  }
 }
 export async function deleteCleanup(env,actor,input){
- await readiness(env);const db=env.DB,row=await source(db,input),p=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first(),saved=context(p);
+ await readiness(env);const db=env.DB,row=await source(env,input),p=await db.prepare('SELECT * FROM cold_proofs WHERE file_id=?').bind(row.file_id).first(),saved=context(p);
  if(p?.state==='cold')return{file_id:row.file_id,state:'deleted',message:cleanedMessage(saved)};
  if(p?.state!=='verifying'||saved?.manual!==true||saved.attempt_id!==input.attempt_id||saved.owner!==actor.member.member_id
   ||saved.epoch!==env.PRELAUNCH_RESET_CONTEXT?.epoch||!Number.isSafeInteger(p.verified_at)
-  ||p.verified_at>at()||at()-p.verified_at>ARCHIVE_VERIFICATION_TTL)throw fail('MANUAL_CLEANUP_VERIFICATION_REQUIRED');
+  ||p.verified_at>at()||at()-p.verified_at>ARCHIVE_VERIFICATION_TTL
+  ||(row.isolated_r2_version&&p.r2_version!==row.isolated_r2_version))throw fail('MANUAL_CLEANUP_VERIFICATION_REQUIRED');
  if((saved.archive_source??'drive')!==row.archive_source||(saved.allow_early_export===true)!==row.allow_early_export||p.case_version!==row.case_version||p.backup_version!==row.backup_version
   ||(row.archive_source==='export'&&(saved.receipt?.job_id!==row.job_id||saved.receipt?.package_no!==row.package_no||
    saved.receipt?.confirmed_at!==row.confirmed_at||saved.receipt?.confirmed_by!==row.confirmed_by)))throw fail('MANUAL_CLEANUP_VERIFICATION_REQUIRED');

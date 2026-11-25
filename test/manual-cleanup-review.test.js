@@ -19,6 +19,111 @@ test('single cleanup refuses source changes and global unresolved R2 before DELE
  f.sqlite.prepare("INSERT INTO prelaunch_reset_operations VALUES(?,1,'unknown',1,1,?,NULL)").run(randomUUID(),new Date().toISOString());
  assert.equal((await f.call(c,'clean')).status,400);assert.equal(f.deleteCalls(),0);
 });
+test('seven legacy operations stay intact while only the exact isolated export can be cleaned',async t=>{
+ const f=await fixture(t,{count:2,isolatedFrom:1}),[legacy,isolated]=f.cases;
+ assert.match(legacy.file.object_key,/^proofs\/final\/g1\//);
+ assert.match(isolated.file.object_key,/^proofs\/final\/isolated\/g1\//);
+ const add=f.sqlite.prepare('INSERT INTO prelaunch_reset_operations(id,epoch,state,pending_r2,r2_writes,started_at) VALUES(?,1,?,1,1,?)');
+ for(let n=0;n<7;n++)add.run(randomUUID(),n<4?'active':'unknown',ago(19+n));
+ const history=()=>f.sqlite.prepare("SELECT * FROM prelaunch_reset_operations WHERE isolated_r2_key IS NULL AND pending_r2>0 ORDER BY id").all();
+ const before=history();
+ assert.equal(before.length,7);
+ await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',ago(1),isolated.row.id);
+ for(const c of [legacy,isolated])await f.write('INSERT INTO export_completed_files VALUES(?,?,?,?,?,?,?,?)',
+  c.file.id,c.file.etag,c.file.size,c.file.content_type,randomUUID(),1,f.admin.memberId,ago(1));
+ const list=await f.fetch('/api/admin/storage/manual?allow_early_export=1','GET',undefined,f.admin.headers);
+ assert.equal(list.status,200,await list.clone().text());
+ assert.deepEqual((await list.json()).data.items.filter(x=>x.eligible).map(x=>x.file_id),[isolated.file.id]);
+ assert.equal((await f.call({...legacy,input:{...legacy.input,backup_version:null}},'clean')).status,400);
+ assert.equal(f.deleteCalls(),0);
+ const current=()=>f.sqlite.prepare("SELECT pending_r2,state FROM prelaunch_reset_operations WHERE isolated_r2_key=? AND r2_writes=1 ORDER BY pending_r2 DESC,started_at DESC").get(isolated.file.object_key);
+ assert.deepEqual({...current()},{pending_r2:0,state:'completed'}); // Original native PUT.
+ const remove=f.bucket.delete;
+ let atDispatch;
+ f.bucket.delete=async key=>{atDispatch={...current()};await remove(key);};
+ const input={...isolated,input:{...isolated.input,backup_version:null,allow_early_export:true}};
+ const result=await f.call(input,'clean');
+ assert.equal(result.status,200,await result.clone().text());
+ assert.equal((await result.json()).data.state,'deleted');
+ assert.deepEqual(atDispatch,{pending_r2:1,state:'active'});
+ assert.deepEqual(history(),before);
+ assert.ok(await f.bucket.head(legacy.file.object_key));
+ assert.equal((await f.call(input,'clean')).status,200);
+ assert.equal(f.deleteCalls(),1);
+ assert.equal(f.driveCalls(),0);
+});
+test('a pending same-key or multiple-key native operation stops isolated cleanup',async t=>{
+ const f=await fixture(t,{count:2,isolatedFrom:0}),[target,other]=f.cases;
+ const insert=f.sqlite.prepare("INSERT INTO prelaunch_reset_operations(id,epoch,state,pending_r2,r2_writes,started_at,isolated_r2_key) VALUES(?,1,'unknown',1,1,?,?)");
+ const list=async()=>{
+  const r=await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers);
+  assert.equal(r.status,200,await r.clone().text());
+  return (await r.json()).data.items.find(x=>x.file_id===target.file.id);
+ };
+ insert.run(randomUUID(),ago(2),other.file.object_key);
+ assert.equal((await list()).eligible,true);
+ assert.equal((await f.call(target,'verify')).status,200);
+ insert.run(randomUUID(),ago(2),target.file.object_key);
+ assert.equal((await list()).eligible,false);
+ assert.equal((await f.call(target,'delete')).status,400);
+ const sandbox=await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers);
+ assert.equal((await sandbox.json()).data.items.find(x=>x.file_id===other.file.id).eligible,false);
+ // An ambiguous array DELETE must durably cover all keys before provider I/O.
+ const io=f.bucket.delete;
+ let scope;
+ f.bucket.delete=async()=>{
+  scope=f.sqlite.prepare("SELECT isolated_r2_key,pending_r2 FROM prelaunch_reset_operations WHERE isolated_r2_key='*'").get();
+  throw Error('simulated provider timeout');
+ };
+ const request=new Request(origin+'/api/local-isolated-sweep',{method:'POST'});
+ await assert.rejects(fencedRequest(f.env,request,env=>env.PROOFS_BUCKET.delete([target.file.object_key,other.file.object_key])));
+ assert.deepEqual({...scope},{isolated_r2_key:'*',pending_r2:1});
+ f.bucket.delete=io;
+ assert.equal(f.sqlite.prepare("SELECT state FROM prelaunch_reset_operations WHERE isolated_r2_key='*'").get().state,'unknown');
+ assert.equal(f.deleteCalls(),0);
+});
+test('isolated cleanup needs the committed PUT version and refuses a changed R2 version',async t=>{
+ const f=await fixture(t,{count:2,isolatedFrom:0}),[missing,changed]=f.cases;
+ await f.write('UPDATE storage_reservations SET object_version=NULL WHERE object_key=?',missing.file.object_key);
+ const blocked=await f.call(missing,'clean');
+ assert.equal(blocked.status,409);
+ assert.equal((await blocked.json()).error.code,'MANUAL_CLEANUP_ISOLATION_RECEIPT_REQUIRED');
+ const rawHead=f.bucket.head;
+ f.bucket.head=async key=>({...await rawHead(key),version:randomUUID()});
+ const mismatch=await f.call(changed,'clean');
+ assert.equal(mismatch.status,409);
+ assert.equal((await mismatch.json()).error.code,'MANUAL_CLEANUP_R2_MISMATCH');
+ assert.equal(f.deleteCalls(),0);
+ assert.equal(f.driveCalls(),0);
+});
+test('isolated keys are not minted without the migration and cannot be written without the Fence',async t=>{
+ const old=await fixture(t,{isolatedFrom:0,scopeSchema:false}),[legacy]=old.cases;
+ assert.match(legacy.file.object_key,/^proofs\/final\/g1\//);
+ const key=legacy.file.object_key.replace('/final/','/final/isolated/');
+ const request=new Request(origin+'/api/local-unfenced-write',{method:'POST'});
+ await assert.rejects(fencedRequest({...old.env,PRELAUNCH_RESET_FENCE_ENABLED:'false'},request,
+  env=>env.PROOFS_BUCKET.delete([legacy.file.object_key,key])),error=>error.code==='RESET_SCOPE_REQUIRED');
+ assert.equal(old.deleteCalls(),0);
+});
+test('batch prepare replay keeps its original Intent and exact key across flag changes',async t=>{
+ const f=await fixture(t,{isolatedFrom:0});
+ const files=[{name:'fixture.png',type:'image/png',size:1024,algorithm:'sha256',sha256:'a'.repeat(64)}];
+ const read=async res=>{assert.equal(res.status,200,await res.clone().text());return (await res.json()).data;};
+ const authorize=()=>f.fetch('/api/uploads/batch/authorize','POST',{
+  turnstile_token:'synthetic',campaign_id:'MANUAL',completion_mode:'direct',files},f.member.headers);
+ const prepare=ticket=>f.fetch('/api/uploads/prepare','POST',{
+  batch_ticket:ticket,campaign_id:'MANUAL',storage_version:2,completion_mode:'direct',files},f.member.headers);
+ for(const status of ['true','false']){
+  f.env.R2_ISOLATED_PROOF_KEYS_ENABLED=status;
+  const {tickets:[ticket]}=await read(await authorize()),first=await read(await prepare(ticket));
+  assert.equal(first.uploads[0].key.includes('/isolated/'),status==='true');
+  f.env.R2_ISOLATED_PROOF_KEYS_ENABLED=status==='true'?'false':'true';
+  const replay=await read(await prepare(ticket));
+  assert.equal(replay.session_id,first.session_id);
+  assert.equal(replay.uploads[0].key,first.uploads[0].key);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM prelaunch_reset_issuance WHERE session_id=?').get(first.session_id).n,1);
+ }
+});
 test('manual cleanup refuses a malformed closing date before accessing R2 or Drive',async t=>{
  const f=await fixture(t),c=f.cases[0];
  await f.write('UPDATE cases SET status_updated_at=? WHERE id=?','invalid-close-date',c.row.id);
@@ -36,7 +141,7 @@ test('single cleanup ACK loss after DELETE retains unknown and never auto re-dis
  assert.equal((await f.call(c,'clean')).status,409);assert.equal(f.deleteCalls(),1);
  assert.equal(f.sqlite.prepare("SELECT state FROM cold_proofs WHERE file_id=?").get(c.file.id).state,'deleting');
 });
-async function fixture(t,{manualSchema=true,count=1,closed=true}={}){
+async function fixture(t,{manualSchema=true,count=1,closed=true,isolatedFrom=null,scopeSchema=true}={}){
  const f=await embeddedCaseRuntime();t.after(()=>f.close());const admin=await f.identity('super_admin'),other=await f.identity('admin'),member=await f.identity();
  // This older embedded bucket lacks provider versions; model that required
  // native field in this fixture, rather than relaxing the Runtime guard.
@@ -45,6 +150,7 @@ async function fixture(t,{manualSchema=true,count=1,closed=true}={}){
  f.sqlite.prepare("UPDATE submission_settings SET submissions_enabled=1").run();
  const now=new Date().toISOString();f.sqlite.prepare("INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at) VALUES('MANUAL','Synthetic','團體','2000-01-01','2100-01-01','Asia/Taipei','2000-01-01','2099-12-31',3,'active',?,?)").run(now,now);
  installResetExtensionLocal(f.sqlite,fs.readFileSync('migrations-reset-v1/0001_reset_fence.sql','utf8'));f.sqlite.exec("UPDATE prelaunch_reset_control SET epoch=1,mode='open'");
+ if(isolatedFrom!==null&&scopeSchema)f.sqlite.exec(fs.readFileSync('migrations-manual-cleanup/0002_isolated_r2_scope.sql','utf8'));
  Object.assign(f.env,{PRELAUNCH_RESET_FENCE_ENABLED:'true',STORAGE_CAPACITY_ENFORCEMENT:'disabled',R2_MANUAL_CLEANUP_ENABLED:'true',R2_EXCLUSIVE_WRITER_CONFIRMED:'true',DRIVE_BACKUP_RELAY_SECRET:'a'.repeat(64),DRIVE_COLD_RELAY_URL:'https://script.google.com'+'/macros/s/localtest/exec'});
  for(const a of[admin,other,member]){const session=await memberSession(new Request(origin,{headers:a.headers}),f.env);a.headers['X-CSRF-Token']=await csrfToken(session,{...f.env,PRELAUNCH_RESET_CONTEXT:{epoch:1}});}
  const write=(sql,...args)=>fencedRequest(f.env,new Request(origin+'/api/local-fixture',{method:'POST'}),async env=>{await env.DB.prepare(sql).bind(...args).run();return Response.json({ok:true});});
@@ -58,6 +164,7 @@ async function fixture(t,{manualSchema=true,count=1,closed=true}={}){
  };
  const cases=[];
  for(let n=0;n<count;n++){
+  if(n===isolatedFrom)f.env.R2_ISOLATED_PROOF_KEYS_ENABLED='true';
   const u=await f.upload('MANUAL',member),r=await f.fetch('/api/cases/direct','POST',{campaign_id:'MANUAL',vote_date:now.slice(0,10),upload_session:u.ref},{...member.headers,'Idempotency-Key':randomUUID()});assert.equal(r.status,201,await r.clone().text());const data=(await r.json()).data;
   const row=await f.db.prepare('SELECT * FROM cases WHERE case_id=?').bind(data.case_id).first(),file=await f.db.prepare('SELECT * FROM case_files WHERE case_id=?').bind(row.id).first();
   if(closed){for(const[action,v]of[['approve',0],['complete',1]]){const rr=await f.fetch('/api/admin/cases/'+data.case_id+'/review','POST',{action,expected_version:v},admin.headers);assert.equal(rr.status,200,await rr.clone().text());}

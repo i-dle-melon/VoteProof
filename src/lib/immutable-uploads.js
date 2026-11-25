@@ -8,7 +8,7 @@ import {r2VerifiedSha256} from './r2-verified-checksum.js';
 import {rememberCompletedUpload,COMPLETED_UPLOAD_TTL_SECONDS} from './completed-uploads.js';
 import {CaseError} from '../api/case-validation.js';
 import {resetSessionStatement,requireResetSession} from './prelaunch-reset-fence.js';
-import {proofKey} from './proof-generation.js';
+import {isolatedFinalKey,proofKey} from './proof-generation.js';
 
 const fail=(code='UPLOAD_INTENT_INVALID',status=409)=>{throw new UploadError(status,code,'Upload authorization or state is invalid');};
 export const uploadCapabilityHash=capability=>sha256('VoteProof/upload-capability/v2:'+capability);
@@ -49,7 +49,9 @@ export async function prepareFinalUpload(env,request,config,input) {
     guestCapabilityHash=capability?await uploadCapabilityHash(capability):null;
   const expires=batch?.expires??Math.floor(now.valueOf()/1000)+UPLOAD_LIMITS.expiresSeconds;
   if(expires<=Math.floor(now.valueOf()/1000))fail('BATCH_AUTH_INVALID',403);
-  const objectKey=proofKey(env,'final',`${sessionId}/${proofId}.${MIME_EXTENSIONS[file.type]}`);
+  const suffix=`${sessionId}/${proofId}.${MIME_EXTENSIONS[file.type]}`;
+  const legacyKey=proofKey(env,'final',suffix),isolatedKey=isolatedFinalKey(env,suffix);
+  let objectKey=env.PRELAUNCH_RESET_CONTEXT?.isolatedProofs?isolatedKey:legacyKey;
   if(batch){
     // Retry a lost prepare response using exactly the original intent identity.
     // A ticket never creates a second intent or changes an existing proof.
@@ -58,13 +60,14 @@ export async function prepareFinalUpload(env,request,config,input) {
       await insertPreparedIntent(env,{sessionId,proofId,objectKey,input,member,guestCapabilityHash,file,now,expires,batch});
       existing=await intentRow(env.DB,sessionId);
     }
-    if(!existing||existing.proof_id!==proofId||existing.object_key!==objectKey||
+    if(!existing||existing.proof_id!==proofId||!(existing.object_key===legacyKey||existing.object_key===isolatedKey)||
       existing.campaign_id!==input.campaignId||existing.member_id!==(member?.member_id??null)||
       existing.guest_capability_hash!==guestCapabilityHash||existing.content_type!==file.type||
       existing.size!==file.size||existing.expected_sha256!==file.sha256||
       existing.grant_expires!==expires||existing.completion_mode!==(input.completionMode??'legacy')||
       existing.state!=='prepared'||existing.write_token!==null||existing.consumed_case_id!==null)
       fail('BATCH_AUTH_REPLAY',409);
+    objectKey=existing.object_key;
     await requireResetSession(env,sessionId,[objectKey]);
   }else{
     await insertPreparedIntent(env,{sessionId,proofId,objectKey,input,member,guestCapabilityHash,file,now,expires,batch});

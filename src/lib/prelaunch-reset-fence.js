@@ -1,7 +1,7 @@
 import { CaseError } from '../api/case-validation.js';
 import { adminIdentity, adminCsrf, actorBindings, ELEVATED_AUTH_GUARD } from './admin-identity.js';
 import { RESET_V1_SQL_SHA256 } from './prelaunch-reset-schema.js';
-import {currentProofKey} from './proof-generation.js';
+import {currentProofKey,isIsolatedFinalKey} from './proof-generation.js';
 import {isMaintenanceInventory,maintenanceInventory} from './inventory-maintenance-permit.js';
 import {storageAdmissionStatements,emptyStorageAdmission} from './storage-admission.js';
 import {isReadOnlySQL as readSQL} from './read-only-sql.js';
@@ -9,7 +9,8 @@ const rawStatement=Symbol('reset-original-statement');
 const now=()=>new Date().toISOString();
 export const resetEnabled=env=>env.PRELAUNCH_RESET_FENCE_ENABLED==='true';
 const denied=(code='PRELAUNCH_MAINTENANCE',status=503)=>new CaseError(status,code,'操作暫停或已過期，請重新載入後確認狀態。');
-const control=db=>db.prepare('SELECT c.epoch,c.mode,c.version,c.run_id FROM prelaunch_reset_control c JOIN prelaunch_reset_schema_versions v ON v.version=1 AND v.sql_sha256=? WHERE c.id=1').bind(RESET_V1_SQL_SHA256).first();
+const control=(db,checkIsolation=false)=>db.prepare(`SELECT c.epoch,c.mode,c.version,c.run_id${checkIsolation?', EXISTS(SELECT 1 FROM sqlite_master WHERE type=\'index\' AND name=\'prelaunch_reset_isolated_r2_blockers\') isolated_schema':''} FROM prelaunch_reset_control c JOIN prelaunch_reset_schema_versions v ON v.version=1 AND v.sql_sha256=? WHERE c.id=1`).bind(RESET_V1_SQL_SHA256).first();
+const bucketKeys=key=>Array.isArray(key)?key:[key];
 
 export async function resetControlRoute(request,env,url){
  if(!resetEnabled(env)||!/^\/api\/admin\/prelaunch-reset(?:\/(pause|resume))?$/.test(url.pathname))return null;
@@ -35,8 +36,23 @@ export async function resetControlRoute(request,env,url){
 }
 
 export async function fencedRequest(env,request,handler){
- if(!resetEnabled(env))return handler(env);
- const db=env.DB,initial=await control(db);if(!initial)throw denied('RESET_SCHEMA_REQUIRED');
+ if(!resetEnabled(env)){
+  if(!env.PROOFS_BUCKET)return handler(env);
+  // Already issued isolated proofs may still be read. No rollout setting can
+  // allow an isolated mutation outside the scoped dispatch journal.
+  const bucket=new Proxy(env.PROOFS_BUCKET,{get(target,property){
+   const value=Reflect.get(target,property);
+   if(typeof value!=='function')return value;
+   if(property!=='put'&&property!=='delete')return value.bind(target);
+   return async(...args)=>{
+    if(bucketKeys(args[0]).some(isIsolatedFinalKey))throw denied('RESET_SCOPE_REQUIRED');
+    return value.apply(target,args);
+   };
+  }});
+  return handler({...env,PROOFS_BUCKET:bucket});
+ }
+ const db=env.DB,initial=await control(db,env.R2_ISOLATED_PROOF_KEYS_ENABLED==='true');
+ if(!initial)throw denied('RESET_SCHEMA_REQUIRED');
  const url=new URL(request.url);
  const uploadDiagnostic=request.method==='PUT'&&url.pathname.startsWith('/api/uploads/put/')?{stage:'reset_fence',putState:'not_started'}:null;
  if(initial.epoch>0&&url.pathname.startsWith('/api/internal/')&&request.headers.get('X-VoteProof-Reset-Epoch')!==String(initial.epoch))throw denied('PRELAUNCH_RELAY_EPOCH_REQUIRED',403);
@@ -95,11 +111,14 @@ export async function fencedRequest(env,request,handler){
    if(uploadDiagnostic&&property==='put'){uploadDiagnostic.stage='r2_fence';uploadDiagnostic.putState='not_started';}
    if(uploadDiagnostic&&property==='head')uploadDiagnostic.stage='r2_head_fence';
    await assertOpen();
-   if(property!=='list')for(const key of Array.isArray(args[0])?args[0]:[args[0]]){
+   const writesR2=property==='put'||property==='delete';
+   let scope=null;
+   if(property!=='list')for(const key of bucketKeys(args[0])){
     if(typeof key==='string'&&key.startsWith('proofs/')&&(property==='put'||initial.epoch>0)&&!currentProofKey({PRELAUNCH_RESET_FENCE_ENABLED:'true',PRELAUNCH_RESET_CONTEXT:{epoch:initial.epoch}},key))throw denied('PRELAUNCH_PROOF_GENERATION_RETIRED',410);
     if(await db.prepare('SELECT object_key FROM prelaunch_reset_retired_keys WHERE object_key=?').bind(key).first())throw denied('PRELAUNCH_PROOF_RETIRED',410);
+    if(writesR2&&isIsolatedFinalKey(key))scope=scope&&scope!==key?'*':key;
    }
-   if(!['put','delete'].includes(property)){
+   if(!writesR2){
     if(uploadDiagnostic&&property==='head')uploadDiagnostic.stage='r2_head';
     const result=await value.apply(target,args);
     if(uploadDiagnostic&&property==='head')uploadDiagnostic.stage='r2_head_fence';
@@ -108,7 +127,8 @@ export async function fencedRequest(env,request,handler){
    }
    await ensureOperation();
    if(uploadDiagnostic&&property==='put')uploadDiagnostic.stage='r2_dispatch';
-   const started=await db.prepare("UPDATE prelaunch_reset_operations SET pending_r2=pending_r2+1,r2_writes=r2_writes+1 WHERE id=? AND state='active' AND epoch=? AND EXISTS(SELECT 1 FROM prelaunch_reset_control WHERE id=1 AND epoch=? AND mode='open')").bind(operation,initial.epoch,initial.epoch).run();
+   const recordScope=scope?",isolated_r2_key=CASE WHEN isolated_r2_key IS NULL OR isolated_r2_key=? THEN ? ELSE '*' END":"";
+   const started=await db.prepare(`UPDATE prelaunch_reset_operations SET pending_r2=pending_r2+1,r2_writes=r2_writes+1${recordScope} WHERE id=? AND state='active' AND epoch=? AND EXISTS(SELECT 1 FROM prelaunch_reset_control WHERE id=1 AND epoch=? AND mode='open')`).bind(...(scope?[scope,scope]:[]),operation,initial.epoch,initial.epoch).run();
    if(started.meta.changes!==1)throw denied('PRELAUNCH_EPOCH_CHANGED',409);
    ioPending++;ioWrites++;
    try{
@@ -122,7 +142,7 @@ export async function fencedRequest(env,request,handler){
   };
  } }):undefined;
  const admitStorage=input=>writeBatch(storageAdmissionStatements(db,input),input);
- const scoped={...env,DB:wrappedDB,...(wrappedBucket?{PROOFS_BUCKET:wrappedBucket}:{}),PRELAUNCH_RESET_CONTEXT:Object.freeze({epoch:initial.epoch,assertOpen,admitStorage,...(uploadDiagnostic?{uploadDiagnostic}:{})})};
+ const scoped={...env,DB:wrappedDB,...(wrappedBucket?{PROOFS_BUCKET:wrappedBucket}:{}),PRELAUNCH_RESET_CONTEXT:Object.freeze({epoch:initial.epoch,isolatedProofs:initial.epoch>0&&initial.isolated_schema===1,assertOpen,admitStorage,...(uploadDiagnostic?{uploadDiagnostic}:{})})};
  let response;
  try{response=await handler(scoped);if((ioWrites||writeBatches)&&response.status>=500)await unknown();const end=await control(db);if(end?.epoch!==initial.epoch){try{await response.body?.cancel();}catch{}throw denied('PRELAUNCH_EPOCH_CHANGED',409);}return response;}
  catch(error){if(ioWrites||writeBatches)await unknown();throw error;}

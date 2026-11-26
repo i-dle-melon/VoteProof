@@ -82,13 +82,25 @@ test('Pages campaign collection shows synthetic stamps and updates the selected 
   await expect(panel.locator('.achievement-collection-head')).toContainText('已收集 1 / 10');
   await expect(panel.locator('.achievement-rank dd')).toHaveText('#2');
   await expect(panel.locator('.achievement-metrics')).toContainText('8,100');
-  const laurels = panel.locator('.achievement-stamp .achievement-laurel img');
+  const laurels = panel.locator('.achievement-stamp .achievement-laurel canvas');
   await expect(laurels).toHaveCount(10);
-  await expect.poll(() => laurels.first().evaluate(img => img.naturalWidth)).toBe(253);
+  await expect.poll(() => laurels.first().evaluate(canvas => canvas.width)).toBe(253);
   const mama = panel.getByRole('button', {name:/MAMA/});
-  const wordmark = mama.locator('img.achievement-wordmark');
+  const wordmark = mama.locator('canvas.achievement-wordmark');
   await expect(wordmark).toBeVisible();
-  await expect.poll(() => wordmark.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => wordmark.evaluate(canvas => canvas.width)).toBe(184);
+  for (const [art, region] of [[wordmark, [0, 0, 184, 53]], [laurels.nth(1), [54, 151, 145, 54]]]) {
+    await expect.poll(() => art.evaluate((canvas, region) => {
+      const rgba = canvas.getContext('2d').getImageData(...region).data;
+      let transparent = 0, ink = 0;
+      for (let i = 3; i < rgba.length; i += 4) {
+        if (rgba[i] === 0) transparent++;
+        if (rgba[i] === 255) ink++;
+      }
+      return transparent > rgba.length / 8 && ink > 100;
+    }, region)).toBe(true);
+    await expect(art).toHaveCSS('mix-blend-mode', 'normal');
+  }
   const proportions = await mama.locator('.achievement-medal').evaluate(medal => {
     const frame = medal.getBoundingClientRect();
     const logo = medal.querySelector('.achievement-wordmark').getBoundingClientRect();
@@ -135,6 +147,9 @@ test('Pages member center switches between points and campaign stamps in the sam
   await expect(pointsPanel).toBeHidden();
   await expect(stampPanel.locator('.achievement-stamp')).toHaveCount(10);
   await expect(stampPanel.locator('.achievement-rank dd')).toHaveText('#2');
+  await expect(stampPanel.locator('.achievement-stamp strong').first()).toHaveText('MAMA 第二輪');
+  await expect(stampPanel.locator('.achievement-banner h2')).toHaveText("2026 MAMA FAN'CHOICE 第二輪");
+  expect(await stampPanel.locator('.achievement-grid').evaluate(grid => getComputedStyle(grid).gridTemplateColumns.split(' ').length)).toBe(3);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await stamps.press('ArrowLeft');

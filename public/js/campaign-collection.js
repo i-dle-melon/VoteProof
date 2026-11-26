@@ -1,6 +1,7 @@
 import { assetURL } from './preview.js';
 
 const number = new Intl.NumberFormat('zh-TW');
+const stampMasks = new Map();
 export const stampIcons = [
   ['spark', '✦', '星芒'], ['music', '♪', '音符'], ['heart', '♡', '愛心'],
   ['chart', '▥', '排行'], ['star', '☆', '星星'], ['globe', '◎', '全球投票'],
@@ -61,6 +62,43 @@ function customStampIcon(encoded) {
   return canvas;
 }
 
+function maskedStampArt(path, className, brightness) {
+  let source = stampMasks.get(path);
+  if (!source) {
+    const image = new Image();
+    image.src = assetURL(path);
+    source = image.decode().then(() => {
+      const raster = document.createElement('canvas');
+      raster.width = image.naturalWidth;
+      raster.height = image.naturalHeight;
+      const ctx = raster.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      const pixels = ctx.getImageData(0, 0, raster.width, raster.height);
+      const { data } = pixels;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+        const alpha = Math.max(0, Math.min(255, (gray * brightness - 127.5) * 12 + 127.5));
+        data[i + 3] = data[i + 3] * alpha / 255;
+        data[i] = data[i + 1] = data[i + 2] = 255;
+      }
+      ctx.putImageData(pixels, 0, 0);
+      return raster;
+    }).catch(() => {
+      stampMasks.delete(path);
+      return null;
+    });
+    stampMasks.set(path, source);
+  }
+  const canvas = element('canvas', undefined, className);
+  void source.then(raster => {
+    if (!raster) { canvas.hidden = true; return; }
+    canvas.width = raster.width;
+    canvas.height = raster.height;
+    canvas.getContext('2d').drawImage(raster, 0, 0);
+  });
+  return canvas;
+}
+
 export function stampMedal({ icon, color, earned, index = 0, custom_icon, custom_color }) {
   const customColor = color === 'custom' ? stampHexColor(custom_color) : null;
   const colorKey = customColor ? 'custom' : stampColors.find(([key]) => key === color)?.[0] ?? stampColors[index % 4][0];
@@ -70,16 +108,10 @@ export function stampMedal({ icon, color, earned, index = 0, custom_icon, custom
   const artworkIcon = earned && icon === 'custom' ? customStampIcon(custom_icon) : null;
   if (artworkIcon) medal.append(artworkIcon);
   else if (earned && icon === 'mama') {
-    const image = element('img', undefined, 'achievement-wordmark');
-    image.src = assetURL('/assets/mama-stamp-wordmark.png');
-    image.alt = '';
-    medal.append(image);
+    medal.append(maskedStampArt('/assets/mama-stamp-wordmark.png', 'achievement-wordmark', .68));
   } else medal.append(element('span', earned ? glyph : '', 'achievement-medal-symbol'));
   const laurel = decorative('span', undefined, 'achievement-laurel');
-  const artwork = element('img');
-  artwork.src = assetURL('/assets/stamp-laurel-reference.png');
-  artwork.alt = '';
-  laurel.append(artwork);
+  laurel.append(maskedStampArt('/assets/stamp-laurel-reference.png', '', .67));
   medal.append(laurel);
   if (earned) medal.append(element('span', '✓', 'achievement-check'));
   return medal;
@@ -188,7 +220,9 @@ export function campaignCollection(container, ranking) {
       button.type = 'button';
       const isMama = campaign.campaign_id?.toLowerCase() === '2026_mama_fans_choice_2nd';
       const stamp = stampMedal({ icon: isMama ? 'mama' : undefined, color: isMama ? 'blue' : undefined, ...campaign.stamp, earned, index: i });
-      button.append(stamp, element('strong', campaign.name), element('small', earned ? number.format(campaign.points) + ' 點 · ' + number.format(campaign.proof_count) + ' 張' : '未解鎖'));
+      const shortName = isMama || campaign.name === "2026 MAMA FAN'CHOICE 第二輪" ? 'MAMA 第二輪' : campaign.name;
+      if (shortName !== campaign.name) button.title = campaign.name;
+      button.append(stamp, element('strong', shortName), element('small', earned ? number.format(campaign.points) + ' 點 · ' + number.format(campaign.proof_count) + ' 張' : '未解鎖'));
       button.addEventListener('click', () => void select(i));
       entry.append(button);
       grid.append(entry);

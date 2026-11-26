@@ -3001,7 +3001,7 @@ button.legacy-case-row:hover {
   cursor: pointer;
 }
 .achievement-stamp[aria-pressed="true"], .achievement-stamp:hover { border-color: var(--achievement-line); background: var(--achievement-soft); }
-.achievement-stamp strong, .achievement-stamp small { max-width: 100%; overflow-wrap: anywhere; }
+.achievement-stamp strong, .achievement-stamp small { max-width: 100%; overflow-wrap: break-word; text-wrap: balance; }
 .achievement-stamp strong { font-size: clamp(.68rem,1.8vw,.95rem); line-height: 1.27; }
 .achievement-stamp small { color: var(--achievement-muted); font-size: clamp(.62rem,1.6vw,.78rem); }
 .achievement-tone-blue { --stamp-core: #2958cf; --stamp-edge: #6de9ff; }
@@ -3021,14 +3021,13 @@ button.legacy-case-row:hover {
 .is-earned .achievement-medal { filter: drop-shadow(0 1px 6px var(--stamp-edge)); }
 .achievement-medal-symbol { font-size: clamp(1rem,4.5vw,2.4rem); line-height: 1; text-shadow: 0 1px 5px #281045; transform: translateY(-21%); }
 /* Size and align the visible wordmark against the badge, including the source image's margins. */
-.achievement-wordmark { position: absolute; left: 49%; top: 47%; width: 76%; height: auto; max-width: none; transform: translate(-50%,-50%); mix-blend-mode: screen; filter: grayscale(1) brightness(.68) contrast(12); }
+.achievement-wordmark { position: absolute; left: 49%; top: 47%; width: 76%; height: auto; max-width: none; transform: translate(-50%,-50%); }
 .achievement-custom-icon { position: absolute; left: 50%; top: 43%; width: 64%; height: 38%; object-fit: contain; transform: translate(-50%,-50%); }
 /* Show only the two laurels from the supplied 253 × 249 artwork. */
-.achievement-laurel { position: absolute; left: 18%; width: 64%; bottom: 16%; aspect-ratio: 145 / 54; overflow: hidden; clip-path: polygon(0 0,100% 0,100% 67%,85% 100%,15% 100%,0 67%); mix-blend-mode: screen; pointer-events: none; }
-.achievement-laurel img { position: absolute; width: calc(253 * 100% / 145); height: auto; max-width: none; left: calc(-54 * 100% / 145); top: calc(-151 * 100% / 54); filter: grayscale(1) brightness(.67) contrast(12); }
+.achievement-laurel { position: absolute; left: 18%; width: 64%; bottom: 16%; aspect-ratio: 145 / 54; overflow: hidden; clip-path: polygon(0 0,100% 0,100% 67%,85% 100%,15% 100%,0 67%); pointer-events: none; }
+.achievement-laurel canvas { position: absolute; width: calc(253 * 100% / 145); height: auto; max-width: none; left: calc(-54 * 100% / 145); top: calc(-151 * 100% / 54); }
 .is-locked .achievement-laurel { opacity: .5; }
-[data-theme="light"] .is-locked .achievement-laurel { mix-blend-mode: multiply; opacity: .34; }
-[data-theme="light"] .is-locked .achievement-laurel img { filter: grayscale(1) brightness(.67) contrast(12) invert(1); }
+[data-theme="light"] .is-locked .achievement-laurel { opacity: .34; filter: brightness(0); }
 .achievement-rule { border-top: 1px solid var(--achievement-line); color: var(--achievement-muted); font-size: .84rem; margin: 0; padding: 10px 16px; }
 .achievement-check { position: absolute; top: 0; right: 1%; border: 2px solid #fff6ff; border-radius: 50%; width: clamp(17px,4vw,25px); aspect-ratio: 1; display: grid; place-items: center; background: #7b299d; color: #fff; font: 700 12px/1 system-ui; }
 .is-locked .achievement-medal { color: var(--achievement-muted); }
@@ -3041,6 +3040,8 @@ button.legacy-case-row:hover {
   .achievement-hero, .achievement-collection { border-radius: 18px; }
   .achievement-banner { min-height: 118px; }
   .achievement-stamp { min-height: 86px; }
+  #member-achievements-panel .achievement-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  #member-achievements-panel .achievement-stamp strong { font-size: .75rem; }
 }
 
 .stamp-editor-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {metadataPreflight,assertLocalRoutingScope} from '../scripts/ci/deploy-metadata-preflight.mjs';
+import {CASE_COMPLETION_CRON} from '../src/lib/case-auto-completion.js';
 const accountId='7a1ae5a3d1e51008d0880ac526740717',token='synthetic-test-token-never-production';
 const localConfig={name:'voteproof'};
 const bindings=[{name:'DB',type:'d1',id:'9e2b885d-66e2-4e4d-b768-4bded261296a'},
@@ -19,7 +20,7 @@ function fixture({source='dash',failAt=-1,status=403,malformed=false,throwAt=-1,
    Response.json({success:false,errors:[{code:10000,message:'synthetic-sensitive-payload'}]},{status});
   const values=[
    {name:'voteproof',default_environment:{environment:'production',script:{last_deployed_from:source}}},
-   bindings,{enabled:true,previews_enabled:false},{script:{compatibility_date:'2026-10-07'}},{schedules:[]}
+   bindings,{enabled:true,previews_enabled:false},{script:{compatibility_date:'2026-10-07'}},{schedules:[{cron:CASE_COMPLETION_CRON}]}
   ];
   return Response.json({success:true,result:Object.hasOwn(overrides,i)?overrides[i]:values[i]});
  };
@@ -111,10 +112,27 @@ test('unknown environment, deploy source or wrong Worker stays HOLD',async()=>{
 for(const source of['api','wrangler'])test(source+' origin retains necessary routing and metadata checks',async()=>{
  const f=fixture({source}),r=await f.run();assert.equal(r.ok,true);assert.equal(f.calls.length,5);
 });
-test('unknown environment metadata or schedules and unexpected Cron hold',async()=>{
- for(const overrides of[{3:{}},{3:[]},{4:[]},{4:{schedules:[{cron:'* * * * *'}]}}]){
+test('unknown environment metadata or schedules hold with explicit diagnostics',async()=>{
+ for(const overrides of[{3:{}},{3:[]},{4:[]},{4:{schedules:[null]}},{4:{schedules:[{}]}}]){
   const r=await fixture({overrides}).run();assert.equal(r.ok,false);
-  assert.match(r.reason,/REMOTE_ENVIRONMENT_METADATA_UNKNOWN|REMOTE_SCHEDULES_UNKNOWN|UNEXPECTED_REMOTE_SCHEDULES/);
+  assert.equal(r.reason,Object.hasOwn(overrides,3)?'REMOTE_ENVIRONMENT_METADATA_UNKNOWN':'REMOTE_SCHEDULES_UNKNOWN');
+ }
+});
+test('only the approved automatic completion schedule passes',async()=>{
+ const approved={cron:CASE_COMPLETION_CRON},unexpected={cron:'15,45 * * * *'};
+ const f=fixture({overrides:{4:{schedules:[{...approved,created_on:'2026-11-26T02:25:00Z'}]}}});
+ assert.equal((await f.run()).ok,true);
+ for(const schedules of [[],[unexpected],[approved,unexpected],[approved,approved]]){
+  const result=await fixture({overrides:{4:{schedules}}}).run();
+  assert.equal(result.reason,'UNEXPECTED_REMOTE_SCHEDULES');assert.equal(result.ok,false);
+  assert.equal(result.mutations,0);
+ }
+});
+test('deploy config leaves the remote Cron out of Wrangler trigger reconciliation',async()=>{
+ const fetcher=()=>assert.fail('Local trigger declarations must hold before any metadata request');
+ for(const triggers of [null,{}, {crons:[]}, {crons:[CASE_COMPLETION_CRON]}]){
+  await assert.rejects(metadataPreflight({accountId,token,localConfig:{...localConfig,triggers},fetcher}),
+   /LOCAL_TRIGGER_CONFIGURATION_REQUIRES_REVIEW/);
  }
 });
 test('deployment preserves exact SHA, protected Environment, Vars, Assets and no-migration contract',()=>{
@@ -124,6 +142,7 @@ test('deployment preserves exact SHA, protected Environment, Vars, Assets and no
  assert.ok(s.includes('node scripts/ci/deploy-metadata-preflight.mjs'));
  assert.ok(s.includes('npx --yes --package=wrangler@4.156.2 wrangler deploy --name voteproof'));
  assert.ok(s.includes('--keep-vars --message "Git commit $RELEASE_SHA"'));
+ assert.doesNotMatch(s,/config\.triggers|--triggers/);
  assert.equal((s.match(/wrangler deploy --name/g)||[]).length,1);
  assert.equal(/--force|skip.*config.diff|wrangler.*migrations.*apply|wrangler.*rollback/.test(s),false);
  assert.ok(s.includes('config.assets.directory = path.resolve(config.assets.directory)'));

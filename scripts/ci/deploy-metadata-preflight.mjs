@@ -1,6 +1,7 @@
 // Read only. Match Wrangler 4.156.2's no-route scope; never log payloads.
 import {mkdir,writeFile,appendFile,readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
+import {CASE_COMPLETION_CRON} from '../../src/lib/case-auto-completion.js';
 const account='7a1ae5a3d1e51008d0880ac526740717';
 const database='9e2b885d-66e2-4e4d-b768-4bded261296a';
 export function assertLocalRoutingScope(local){
@@ -13,6 +14,8 @@ export function assertLocalRoutingScope(local){
 }
 export async function metadataPreflight({accountId,token,localConfig,fetcher=fetch}){
  assertLocalRoutingScope(localConfig);
+ // Unset crons leave the existing schedule untouched in the pinned Wrangler version.
+ if(Object.hasOwn(localConfig,'triggers'))throw Error('LOCAL_TRIGGER_CONFIGURATION_REQUIRES_REVIEW');
  if(accountId!==account||typeof token!=='string'||!token.trim())throw Error('DEPLOY_ACCOUNT_OR_TOKEN_CONFIGURATION_INVALID');
  const checks=[];
  const routing={
@@ -77,8 +80,11 @@ export async function metadataPreflight({accountId,token,localConfig,fetcher=fet
   if(label==='environment'&&(!result.data?.script||typeof result.data.script!=='object'||Array.isArray(result.data.script)))
    return finish(false,'REMOTE_ENVIRONMENT_METADATA_UNKNOWN');
   if(label==='schedules'){
-   if(!Array.isArray(result.data?.schedules))return finish(false,'REMOTE_SCHEDULES_UNKNOWN');
-   if(result.data.schedules.length)return finish(false,'UNEXPECTED_REMOTE_SCHEDULES');
+   const schedules=result.data?.schedules;
+   if(!Array.isArray(schedules)||schedules.some(item=>typeof item?.cron!=='string'))
+    return finish(false,'REMOTE_SCHEDULES_UNKNOWN');
+   if(schedules.length!==1||schedules[0].cron!==CASE_COMPLETION_CRON)
+    return finish(false,'UNEXPECTED_REMOTE_SCHEDULES');
   }
  }
  return finish(true,'REQUIRED_METADATA_READABLE_NO_ROUTING_CHANGES');
@@ -93,7 +99,10 @@ async function main(){
  if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,
   'Metadata preflight: '+(result.ok?'PASS':'HOLD')+' ('+result.reason+'). Payloads and credentials omitted.\n'+
   'Routes/Custom Domains: not requested and not modified; remote inventory was not queried. Wrangler 4.156.2.\n');
- if(!result.ok)throw Error('DEPLOY_METADATA_HOLD: '+result.reason+'; inspect endpoint/status above. No deployment was started.');
+ if(!result.ok){
+  console.error('DEPLOY_METADATA_HOLD: '+result.reason);
+  process.exitCode=1;
+ }
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)
  main().catch(()=>{console.error('Deployment preflight stopped; no automatic retry, permission change or deployment.');process.exitCode=1;});

@@ -69,9 +69,15 @@ const candidateSafety=({isolatedProofs,legacyOperations,legacyDriveReady})=>isol
 const unfinishedExport=until=>`EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id
  LEFT JOIN export_packages pkg ON pkg.job_id=e.job_id AND pkg.number=e.package_no
  WHERE e.file_id=f.id AND j.expires_at>${until} AND pkg.status IS NOT 'completed')`;
-const fileSafe=`NOT EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved')
+// Build the list from live jobs once, using the job_id prefix of the item index.
+// Probing historical export items by file_id for each candidate scans the export history repeatedly.
+const listedUnfinishedExport=until=>`f.id IN(SELECT e.file_id FROM export_jobs j
+ CROSS JOIN export_job_items e ON e.job_id=j.id
+ LEFT JOIN export_packages pkg ON pkg.job_id=e.job_id AND pkg.number=e.package_no
+ WHERE j.expires_at>${until} AND pkg.status IS NOT 'completed')`;
+const fileSafe=hasUnfinishedExport=>`NOT EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved')
  AND NOT EXISTS(SELECT 1 FROM proof_upload_intents i WHERE i.object_key=f.object_key AND i.write_token IS NOT NULL)
- AND NOT ${unfinishedExport('?')}
+ AND NOT (${hasUnfinishedExport})
  AND NOT EXISTS(SELECT 1 FROM export_file_claims e WHERE e.file_id=f.id AND e.lease_until>?)`;
 const backupQuiet=`NOT EXISTS(SELECT 1 FROM proof_backups busy WHERE busy.file_id=f.id AND (busy.status='processing' OR busy.lease_until IS NOT NULL))`;
 const driveBound=`b.status='confirmed' AND b.lease_until IS NULL AND b.drive_file_id IS NOT NULL
@@ -84,29 +90,32 @@ const candidateSql=eligibility=>`SELECT f.id file_id,c.id case_internal_id,c.cas
  (${backupQuiet}) backup_quiet,
  EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved') has_reservation,
  EXISTS(SELECT 1 FROM proof_upload_intents i WHERE i.object_key=f.object_key AND i.write_token IS NOT NULL) has_pin,
- (${unfinishedExport("strftime('%Y-%m-%dT%H:%M:%fZ','now')")}
+ (${listedUnfinishedExport("strftime('%Y-%m-%dT%H:%M:%fZ','now')")}
  OR EXISTS(SELECT 1 FROM export_file_claims e WHERE e.file_id=f.id AND e.lease_until>CAST(strftime('%s','now') AS INTEGER))) has_export,
  (${candidateSafety(eligibility)}) r2_safe,
  CASE WHEN (d.file_id IS NOT NULL OR (${driveBound})) AND ${backupQuiet} AND f.size BETWEEN 1 AND 5242880
  AND c.status IN('completed','rejected','duplicate','revoked') AND c.reviewed_at IS NOT NULL
  AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday(?,
   CASE WHEN ?=1 AND d.file_id IS NOT NULL THEN '0 days' ELSE '-${ARCHIVE_RETENTION_DAYS} days' END)
- AND (p.file_id IS NULL OR p.state IN('blocked','dry_run')) AND ${fileSafe} AND ${candidateSafety(eligibility)}
+ AND (p.file_id IS NULL OR p.state IN('blocked','dry_run')) AND ${fileSafe(listedUnfinishedExport('?'))} AND ${candidateSafety(eligibility)}
  AND NOT EXISTS(SELECT 1 FROM storage_audit a WHERE a.id='manual-cleanup:dispatch:'||f.id) THEN 1 ELSE 0 END eligible
  FROM case_files f JOIN cases c ON c.id=f.case_id LEFT JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive'
  LEFT JOIN export_completed_files d ON ${exportMatch}
  LEFT JOIN cold_proofs p ON p.file_id=f.id`;
 function filters(url){
- const p=url.searchParams,allowed=['campaign_id','from','to','status','backup','eligible','cutoff','cursor','allow_early_export'];
+ const p=url.searchParams,allowed=['campaign_id','from','to','status','backup','eligible','cutoff','cursor','allow_early_export','summary'];
  if([...p.keys()].some(k=>!allowed.includes(k)||p.getAll(k).length!==1))throw fail('INVALID_CLEANUP_QUERY',400);
+ if(p.has('summary')&&p.get('summary')!=='0')throw fail('INVALID_CLEANUP_QUERY',400);
  const allowEarlyExport=p.has('allow_early_export');
  if(allowEarlyExport&&p.get('allow_early_export')!=='1')throw fail('INVALID_CLEANUP_QUERY',400);
  const day=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v;
  const from=p.get('from'),to=p.get('to'),cutoff=p.get('cutoff')??new Date().toISOString();
  if((from&&!day(from))||(to&&!day(to))||(from&&to&&from>to)||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(cutoff)||!Number.isFinite(Date.parse(cutoff))||Date.parse(cutoff)>Date.now()+1000)throw fail('INVALID_CLEANUP_QUERY',400);
  const clauses=['created_at<=?','updated_at<=?'],args=[cutoff,cutoff];
- for(const[k,values,column]of[['status',['pending','approved','completed','rejected','duplicate','revoked'],'status'],['backup',['pending','processing','confirmed','failed'],'backup_status'],['eligible',['yes','no'],'eligible']]){
-  const v=p.get(k);if(v){if(!values.includes(v))throw fail('INVALID_CLEANUP_QUERY',400);clauses.push(column+'=?');args.push(k==='eligible'?Number(v==='yes'):v);}}
+ for(const[k,values,column]of[['status',['pending','approved','completed','rejected','duplicate','revoked'],'status'],['backup',['pending','processing','confirmed','failed'],'backup_status']]){
+  const v=p.get(k);if(v){if(!values.includes(v))throw fail('INVALID_CLEANUP_QUERY',400);clauses.push(column+'=?');args.push(v);}}
+ const eligible=p.get('eligible');
+ if(eligible&&!['yes','no'].includes(eligible))throw fail('INVALID_CLEANUP_QUERY',400);
  const campaign=p.get('campaign_id');if(campaign){if(!/^[A-Za-z0-9_-]{1,100}$/.test(campaign))throw fail('INVALID_CLEANUP_QUERY',400);clauses.push('campaign_id=?');args.push(campaign);}
  if(from){clauses.push('created_at>=?');args.push(new Date(from+'T00:00:00+08:00').toISOString());}
  if(to){clauses.push('created_at<?');args.push(new Date(Date.parse(to+'T00:00:00+08:00')+86400000).toISOString());}
@@ -114,15 +123,23 @@ function filters(url){
  if(p.has('cursor')){let v;try{const raw=p.get('cursor');if(raw.length>1500)throw Error();v=JSON.parse(atob(raw));}catch{throw fail('INVALID_CLEANUP_QUERY',400);}
   if(!Array.isArray(v)||v.length!==3||v[0]!==scope||typeof v[1]!=='string'||!Number.isFinite(Date.parse(v[1]))||!uuid.test(v[2]))throw fail('INVALID_CLEANUP_QUERY',400);
   clauses.push('(created_at>? OR (created_at=? AND file_id>?))');args.push(v[1],v[1],v[2]);}
- return{p,cutoff,allowEarlyExport,scope,where:clauses.join(' AND '),args};
+ return{p,cutoff,allowEarlyExport,scope,where:clauses.join(' AND '),args,eligible};
 }
 export async function cleanupCandidates(db,url,eligibility={}){
  const f=filters(url),cutoffMs=Date.parse(f.cutoff),time=Math.floor(cutoffMs/1000);
  const legacyArgs=eligibility.isolatedProofs&&eligibility.legacyOperations?[eligibility.legacyOperations]:[];
  const base=[...legacyArgs,f.cutoff,Number(f.allowEarlyExport),f.cutoff,time,...legacyArgs];
- const query=`SELECT * FROM (${candidateSql(eligibility)}) WHERE ${f.where}`;
- const page=(await db.prepare(query+' ORDER BY created_at,file_id LIMIT 21').bind(...base,...f.args).all()).results;
- let summary=null;if(!f.p.has('cursor'))summary=await db.prepare(`SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN eligible=1 THEN 1 ELSE 0 END),0) eligible_count,COALESCE(SUM(CASE WHEN eligible=1 THEN size ELSE 0 END),0) eligible_bytes FROM (${query})`).bind(...base,...f.args).first();
+ const candidates=`FROM (${candidateSql(eligibility)}) WHERE ${f.where}`;
+ const eligibleArgs=f.eligible?[Number(f.eligible==='yes')]:[];
+ const page=(await db.prepare(`SELECT * ${candidates}${f.eligible?' AND eligible=?':''} ORDER BY created_at,file_id LIMIT 21`)
+  .bind(...base,...f.args,...eligibleArgs).all()).results;
+ let summary=null;
+ if(!f.p.has('cursor')&&!f.p.has('summary')){
+  // Classify each matching row once for both totals and the eligibility filter.
+  summary=await db.prepare(`WITH classified AS MATERIALIZED (SELECT size,eligible ${candidates})
+   SELECT COUNT(*) total,COALESCE(SUM(eligible),0) eligible_count,COALESCE(SUM(eligible*size),0) eligible_bytes
+   FROM classified${f.eligible?' WHERE eligible=?':''}`).bind(...base,...f.args,...eligibleArgs).first();
+ }
  const rows=page.slice(0,20),last=rows.at(-1);
  return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,file_created_at,case_internal_id,has_reservation,has_pin,has_export,r2_safe,backup_quiet,verification_context,...r})=>{
   const reasons=[];if(!r.archive_source)reasons.push('尚無符合目前圖片版本的 Drive 備份或已確認下載的匯出');
@@ -214,7 +231,7 @@ function guards(row,actor){
  {sql:capacitySafe,args:[]},
  {sql:`EXISTS(SELECT 1 FROM cases c JOIN case_files f ON f.case_id=c.id
  WHERE f.id=? AND c.id=? AND c.version=? AND c.status=? AND coalesce(c.status_updated_at,c.updated_at)=?
- AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe} AND ${operations.sql})`,
+ AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe(unfinishedExport('?'))} AND ${operations.sql})`,
  args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at(),...operations.args]},
  ];}
 const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,archive_source:row.archive_source,...(row.allow_early_export?{allow_early_export:true}:{}),...(row.legacy_r2_version?{reviewed_legacy_candidate:true}:{}),...detail}));

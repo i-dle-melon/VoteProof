@@ -415,9 +415,10 @@ test('manual cleanup requires schema, flag, role, CSRF and original versions',as
 test('manual candidates span pages in stable order; filters/cutoff bind the cursor and lists are read-only',async t=>{
  const f=await fixture(t,{count:25});const base='/api/admin/storage/manual?eligible=yes&campaign_id=MANUAL';
  const first=(await(await f.fetch(base,'GET',undefined,f.admin.headers)).json()).data;assert.equal(first.items.length,20);assert.equal(first.total,25);assert.equal(first.eligible_bytes,75);
- const next=(await(await f.fetch(base+'&cutoff='+first.cutoff+'&cursor='+encodeURIComponent(first.next_cursor),'GET',undefined,f.admin.headers)).json()).data;
+ const next=(await(await f.fetch(base+'&summary=0&cutoff='+first.cutoff+'&cursor='+encodeURIComponent(first.next_cursor),'GET',undefined,f.admin.headers)).json()).data;
  assert.equal(next.items.length,5);assert.equal(next.next_cursor,null);assert.equal(new Set([...first.items,...next.items].map(r=>r.file_id)).size,25);
  assert.equal((await f.fetch(base+'&status=rejected&cutoff='+first.cutoff+'&cursor='+encodeURIComponent(first.next_cursor),'GET',undefined,f.admin.headers)).status,400);
+ assert.equal((await f.fetch(base+'&summary=1','GET',undefined,f.admin.headers)).status,400);
  const again=(await(await f.fetch(base+'&cutoff='+first.cutoff,'GET',undefined,f.admin.headers)).json()).data;assert.deepEqual(again.items.map(x=>x.file_id),first.items.map(x=>x.file_id));assert.equal(f.driveCalls(),0);assert.equal(f.deleteCalls(),0);
 });
 test('R2 version race and source version changes are refused before DELETE',async t=>{

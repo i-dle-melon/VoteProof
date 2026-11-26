@@ -14,6 +14,60 @@ import {batchReject,batchApprove} from '../src/lib/review-batch.js';
 import {saveSystemPresentation} from '../src/lib/system-leaderboards.js';
 import {backupInsert} from '../src/lib/proof-backup-store.js';
 const origin='https://voteproof.example';
+test('cleanup list reads stay bounded with expired export history and still block unfinished packages',async t=>{
+ const {local,identity,makeCase}=await localAdminRuntime();
+ t.after(()=>local.runtime.dispose());
+ const admin=await identity({role:'super_admin'});
+ const stamp=new Date().toISOString(),old=new Date(Date.now()-86400000).toISOString();
+ for(let n=0;n<12;n++)await makeCase();
+ await local.db.prepare("UPDATE cases SET status='completed',reviewed_at=?,status_updated_at=?").bind(stamp,stamp).run();
+ const files=(await local.db.prepare('SELECT id FROM case_files ORDER BY id').all()).results.map(row=>row.id);
+ const expired=randomUUID(),active=randomUUID();
+ const job=local.db.prepare(`INSERT INTO export_jobs(id,owner_member_id,created_at,expires_at,filters_json,from_utc,to_utc)
+  VALUES(?,?,?,?,'{}',?,?)`);
+ await local.db.batch([
+  job.bind(expired,admin.memberId,old,old,old,stamp),
+  job.bind(active,admin.memberId,stamp,'2099-01-01T00:00:00.000Z',old,stamp),
+  local.db.prepare(`INSERT INTO export_completed_files(file_id,etag,file_size,content_type,job_id,package_no,confirmed_by,confirmed_at)
+   SELECT id,etag,size,content_type,?,1,?,? FROM case_files`).bind(expired,admin.memberId,stamp),
+  local.db.prepare(`INSERT INTO export_packages(job_id,number,image_count,total_bytes,status)
+   VALUES(?,1,1,3,'planned'),(?,3,1,3,'completed')`).bind(active,active),
+  local.db.prepare(`INSERT INTO export_job_items(job_id,ordinal,package_no,file_id,case_id,created_at,campaign_id,campaign_name,
+   vote_type,source,review_status,review_stage,content_type,file_size,etag)
+   SELECT ?,n,1,'historical-'||n,'synthetic',?,'synthetic','Synthetic','Solo','guest','completed','initial','image/png',3,'synthetic'
+   FROM (WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM seq WHERE n<2000) SELECT n FROM seq)`).bind(expired,old),
+  ...files.slice(0,3).map((id,n)=>local.db.prepare(`INSERT INTO export_job_items(job_id,ordinal,package_no,file_id,case_id,created_at,
+   campaign_id,campaign_name,vote_type,source,review_status,review_stage,content_type,file_size,etag)
+   VALUES(?,?,?,?,'synthetic',?,'synthetic','Synthetic','Solo','guest','completed','initial','image/png',3,'synthetic')`)
+   .bind(active,n+1,n+1,id,stamp))
+ ]);
+ for(const path of ['migrations-storage-policy/0001_observe_capacity.sql','migrations-reset-v1/0001_reset_fence.sql']){
+  await local.db.batch(unstable_splitSqlQuery(fs.readFileSync(path,'utf8')).map(sql=>local.db.prepare(sql)));
+ }
+ async function list(params){
+  const measure=measuredD1(local.db);
+  const result=await cleanupCandidates(measure.db,new URL(origin+'/api/admin/storage/manual?allow_early_export=1'+params));
+  return {result,cost:measure.totals()};
+ }
+ const page=await list('&summary=0'),total=await list(''),filtered=await list('&eligible=no');
+ t.diagnostic(JSON.stringify({page:page.cost,withTotals:total.cost,blockedWithTotals:filtered.cost}));
+ assert.equal(total.result.total,12);
+ assert.equal(total.result.eligible_count,10);
+ assert.equal(total.result.eligible_bytes,30);
+ assert.deepEqual(filtered.result.items.map(row=>row.file_id).sort(),files.slice(0,2));
+ assert.equal(filtered.result.total,2);
+ assert.equal(filtered.result.eligible_count,0);
+ assert.equal(filtered.result.eligible_bytes,0);
+ assert.deepEqual(page.result.items,total.result.items);
+ assert.equal(page.result.total,undefined);
+ assert.equal(page.cost.trips,1);
+ assert.equal(total.cost.trips,2);
+ for(const {cost} of [page,total,filtered]){
+  assert.equal(cost.rows_written,0);
+  assert.ok(cost.rows_read<1000,JSON.stringify(cost));
+ }
+});
+
 test('native local D1 extensions, manual cleanup and review costs preserve real guards and FK',async t=>{
  const h=await localAdminRuntime(),local=h.local;t.after(()=>local.runtime.dispose());
  const admin=await h.identity({role:'super_admin'}),member=await h.identity(),cases=[];

@@ -30,15 +30,15 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
    if(earlyExport.checked)query.set('allow_early_export','1');
    more.hidden=true;sync();
   }
-  const p=params();if(cursor)p.set('cursor',cursor);
+  const p=params();p.set('summary','0');if(cursor)p.set('cursor',cursor);
   try{const d=await request('storage/manual?'+p);if(!active(n))return;cutoff=d.cutoff;cursor=d.next_cursor;enabled=d.enabled===true;
    for(const row of d.items){const c=el('article','','member-case'),label=el('label',row.case_id),box=el('input');box.type='checkbox';box.disabled=!row.eligible;box.dataset.eligible=String(row.eligible);box.setAttribute('aria-label','選取圖片 '+row.file_id);label.prepend(box);box.addEventListener('change',()=>{if(all){if(box.checked)all.excluded.delete(row.file_id);else all.excluded.set(row.file_id,row);}else if(box.checked)selected.set(row.file_id,row);else selected.delete(row.file_id);sync();});checkboxes.set(row.file_id,box);c.append(label,el('p',row.status+' · '+row.size+' bytes'));if(loadProof&&!['cold','deleting'].includes(row.cleanup_state))c.append(button('預覽圖片',()=>void showProof(row)));c.append(el('p',row.reason));list.append(c);}
-   more.hidden=!cursor;status.textContent=!enabled?'手動清理尚未啟用，目前只提供唯讀候選清單。':d.total===0?'沒有符合篩選的圖片。':'候選清單為唯讀；實際清理前重新檢查全部安全條件。';sync();
+   more.hidden=!cursor;status.textContent=!enabled?'手動清理尚未啟用，目前只提供唯讀候選清單。':reset&&!d.items.length?'沒有符合篩選的圖片。':'候選清單為唯讀；實際清理前重新檢查全部安全條件。';sync();
   }catch(e){if(active(n))status.textContent=e.code??e.message??'無法載入。';}
  }
  async function select(first20){
   if(working)return;working=true;sync();const n=epoch;
-  try{const p=params();p.set('eligible','yes');const d=await request('storage/manual?'+p);if(!active(n))return;selected.clear();
+  try{const p=params();p.set('eligible','yes');if(first20)p.set('summary','0');const d=await request('storage/manual?'+p);if(!active(n))return;selected.clear();
    if(first20){all=null;for(const r of d.items)selected.set(r.file_id,r);}else all={total:d.eligible_count,bytes:d.eligible_bytes,query:p,excluded:new Map()};
   }catch(e){status.textContent=e.code??e.message;}finally{working=false;sync();}
  }
@@ -49,7 +49,7 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
   if(!confirm('確認清理已選 '+total+' 張R2原始圖片？'+earlyWarning+'\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。遇到未知ACK立即停止，不重送DELETE。'))return;
   await run(async()=>{working=true;stopRequested=false;stop.hidden=false;let done=0,deleted=0,failed=0,unknown=0,next=null,queue=items,morePages=!!plan;
    try{while(isCurrent()&&!stopRequested&&(queue.length||morePages)){
-    if(!queue.length){const p=new URLSearchParams(plan.query);if(next)p.set('cursor',next);const d=await request('storage/manual?'+p);queue=d.items;next=d.next_cursor;morePages=!!next;if(!queue.length)continue;}
+    if(!queue.length){const p=new URLSearchParams(plan.query);p.set('summary','0');if(next)p.set('cursor',next);const d=await request('storage/manual?'+p);queue=d.items;next=d.next_cursor;morePages=!!next;if(!queue.length)continue;}
     const row=queue.shift();if(plan?.excluded.has(row.file_id))continue;const input={file_id:row.file_id,case_version:row.case_version,backup_version:row.backup_version,attempt_id:crypto.randomUUID(),
      ...(allowEarlyExport&&row.archive_source==='export'?{allow_early_export:true}:{})};
     try{const d=await request('storage/manual/'+row.file_id+'/clean',{method:'POST',body:input});

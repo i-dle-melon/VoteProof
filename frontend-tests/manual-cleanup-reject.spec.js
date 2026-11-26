@@ -61,7 +61,9 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFi
  Object.assign(rows[0],{archive_source:'export',backup_version:null,reason:'已確認下載；清理前會重新核對匯出紀錄及 R2'});
  await page.route('**/api/admin/storage/manual**',async route=>{
   const r=route.request(),u=new URL(r.url()),p=u.pathname,body=r.postData()?r.postDataJSON():null;
-  const allowEarlyExport=u.searchParams.get('allow_early_export')==='1';calls.push({p,method:r.method(),body,allowEarlyExport});
+  const allowEarlyExport=u.searchParams.get('allow_early_export')==='1';
+  const summary=!u.searchParams.has('summary')&&!u.searchParams.has('cursor');
+  calls.push({p,method:r.method(),body,allowEarlyExport,summary});
   if(p==='/api/admin/storage/manual'){
    const all=rows.filter(r=>r.cleanup_state===null).map(row=>{
     const eligible=!earlyFiles||row.ordinal>1||(row.archive_source==='export'&&allowEarlyExport);
@@ -70,7 +72,7 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFi
    const eligibleCount=all.filter(r=>r.eligible).length;
    const filtered=u.searchParams.get('eligible')==='yes'?all.filter(r=>r.eligible):all;
    const after=Number(u.searchParams.get('cursor')??-1),available=filtered.filter(r=>r.ordinal>after),chosen=available.slice(0,20);
-   return ok(route,{enabled,cutoff,total:all.length,eligible_count:eligibleCount,eligible_bytes:eligibleCount*3,items:chosen,next_cursor:available.length>20?String(chosen.at(-1).ordinal):null});
+   return ok(route,{enabled,cutoff,...(summary?{total:filtered.length,eligible_count:eligibleCount,eligible_bytes:eligibleCount*3}:{}),items:chosen,next_cursor:available.length>20?String(chosen.at(-1).ordinal):null});
   }
   const row=rows.find(x=>p.includes(x.file_id));if(p.endsWith('/verify'))return ok(route,{file_id:row.file_id,state:'verified',attempt_id:body.attempt_id});
   if((p.endsWith('/delete')||p.endsWith('/clean'))){if(wait)await wait;row.cleanup_state=unknown?'deleting':'cold';return ok(route,{file_id:row.file_id,state:unknown?'unknown':'deleted',message:row.archive_source==='export'?'圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。':undefined});}
@@ -86,6 +88,7 @@ test('manual cleanup all covers 25 files over pages, first20 is stable and each 
  await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張 · 預計釋放 75 bytes');
  await page.screenshot({path:'.wrangler/frontend-previews/manual-cleanup-'+info.project.name+'.png'});await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();
  await expect(page.locator('#admin-panel')).toContainText('已處理 25/25 · 已清理 25');expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(25);
+ expect(f.calls.filter(c=>c.p==='/api/admin/storage/manual').map(c=>c.summary)).toEqual([false,false,false,true,false,false]);
  for(const row of f.rows){const operations=f.calls.filter(c=>c.p.includes(row.file_id)&&c.method==='POST');expect(operations.map(c=>c.p.split('/').at(-1))).toEqual(['clean']);expect(operations[0].body.file_id).toBe(row.file_id);expect(operations[0].body.backup_version).toBe(row.backup_version);}
  await expect(page.locator('#admin-panel')).toContainText('請從已確認下載的匯出 ZIP 取得原圖');
  await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(f.state.calls.filter(c=>c.path.includes('/files/'))).toHaveLength(f.initialImageReads);

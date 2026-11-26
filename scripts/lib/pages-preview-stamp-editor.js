@@ -1,4 +1,4 @@
-import { stampIcons, stampColors, stampMedal } from './campaign-collection.js';
+import { stampIcons, stampColors, stampMedal, stampHexColor } from './campaign-collection.js';
 import { taipeiInput, utcFromTaipei } from './admin-api.js';
 import { prepareStampIcon, stampPhase } from './preview-stamps.js';
 
@@ -130,7 +130,27 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     const iconChoices = stampIcons.map(([key,glyph,label]) => [key, key === 'mama' ? label : glyph + ' ' + label]);
     const icon = field(appearance, 'icon', '印章圖案', 'select', existing?.icon ?? 'spark',
       { choices: [...iconChoices, ['custom', '＋ 新增圖案']] });
-    const color = field(appearance, 'color', '印章背景色', 'select', existing?.color ?? 'purple', { choices: stampColors });
+    const color = field(appearance, 'color', '印章背景色', 'select', existing?.color ?? 'purple',
+      { choices: [...stampColors, ['custom', '＋ 自訂顏色']] });
+    const customColor = node('div', '', 'stamp-full-field stamp-custom-color');
+    const initialColor = existing?.custom_color ?? '#8735c7';
+    const picker = field(customColor, 'pick_color', '色盤', 'color', initialColor);
+    const hex = field(customColor, 'custom_color', 'HEX 色碼', 'text', initialColor,
+      { placeholder: '#8735C7', pattern: '#?[0-9a-fA-F]{6}', required: true });
+    appearance.append(customColor);
+    const showColor = () => { customColor.hidden = hex.disabled = picker.disabled = color.value !== 'custom'; };
+    color.addEventListener('change', showColor);
+    showColor();
+    picker.addEventListener('input', () => { hex.value = picker.value; });
+    picker.addEventListener('change', () => { hex.value = picker.value; });
+    hex.addEventListener('input', () => {
+      const value = stampHexColor(hex.value);
+      if (value) picker.value = value;
+    });
+    hex.addEventListener('change', () => {
+      const value = stampHexColor(hex.value);
+      if (value) hex.value = picker.value = value;
+    });
     const upload = field(appearance, 'custom_image', '上傳透明 PNG 圖案', 'file', '', { accept: 'image/png,.png' });
     const uploadField = upload.closest('label');
     uploadField.classList.add('stamp-full-field', 'stamp-upload');
@@ -148,8 +168,8 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     const sample = node('aside', '', 'achievements stamp-form-preview');
     const visual = node('div', '', 'stamp-form-art');
     const paint = () => {
-      const art = { icon: icon.value, color: color.value, custom_icon: customIcon };
-      if (!lastArt || lastArt.icon !== art.icon || lastArt.color !== art.color || lastArt.custom_icon !== art.custom_icon) {
+      const art = { icon: icon.value, color: color.value, custom_icon: customIcon, custom_color: picker.value };
+      if (!lastArt || lastArt.icon !== art.icon || lastArt.color !== art.color || lastArt.custom_icon !== art.custom_icon || lastArt.custom_color !== art.custom_color) {
         const unlocked = node('div', '', 'is-earned');
         const locked = node('div', '', 'is-locked');
         unlocked.append(stampMedal({ ...art, earned: true }), node('small', '已取得'));
@@ -224,6 +244,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
         min_proofs: proofs.valueAsNumber, min_days: days.valueAsNumber, opens_at, closes_at,
         icon: icon.value, color: color.value, status: status.value, sort_order: order.valueAsNumber,
         ...(icon.value === 'custom' ? { custom_icon: customIcon } : {}),
+        ...(color.value === 'custom' ? { custom_color: stampHexColor(hex.value) } : {}),
         ...(existing ? { expected_version: existing.version } : {}),
       };
       void run(async current => {

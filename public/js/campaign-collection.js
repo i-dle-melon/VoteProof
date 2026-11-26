@@ -11,6 +11,11 @@ export const stampColors = [
   ['teal', '海洋青'], ['gold', '琥珀金'], ['green', '翡翠綠'],
 ];
 
+export function stampHexColor(value) {
+  const hex = typeof value === 'string' && /^#?([0-9a-f]{6})$/i.exec(value.trim());
+  return hex ? '#' + hex[1].toLowerCase() : null;
+}
+
 function element(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -56,10 +61,12 @@ function customStampIcon(encoded) {
   return canvas;
 }
 
-export function stampMedal({ icon, color, earned, index = 0, custom_icon }) {
-  const colorKey = stampColors.find(([key]) => key === color)?.[0] ?? stampColors[index % 4][0];
+export function stampMedal({ icon, color, earned, index = 0, custom_icon, custom_color }) {
+  const customColor = color === 'custom' ? stampHexColor(custom_color) : null;
+  const colorKey = customColor ? 'custom' : stampColors.find(([key]) => key === color)?.[0] ?? stampColors[index % 4][0];
   const glyph = stampIcons.find(([key]) => key === icon)?.[1] ?? stampIcons[index % 6][1];
   const medal = decorative('span', undefined, 'achievement-medal achievement-tone-' + colorKey);
+  if (customColor) medal.style.setProperty('--stamp-core', customColor);
   const artworkIcon = earned && icon === 'custom' ? customStampIcon(custom_icon) : null;
   if (artworkIcon) medal.append(artworkIcon);
   else if (earned && icon === 'mama') {

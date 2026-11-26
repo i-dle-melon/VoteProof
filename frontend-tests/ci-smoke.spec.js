@@ -174,7 +174,7 @@ test('Pages stamp settings create and edit a preview rule and show it only after
   expect(outside).toEqual([]);
 });
 
-test('Pages uploads a transparent stamp icon and requires confirmation before deleting the stamp', async ({ page }) => {
+test('Pages saves a transparent stamp icon and custom color and confirms removal', async ({ page }) => {
   const origin = 'http://127.0.0.1:4174';
   const outside = [];
   page.on('request', request => {
@@ -188,6 +188,20 @@ test('Pages uploads a transparent stamp icon and requires confirmation before de
   await expect(upload).toBeHidden();
   await form.getByLabel('印章圖案').selectOption('custom');
   await expect(upload).toBeVisible();
+  const hex = form.getByLabel('HEX 色碼');
+  const picker = form.getByLabel('色盤');
+  await expect(hex).toBeHidden();
+  await form.getByLabel('印章背景色').selectOption('custom');
+  await expect(hex).toBeVisible();
+  await picker.fill('#346789');
+  await expect(hex).toHaveValue('#346789');
+  await hex.fill('not-hex');
+  expect(await hex.evaluate(input => input.checkValidity())).toBe(false);
+  await hex.fill('1E596A');
+  await expect(picker).toHaveValue('#1e596a');
+  const previewColor = form.locator('.stamp-form-preview .is-earned .achievement-medal');
+  await expect(previewColor).toHaveClass(/achievement-tone-custom/);
+  expect(await previewColor.evaluate(stamp => getComputedStyle(stamp).getPropertyValue('--stamp-core').trim())).toBe('#1e596a');
   const sample = async transparent => ({
     name: transparent ? 'transparent.png' : 'opaque.png',
     mimeType: 'image/png',
@@ -215,10 +229,12 @@ test('Pages uploads a transparent stamp icon and requires confirmation before de
   await form.getByRole('button',{name:'儲存集章設定'}).click();
   await expect(form.getByRole('heading',{name:'編輯活動集章'})).toBeVisible();
   await expect(form.locator('.stamp-upload')).toContainText('已載入已儲存的圖案');
+  await expect(hex).toHaveValue('#1e596a');
   await panel.getByRole('link',{name:'查看會員中心'}).click();
   await page.getByRole('tab',{name:'活動成果集章'}).click();
   const badge = page.locator('#member-achievements-panel').getByRole('button',{name:/透明圖案測試章/});
   await expect(badge.locator('canvas.achievement-custom-icon')).toBeVisible();
+  expect(await badge.locator('.achievement-medal').evaluate(stamp => getComputedStyle(stamp).getPropertyValue('--stamp-core').trim())).toBe('#1e596a');
   await page.evaluate(() => { location.hash = 'admin'; });
   const row = panel.getByRole('button',{name:/透明圖案測試章/});
   await row.click();

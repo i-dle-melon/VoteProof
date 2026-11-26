@@ -1,9 +1,9 @@
 // Isolated Pages data. Saved settings live only until the preview is reloaded.
-import { stampIcons, stampColors, stampPngSize, stampIconBlob } from './campaign-collection.js';
+import { stampIcons, stampColors, stampPngSize, stampIconBlob, stampHexColor } from './campaign-collection.js';
 
 const dayMs = 86400000;
 const modes = ['draft', 'published', 'hidden'];
-const options = ['campaign_id', 'name', 'description', 'min_proofs', 'min_days', 'opens_at', 'closes_at', 'icon', 'color', 'status', 'sort_order', 'custom_icon'];
+const options = ['campaign_id', 'name', 'description', 'min_proofs', 'min_days', 'opens_at', 'closes_at', 'icon', 'color', 'status', 'sort_order', 'custom_icon', 'custom_color'];
 
 export async function prepareStampIcon(file) {
   if (file.size > 1024 * 1024) throw Error('圖案檔案不得超過 1 MB。');
@@ -71,11 +71,13 @@ export function createStampPreview(results, getOtherCampaigns) {
         !integer(input.min_proofs, 1, 10000) || !integer(input.min_days, 1, 3650) ||
         !integer(input.sort_order, 0, 9999) || !date(input.opens_at) || !date(input.closes_at) || input.opens_at >= input.closes_at ||
         (input.icon === 'custom' ? !stampIconBlob(input.custom_icon) : !stampIcons.some(([key]) => key === input.icon) || input.custom_icon != null) ||
-        !stampColors.some(([key]) => key === input.color) || !modes.includes(input.status))
+        (input.color === 'custom' ? !stampHexColor(input.custom_color) : !stampColors.some(([key]) => key === input.color) || input.custom_color != null) ||
+        !modes.includes(input.status))
       return ['INVALID_STAMP_SETTING', 400];
     const clean = Object.fromEntries(options.map(key => [key, input[key]]));
     clean.name = clean.name.trim();
     clean.description = clean.description.trim();
+    if (clean.color === 'custom') clean.custom_color = stampHexColor(clean.custom_color);
     if (existing) {
       Object.assign(existing, { ...clean, version: existing.version + 1 });
       return [{ stamp: existing }, 200];
@@ -113,11 +115,11 @@ export function createStampPreview(results, getOtherCampaigns) {
     return rows.filter(row => row.status === 'published').sort(sort).map(row => {
       const result = results.find(c => c.campaign_id === row.campaign_id);
       const campaign = campaigns.get(row.campaign_id);
-      const { icon, color, description, min_proofs, min_days, custom_icon } = row;
+      const { icon, color, description, min_proofs, min_days, custom_icon, custom_color } = row;
       return {
         campaign_id: row.campaign_id, name: row.name, category: campaign.category,
         leaderboard_id: result?.leaderboard_id ?? null, points: result?.points ?? 0, proof_count: result?.proof_count ?? 0,
-        stamp: { icon, color, description, min_proofs, min_days, custom_icon, ...progress(row, result) },
+        stamp: { icon, color, description, min_proofs, min_days, custom_icon, custom_color, ...progress(row, result) },
       };
     });
   }

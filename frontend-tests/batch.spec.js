@@ -297,7 +297,9 @@ test("partial batch keeps successes and retries only failed PUT/lost case items"
   await expect(page.locator("#batch-items .credentials")).toHaveCount(3);
   // Aborted transport is UNKNOWN. Mock Complete verifies the original bytes;
   // the client must not resend that PUT just because the response was lost.
-  expect(state.prepares.length).toBe(3); expect(state.puts).toEqual([0, 1, 2]);
+  expect(state.prepares).toHaveLength(3);
+  // The two active uploads may reach the route handler in either order.
+  expect([...state.puts].sort((a, b) => a - b)).toEqual([0, 1, 2]);
   expect(state.posts.length).toBe(4); expect(state.receipts.size).toBe(3);
   const groups=[...state.receipts.keys()].map(key=>state.posts.filter(p=>p.key===key));
   expect(groups.map(g=>g.length).sort()).toEqual([1,1,2]);

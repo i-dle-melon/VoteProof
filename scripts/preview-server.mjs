@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, relative, extname } from "node:path";
 import { buildPagesPreview } from "./build-pages-preview.mjs";
 const root = await buildPagesPreview(resolve(".wrangler/pages-preview"));
-const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".webp": "image/webp" };
+const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".webp": "image/webp", ".png": "image/png" };
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);

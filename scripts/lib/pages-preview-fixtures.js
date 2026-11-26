@@ -3,6 +3,7 @@ import { PREVIEW } from "./preview.js";
 import { previewState as state } from "./pages-preview-state.js";
 import { exportFixture } from './preview-exports.js';
 import {contentFixture,savePreviewContent} from './preview-content.js';
+import {createStampPreview} from './preview-stamps.js';
 const isStaff=['admin','super_admin','reviewer'].includes(state.identity),isManager=['admin','super_admin'].includes(state.identity);
 const staffMembers=[{nickname:'展示主管理員',fan_id:'preview_owner',role:'super_admin',status:'active'}];
 let previewLoggedOut=false;
@@ -30,11 +31,11 @@ export const campaign = {
 };
 const collectedCampaigns = [
   ["2026 MAMA FAN'CHOICE 第二輪", 8100, 2700, 2],
-  ['音放應援', 1140, 114, 6],
-  ['年度特別活動', 780, 78, 4],
-  ['排行榜應援', 630, 63, 8],
-  ['回歸應援', 420, 42, 7],
-  ['全球投票', 300, 30, 9],
+  ['音放應援', 0, 0, null],
+  ['年度特別活動', 0, 0, null],
+  ['排行榜應援', 0, 0, null],
+  ['回歸應援', 0, 0, null],
+  ['全球投票', 0, 0, null],
   ['冬日舞台投票', 0, 0, null],
   ['團體應援特輯', 0, 0, null],
   ['粉絲選擇獎', 0, 0, null],
@@ -172,6 +173,7 @@ export const cases = ["pending", "approved", "rejected", "pending", "completed"]
 );
 export const adminCases=[...cases,{...cases[0],case_id:"VP-PREVIEW-006",nickname:"匿名投稿",player_id:"匿名投稿",source:"guest",files:[{file_id:"PREVIEW-IMAGE-6",content_type:"image/png",size:4096}]},{...cases[0],case_id:"VP-PREVIEW-007",nickname:"展示其他粉絲",player_id:"preview_other_fan",review_stage:"detailed",review_risk_reason:"manual_flag",status_reason:"展示人工疑慮（假資料）",files:[{file_id:"PREVIEW-IMAGE-7",content_type:"image/png",size:4096}]}];
 export const previewCampaigns=[campaign,{...campaign,campaign_id:"PREVIEW-GROUP",name:"展示團體活動・假資料",category:"團體",solo_target:null}];
+const stamps = createStampPreview(collectedCampaigns, () => previewCampaigns);
 const soloTargets=['miyeon','minnie','soyeon','yuqi','shuhua'].map((target_id,i)=>({target_id,display_name:target_id.toUpperCase(),active:true,sort_order:i+1}));
 const partialFailures=new Set();
 const manualReviewAcks=new Map();
@@ -187,6 +189,17 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply("UI_PREVIEW_ONLY", 403);
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
+  const stampUpdate = /^\/api\/admin\/activity-stamps\/(PREVIEW-STAMP-[\da-f-]+)\/update$/.exec(p);
+  if (p === '/api/admin/activity-stamps' || stampUpdate) {
+    if (!isManager || previewLoggedOut) return reply('ADMIN_FORBIDDEN', 403);
+    if (url.search || state.data === 'error') return reply('SERVICE_UNAVAILABLE', 503);
+    if (method === 'GET' && !stampUpdate) return reply(stamps.list());
+    if (method !== 'POST') return reply('UI_PREVIEW_ONLY', 403);
+    try {
+      const [data, status] = stamps.update(typeof body === 'string' ? JSON.parse(body) : body, stampUpdate?.[1] ?? null);
+      return reply(data, status);
+    } catch { return reply('INVALID_STAMP_SETTING', 400); }
+  }
   if(p==='/api/auth/logout'){previewLoggedOut=true;return reply({logged_out:true});}
   if(!previewLoggedOut&&state.identity==='blocked'&&(p.startsWith('/api/me/')||p.startsWith('/api/auth/')||p.startsWith('/api/admin/')))return reply('MEMBER_SUSPENDED',403);
   if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(p)){
@@ -422,7 +435,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   }
   if (p === '/api/me/campaign-results') {
     if (state.identity === 'guest' || previewLoggedOut) return reply('AUTH_REQUIRED',401);
-    return reply({ campaigns:state.data==='empty'?[]:collectedCampaigns.map(({rank,...result})=>result) });
+    return reply({ campaigns:state.data==='empty'?[]:stamps.memberResults() });
   }
   if(p==='/api/me/point-transactions'){
     if(state.identity==='guest'||previewLoggedOut)return reply('AUTH_REQUIRED',401);

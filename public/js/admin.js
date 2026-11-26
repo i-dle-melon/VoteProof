@@ -10,6 +10,7 @@ import { memberContactUI } from './admin-member-contact.js';
 import { renderMemberOverview } from './admin-members-overview.js';
 import { renderHealthMonitor } from './admin-health-monitor.js';
 import {renderManualCleanup} from './admin-manual-cleanup.js';
+import {PREVIEW, previewStampEditor} from './preview.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -44,6 +45,7 @@ const submitButton = (form, label) => { const b = node("button", label, "btn btn
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
 const tabs = { overview: "工作總覽", announcements:'彈窗公告', members:'會員管理', cases: copy("admin-copy-017"), exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), submissions: '投稿開關', system: '系統', staff:'管理員管理' };
 const systemTabs = [['backups','Google Drive 備份'],['manualCleanup','R2 手動清理'],['healthMonitor','系統健康監控'],['audit',copy("admin-copy-022")]];
+const memberTabsList = [['members','會員列表'], ...(PREVIEW ? [['activityStamps','活動集章']] : []), ['tiers','會員等級'], ['blocks','會員封鎖']];
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
@@ -61,7 +63,8 @@ export function adminUI(session) {
   let campaignWatches=[];
   let adminInsightsStop=null;
   function collapseReview(){if(!expanded)return;expanded.panel.remove();for(const b of expanded.card.querySelectorAll("[aria-controls]"))b.setAttribute("aria-expanded","false");clearImages();expanded=null;}
-  let visible = false, tab = "cases", sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
+  const previewStampTab = PREVIEW && new URLSearchParams(location.search).get('preview_admin') === 'activity-stamps';
+  let visible = false, tab = previewStampTab ? 'activityStamps' : 'cases', sequence = 0, busy = false, controller = new AbortController(), urls = [], confirmedRole = null;
   function clearImages() { for (const url of urls) URL.revokeObjectURL(url); urls = []; }
   function clearPanel() { adminInsightsStop?.();adminInsightsStop=null;for(const stop of campaignWatches)stop();campaignWatches=[];backupDialog?.close();backupDialog?.remove();backupDialog=null;memberContact?.cleanup();memberContact=null;blockDialog?.close();blockDialog?.remove();blockDialog=null;clearAlbumImages();selectedReviews.clear();collapseReview();sequence++; controller.abort(); controller = new AbortController(); clearImages(); $("admin-panel").replaceChildren(); $("admin-panel").setAttribute("aria-busy", "false"); $("admin-panel").inert = $("admin-tabs").inert = false; busy = false; }
   const access = new AdminAccess(session, actor => {
@@ -728,6 +731,7 @@ export function adminUI(session) {
     d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;if(busy){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===cancel){e.preventDefault();confirm.focus();}else if(!e.shiftKey&&document.activeElement===confirm){e.preventDefault();cancel.focus();}});document.body.append(d);d.showModal();cancel.focus();
   }
   const loaders = { overview,
+    activityStamps:()=>{const born=sequence;return previewStampEditor({container:$('admin-panel'),request,mutate,run:action=>run(action,born),isCurrent:()=>born===sequence&&visible});},
     manualCleanup:async()=>{const born=sequence,stop=await renderManualCleanup({container:$('admin-panel'),request,run:action=>run(action,born,{review:true}),isCurrent:()=>born===sequence&&visible,loadProof:async row=>{await access.check(controller.signal);return session.adminProof('/api/admin/cases/'+row.case_id+'/files/'+row.file_id,controller.signal);}});if(born===sequence)adminInsightsStop=stop;else stop();},
     members:async()=>{const born=sequence,stop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
     healthMonitor:async()=>{const born=sequence,stop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
@@ -739,11 +743,11 @@ export function adminUI(session) {
       if (!canUseTab(actor,tab)) tab = "cases";
       $("admin-tabs").replaceChildren();
       for (const [key, label] of Object.entries(tabs)) if (canUseTab(actor,key)) {
-        const active=tab===key||key==='members'&&['tiers','blocks'].includes(tab)||key==='system'&&systemTabs.some(([child])=>child===tab);
+        const active=tab===key||key==='members'&&memberTabsList.some(([child])=>child===tab)||key==='system'&&systemTabs.some(([child])=>child===tab);
         const b = button(label, () => { if (!busy) { tab = key==='system'?'backups':key; void load(); } }, "btn " + (active ? "btn-primary" : "btn-white")); b.setAttribute("aria-pressed", String(active)); $("admin-tabs").append(b);
       }
       const toolbar=node('div','','admin-panel-toolbar'),memberTabs=node('nav','','tabs');memberTabs.setAttribute('aria-label','會員管理功能');
-      if(['members','tiers','blocks'].includes(tab))for(const [key,label]of [['members','會員列表'],['tiers','會員等級'],['blocks','會員封鎖']]){const b=button(label,()=>{if(!busy){tab=key;void load();}},'btn '+(tab===key?'btn-primary':'btn-white'));b.setAttribute('aria-pressed',String(tab===key));memberTabs.append(b);}
+      if(memberTabsList.some(([key])=>key===tab))for(const [key,label]of memberTabsList){const b=button(label,()=>{if(!busy){tab=key;void load();}},'btn '+(tab===key?'btn-primary':'btn-white'));b.setAttribute('aria-pressed',String(tab===key));memberTabs.append(b);}
       const systemNav=node('nav','','tabs');systemNav.setAttribute('aria-label','系統功能');
       if(systemTabs.some(([child])=>child===tab))for(const [key,label] of systemTabs){const b=button(label,()=>{if(!busy){tab=key;void load();}},'btn '+(tab===key?'btn-primary':'btn-white'));b.setAttribute('aria-pressed',String(tab===key));systemNav.append(b);}
       toolbar.append(memberTabs,systemNav,button(copy("admin-copy-144"), () => void load()));$("admin-panel").append(toolbar);await loaders[tab]();

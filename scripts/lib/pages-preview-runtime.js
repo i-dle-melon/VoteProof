@@ -19,6 +19,11 @@ export async function previewFetch(path, options = {}) {
   const { fixtureResponse } = await import("./preview-fixtures.js");
   return fixtureResponse(path, options);
 }
+export async function previewStampEditor(options) {
+  if (!PREVIEW) return;
+  const { renderStampEditor } = await import("./preview-stamp-editor.js");
+  if (options.isCurrent()) await renderStampEditor(options);
+}
 export function setupPreview() {
   if (!PREVIEW) throw Error("Isolated Preview marker/host required");
   document.documentElement.dataset.preview = "isolated";
@@ -26,7 +31,7 @@ export function setupPreview() {
   document.addEventListener(
     "submit",
     (event) => {
-      if(event.target.matches("#profile-form,#admin-panel .manual-cleanup-filter,[data-preview-review],[data-preview-export],[data-campaign-editor],[data-board-editor],[data-staff-editor],[data-announcement-editor],[data-block-editor],[data-member-lookup-editor],[data-member-mail-editor],.backup-missing-dialog [data-backup-list-pagination],.paginated-list-dialog [data-history-list-pagination]"))return;
+      if(event.target.matches("#profile-form,#admin-panel .manual-cleanup-filter,[data-preview-review],[data-preview-export],[data-preview-stamp-editor],[data-campaign-editor],[data-board-editor],[data-staff-editor],[data-announcement-editor],[data-block-editor],[data-member-lookup-editor],[data-member-mail-editor],.backup-missing-dialog [data-backup-list-pagination],.paginated-list-dialog [data-history-list-pagination]"))return;
       event.preventDefault();
       event.stopImmediatePropagation();
       document.getElementById("preview-action-status").textContent =

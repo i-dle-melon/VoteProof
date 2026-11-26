@@ -74,6 +74,9 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
     /csrf_token|query_key|recovery_codes|otpauth_uri|authorize_url|SUPABASE_|AUTH_SECRET/,
   );
   assert.match(fixture, /PREVIEW-MEMBER/);
+  assert.match(fixture, /preview-stamps\.js/);
+  assert.ok((await readFile(resolve(out, "assets/mama-stamp-wordmark.png"))).length > 0);
+  await assert.rejects(readFile("public/js/preview-stamp-editor.js"));
   assert.match(fixture, /method\s*!==\s*['"]GET['"]/);
   assert.match(await readFile("public/js/preview.js", "utf8"), /PREVIEW = false/);
   assert.doesNotMatch(

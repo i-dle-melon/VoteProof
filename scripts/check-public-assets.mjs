@@ -22,6 +22,7 @@ expected.push('js/admin-export.js','js/export-format.js','js/zip-store.js','js/e
 expected.push('js/leaderboard-ui.js','js/leaderboard-refresh.js','js/vote-date.js');
 expected.push('js/campaign-guidance.js','js/announcements.js','js/admin-proof-thumbnails.js');
 expected.push('js/campaign-collection.js');
+expected.push('assets/mama-stamp-wordmark.png');
 expected.push('js/admin-member-contact.js','js/admin-storage.js','js/paginated-dialog.js');
 expected.push('js/admin-audit.js');
 expected.push('js/admin-members-overview.js','js/admin-health-monitor.js');
@@ -35,6 +36,7 @@ for (const path of paths) {
     assert.equal(data.subarray(0, 4).toString(), "RIFF", "Invalid tier image");
     assert.equal(data.subarray(8, 12).toString(), "WEBP", "Invalid tier image");
   }
+  if (extname(path) === ".png") assert.equal(data.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "Invalid PNG asset");
   assert.equal(forbidden.test(source), false, "Sensitive literal found in static asset");
   if (extname(path) === ".js") {
     assert.equal(/console\.|localStorage\.setItem\((?!"(?:voteproof-theme|voteproof-announcement-opt-outs)")|sessionStorage|indexedDB/.test(source), false, "Browser module contains logging, credentials storage");

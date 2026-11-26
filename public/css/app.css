@@ -2879,7 +2879,6 @@ button.legacy-case-row:hover {
   --achievement-card: #261a31;
   --achievement-soft: #382344;
   --achievement-shine: #422758;
-  --stamp-shape: polygon(50% 0%,61% 8%,76% 6%,82% 20%,95% 27%,94% 42%,100% 50%,92% 62%,94% 76%,80% 82%,73% 96%,59% 93%,50% 100%,38% 92%,24% 94%,18% 80%,5% 72%,7% 58%,0 50%,8% 38%,6% 24%,20% 18%,27% 5%,42% 8%);
   max-width: 920px;
   margin-inline: auto;
   color: var(--achievement-ink);
@@ -2972,15 +2971,33 @@ button.legacy-case-row:hover {
 .achievement-stamp strong, .achievement-stamp small { max-width: 100%; overflow-wrap: anywhere; }
 .achievement-stamp strong { font-size: clamp(.68rem,1.8vw,.95rem); line-height: 1.27; }
 .achievement-stamp small { color: var(--achievement-muted); font-size: clamp(.62rem,1.6vw,.78rem); }
-.achievement-tone-1 { --stamp-core: #8735c7; --stamp-edge: #dcb2ff; }
-.achievement-tone-2 { --stamp-core: #a441b4; --stamp-edge: #ffbbea; }
-.achievement-tone-3 { --stamp-core: #147993; --stamp-edge: #a1fff4; }
-.achievement-medal { position: relative; isolation: isolate; display: grid; place-items: center; width: min(85%,110px); aspect-ratio: 1; color: #fff; margin: 2px auto 3px; }
+.achievement-tone-blue { --stamp-core: #2958cf; --stamp-edge: #6de9ff; }
+.achievement-tone-purple { --stamp-core: #8735c7; --stamp-edge: #dcb2ff; }
+.achievement-tone-pink { --stamp-core: #a441b4; --stamp-edge: #ffbbea; }
+.achievement-tone-teal { --stamp-core: #147993; --stamp-edge: #a1fff4; }
+.achievement-tone-gold { --stamp-core: #976013; --stamp-edge: #ffe8a3; }
+.achievement-tone-green { --stamp-core: #207a57; --stamp-edge: #a3f7c7; }
+.achievement-medal {
+  --stamp-shape: polygon(50% 0%,61% 8%,76% 6%,82% 20%,95% 27%,94% 42%,100% 50%,92% 62%,94% 76%,80% 82%,73% 96%,59% 93%,50% 100%,38% 92%,24% 94%,18% 80%,5% 72%,7% 58%,0 50%,8% 38%,6% 24%,20% 18%,27% 5%,42% 8%);
+  position: relative; isolation: isolate; display: grid; place-items: center; width: min(85%,110px); aspect-ratio: 1; color: #fff; margin: 2px auto 3px;
+}
 .achievement-medal::before, .achievement-medal::after { content: ''; position: absolute; inset: 0; clip-path: var(--stamp-shape); z-index: -1; }
 .achievement-medal::before { background: linear-gradient(145deg,#fff,var(--stamp-edge) 39%,var(--stamp-core) 72%,#fff); }
 .achievement-medal::after { inset: 3px; background: radial-gradient(circle at 31% 24%,#fff9,transparent 29%),radial-gradient(circle at 61% 86%,var(--stamp-edge),transparent 49%),var(--stamp-core); }
 .is-earned .achievement-medal { filter: drop-shadow(0 1px 6px var(--stamp-edge)); }
-.achievement-medal-symbol { font-size: clamp(1.25rem,5vw,2.65rem); line-height: 1; text-shadow: 0 1px 5px #281045; }
+.achievement-medal-symbol { font-size: clamp(1rem,4.5vw,2.4rem); line-height: 1; text-shadow: 0 1px 5px #281045; transform: translateY(-21%); }
+.achievement-wordmark { width: 62%; height: auto; max-width: none; transform: translateY(-32%); mix-blend-mode: screen; filter: grayscale(1) brightness(.68) contrast(12); }
+.achievement-laurel { position: absolute; left: 19%; right: 19%; bottom: 16%; height: 26%; pointer-events: none; }
+.achievement-laurel-branch { position: absolute; left: 0; bottom: 0; width: 46%; height: 100%; border-bottom: 1px solid currentColor; border-left: 1px solid currentColor; border-bottom-left-radius: 85%; transform: rotate(14deg); }
+.achievement-laurel-branch + .achievement-laurel-branch { left: auto; right: 0; transform: scaleX(-1) rotate(14deg); }
+.achievement-laurel-branch span { position: absolute; width: 29%; height: 29%; background: currentColor; border-radius: 85% 0 85% 0; box-shadow: 0 0 3px #fff4; }
+.achievement-laurel-branch span:nth-child(1) { left: -3%; bottom: 68%; transform: rotate(-72deg); }
+.achievement-laurel-branch span:nth-child(2) { left: -8%; bottom: 42%; transform: rotate(-33deg); }
+.achievement-laurel-branch span:nth-child(3) { left: 20%; bottom: 42%; transform: rotate(-78deg); }
+.achievement-laurel-branch span:nth-child(4) { left: 18%; bottom: 9%; transform: rotate(-12deg); }
+.achievement-laurel-branch span:nth-child(5) { left: 49%; bottom: 18%; transform: rotate(-61deg); }
+.is-locked .achievement-laurel { opacity: .5; }
+.achievement-rule { border-top: 1px solid var(--achievement-line); color: var(--achievement-muted); font-size: .84rem; margin: 0; padding: 10px 16px; }
 .achievement-check { position: absolute; top: 0; right: 1%; border: 2px solid #fff6ff; border-radius: 50%; width: clamp(17px,4vw,25px); aspect-ratio: 1; display: grid; place-items: center; background: #7b299d; color: #fff; font: 700 12px/1 system-ui; }
 .is-locked .achievement-medal { color: var(--achievement-muted); }
 .is-locked .achievement-medal::before { background: var(--achievement-line); }
@@ -2993,3 +3010,37 @@ button.legacy-case-row:hover {
   .achievement-banner { min-height: 118px; }
   .achievement-stamp { min-height: 86px; }
 }
+
+.stamp-editor-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; }
+.stamp-editor-heading h2, .stamp-editor-heading h3 { margin-block: 0; }
+.stamp-editor-totals { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin: 12px 0; }
+.stamp-editor-totals .card { padding: 10px 12px; text-align: center; }
+.stamp-editor-totals dt { color: var(--muted); font-size: .8rem; }
+.stamp-editor-totals dd { margin: 0; font-size: 1.4rem; font-weight: 800; }
+.stamp-editor-totals .card:first-child dd { color: var(--primary); }
+.stamp-workspace { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 14px; align-items: start; }
+.stamp-workspace > section { min-width: 0; padding: clamp(12px,2vw,20px); }
+.stamp-editor { display: grid; gap: 12px; }
+.stamp-editor h3, .stamp-editor h4, .stamp-editor p { margin: 0; }
+.stamp-fields { min-width: 0; margin: 0; padding: 11px; border: 1px solid var(--line); border-radius: 12px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.stamp-fields legend { font-weight: 750; padding-inline: 4px; }
+.stamp-fields .field { margin: 0; display: grid; align-content: start; gap: 5px; min-width: 0; }
+.stamp-fields :is(input,select,textarea) { width: 100%; min-width: 0; max-width: 100%; }
+.stamp-fields input[type="datetime-local"] { padding-inline: 8px; font-size: .9rem; }
+.stamp-full-field { grid-column: 1/-1; }
+.stamp-form-preview { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--achievement-line); border-radius: 14px; background: var(--achievement-soft); overflow-wrap: anywhere; }
+.stamp-form-preview small { color: var(--achievement-muted); }
+.stamp-form-art { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); text-align: center; gap: 4px; }
+.stamp-form-art .achievement-medal { width: min(100%,72px); }
+.stamp-form-preview .achievement-medal-symbol { font-size: clamp(1rem,2.2vw,1.45rem); }
+.stamp-form-preview .achievement-check, .stamp-admin-row .achievement-check { display: none; }
+.stamp-admin-list { display: grid; gap: 6px; margin-top: 10px; }
+.stamp-admin-row { display: grid; grid-template-columns: 43px minmax(0,1fr) auto; align-items: center; gap: 9px; text-align: left; min-width: 0; width: 100%; padding: 6px 9px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); cursor: pointer; }
+.stamp-admin-row[aria-pressed="true"] { border-color: var(--primary); }
+.stamp-admin-row .achievement-medal { width: 36px; }
+.stamp-admin-row .achievement-medal-symbol { font-size: 1.1rem; }
+.stamp-admin-detail { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.stamp-admin-detail small { color: var(--muted); }
+.stamp-row-action { font-size: .82rem; color: var(--primary); }
+@media (max-width: 780px) { .stamp-workspace { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 495px) { .stamp-fields .field:has(input[type="datetime-local"]) { grid-column: 1/-1; } }

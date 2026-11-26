@@ -1,5 +1,15 @@
+import { assetURL } from './preview.js';
+
 const number = new Intl.NumberFormat('zh-TW');
-const symbols = ['✦', '♪', '♡', '▥', '☆', '◎'];
+export const stampIcons = [
+  ['spark', '✦', '星芒'], ['music', '♪', '音符'], ['heart', '♡', '愛心'],
+  ['chart', '▥', '排行'], ['star', '☆', '星星'], ['globe', '◎', '全球投票'],
+  ['mama', 'MAMA', 'MAMA 字樣'],
+];
+export const stampColors = [
+  ['blue', '星光藍'], ['purple', '夢幻紫'], ['pink', '玫瑰粉'],
+  ['teal', '海洋青'], ['gold', '琥珀金'], ['green', '翡翠綠'],
+];
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -12,6 +22,27 @@ function decorative(tag, text, className) {
   const node = element(tag, text, className);
   node.setAttribute('aria-hidden', 'true');
   return node;
+}
+
+export function stampMedal({ icon, color, earned, index = 0 }) {
+  const colorKey = stampColors.find(([key]) => key === color)?.[0] ?? stampColors[index % 4][0];
+  const glyph = stampIcons.find(([key]) => key === icon)?.[1] ?? stampIcons[index % 6][1];
+  const medal = decorative('span', undefined, 'achievement-medal achievement-tone-' + colorKey);
+  if (earned && icon === 'mama') {
+    const image = element('img', undefined, 'achievement-wordmark');
+    image.src = assetURL('/assets/mama-stamp-wordmark.png');
+    image.alt = '';
+    medal.append(image);
+  } else medal.append(element('span', earned ? glyph : '', 'achievement-medal-symbol'));
+  const laurel = decorative('span', undefined, 'achievement-laurel');
+  for (let side = 0; side < 2; side++) {
+    const branch = element('span', undefined, 'achievement-laurel-branch');
+    for (let leaf = 0; leaf < 5; leaf++) branch.append(element('span'));
+    laurel.append(branch);
+  }
+  medal.append(laurel);
+  if (earned) medal.append(element('span', '✓', 'achievement-check'));
+  return medal;
 }
 
 function metric(label, value, className) {
@@ -97,24 +128,26 @@ export function campaignCollection(container, ranking) {
     stats.append(rank.stat, points.stat, proofs.stat);
     profile.append(who, stats);
     hero.append(banner, profile);
+    const rule = element('p', '', 'achievement-rule');
+    if (campaigns.some(c => c.stamp)) hero.append(rule);
 
     const heading = element('div', undefined, 'achievement-subhead');
-    heading.append(element('h2', '我的活動成果集章'), element('p', '每枚印章代表一個有計分投稿的已結束活動。'));
+    const configured = campaigns.some(c => c.stamp);
+    heading.append(element('h2', '我的活動成果集章'), element('p', configured ? '完成各活動的投稿門檻即可解鎖印章。' : '每枚印章代表一個有計分投稿的已結束活動。'));
     const collection = element('section', undefined, 'achievement-collection');
     const summary = element('header', undefined, 'achievement-collection-head');
     const count = element('p', '已收集 ');
-    count.append(element('strong', number.format(campaigns.filter(c => c.proof_count > 0).length)), document.createTextNode(' / ' + number.format(campaigns.length)));
+    const unlocked = campaign => campaign.stamp?.earned ?? campaign.proof_count > 0;
+    count.append(element('strong', number.format(campaigns.filter(unlocked).length)), document.createTextNode(' / ' + number.format(campaigns.length)));
     summary.append(element('h3', '應援成果卡'), count);
     const grid = element('ul', undefined, 'achievement-grid');
     const buttons = campaigns.map((campaign, i) => {
-      const earned = campaign.proof_count > 0;
+      const earned = unlocked(campaign);
       const entry = element('li');
       const button = element('button', undefined, 'achievement-stamp ' + (earned ? 'is-earned' : 'is-locked'));
       button.type = 'button';
-      button.classList.add('achievement-tone-' + (i % 4));
-      const stamp = decorative('span', undefined, 'achievement-medal');
-      stamp.append(element('span', earned ? symbols[i % symbols.length] : '', 'achievement-medal-symbol'));
-      if (earned) stamp.append(element('span', '✓', 'achievement-check'));
+      const isMama = campaign.campaign_id?.toLowerCase() === '2026_mama_fans_choice_2nd';
+      const stamp = stampMedal({ icon: isMama ? 'mama' : undefined, color: isMama ? 'blue' : undefined, ...campaign.stamp, earned, index: i });
       button.append(stamp, element('strong', campaign.name), element('small', earned ? number.format(campaign.points) + ' 點 · ' + number.format(campaign.proof_count) + ' 張' : '未解鎖'));
       button.addEventListener('click', () => void select(i));
       entry.append(button);
@@ -130,11 +163,17 @@ export function campaignCollection(container, ranking) {
       const campaign = campaigns[index];
       buttons.forEach((button, i) => button.setAttribute('aria-pressed', String(i === index)));
       name.textContent = campaign.name;
+      const stamp = campaign.stamp;
+      rule.hidden = !stamp;
+      if (stamp) {
+        const progress = `投稿 ${stamp.proof_count}／${stamp.min_proofs} 次 · ${stamp.proof_days}／${stamp.min_days} 天`;
+        rule.textContent = stamp.description ? stamp.description + ' · ' + progress : progress;
+      }
       category.textContent = campaign.category === 'Solo' ? 'Solo 應援活動' : '團體應援活動';
       points.amount.textContent = number.format(campaign.points);
       proofs.amount.textContent = number.format(campaign.proof_count);
       rank.amount.textContent = '—';
-      if (campaign.points <= 0) return;
+      if (campaign.points <= 0 || !campaign.leaderboard_id) return;
       try {
         const data = await ranking.get(campaign.leaderboard_id);
         if (signal.aborted || selection !== index) return;
@@ -144,7 +183,7 @@ export function campaignCollection(container, ranking) {
           rank.amount.textContent = '#' + number.format(mine.rank);
       } catch { /* Published rank is optional if the board cannot be read. */ }
     }
-    void select(Math.max(0, campaigns.findIndex(c => c.proof_count > 0)));
+    void select(Math.max(0, campaigns.findIndex(unlocked)));
   }
 
   return enter;

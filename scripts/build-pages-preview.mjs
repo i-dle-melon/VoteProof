@@ -55,6 +55,7 @@ export async function buildPagesPreview(output) {
     "js/app.js",
     "js/leaderboard-ui.js", "js/leaderboard-refresh.js", "js/vote-date.js",
     "js/campaign-collection.js",
+    "assets/mama-stamp-wordmark.png",
     "js/campaign-guidance.js", "js/announcements.js",
     "js/api.js",
     "js/member.js",
@@ -106,6 +107,8 @@ export async function buildPagesPreview(output) {
     "pages-preview-submission.js": "pages-preview-submission.js",
     "pages-preview-batch.js": "submission.js",
     "pages-preview-exports.js": "preview-exports.js",
+    "pages-preview-stamp-editor.js": "preview-stamp-editor.js",
+    "pages-preview-stamps.js": "preview-stamps.js",
   };
   for (const [from, to] of Object.entries(adapters))
     await cp(resolve("scripts/lib", from), resolve(allowed, "js", to));

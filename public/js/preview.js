@@ -6,9 +6,6 @@ export function previewAllowed(marker, hostname, protocol = "https:") {
 // Production cannot activate fixtures through DOM, query strings or storage.
 // The isolated builder replaces this whole transport module.
 export const PREVIEW = false;
-export async function previewStampEditor() {
-  return undefined;
-}
 export function assetURL(path) {
   return path;
 }

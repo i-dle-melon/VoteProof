@@ -51,6 +51,9 @@ export function reviewActions(status, role) {
   return status === "approved" ? ["complete", "revoke"] : status === "completed" ? ["revoke"] : [];
 }
 export const adminMessage = error => {
+  if(error?.code==='STAMP_SCHEMA_REQUIRED')return '活動集章尚未完成資料庫安裝。';
+  if(error?.code==='INVALID_STAMP_SETTING')return '請核對集章門檻、活動時間及圖案設定。';
+  if(error?.code==='STAMP_CONFLICT')return '集章或管理權限已變更，請重新載入後確認。';
   if(error?.code==='EXPORT_SCHEMA_NOT_READY')return '共用匯出尚未完成資料庫更新，請聯絡管理員。';
   if(error?.code==='EXPORT_PACKAGE_CONFLICT')return '工作已變更或其他管理員正在處理，請重新讀取；未重複下載。';
   if(error?.code==='INVALID_MEMBER_BLOCK')return '請填寫粉絲 ID 與 1～500 字原因，並確認操作。';

@@ -10,7 +10,8 @@ import { memberContactUI } from './admin-member-contact.js';
 import { renderMemberOverview } from './admin-members-overview.js';
 import { renderHealthMonitor } from './admin-health-monitor.js';
 import {renderManualCleanup} from './admin-manual-cleanup.js';
-import {PREVIEW, previewStampEditor} from './preview.js';
+import { PREVIEW } from './preview.js';
+import { renderStampEditor } from './activity-stamp-editor.js';
 
 const $ = id => document.getElementById(id);
 const copy = id => {
@@ -45,7 +46,7 @@ const submitButton = (form, label) => { const b = node("button", label, "btn btn
 const management = actor => ["admin", "super_admin"].includes(actor?.role);
 const tabs = { overview: "工作總覽", announcements:'彈窗公告', members:'會員管理', cases: copy("admin-copy-017"), exports: '圖片批次匯出', campaigns: copy("admin-copy-018"), leaderboards: copy("admin-copy-019"), submissions: '投稿開關', system: '系統', staff:'管理員管理' };
 const systemTabs = [['backups','Google Drive 備份'],['manualCleanup','R2 手動清理'],['healthMonitor','系統健康監控'],['audit',copy("admin-copy-022")]];
-const memberTabsList = [['members','會員列表'], ...(PREVIEW ? [['activityStamps','活動集章']] : []), ['tiers','會員等級'], ['blocks','會員封鎖']];
+const memberTabsList = [['members','會員列表'], ['activityStamps','活動集章'], ['tiers','會員等級'], ['blocks','會員封鎖']];
 const canUseTab=(actor,key)=>key==='staff'?actor?.role==='super_admin':['cases','overview','exports'].includes(key)||management(actor);
 
 export function adminUI(session) {
@@ -731,7 +732,7 @@ export function adminUI(session) {
     d.addEventListener('cancel',e=>{if(busy)e.preventDefault();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;if(busy){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===cancel){e.preventDefault();confirm.focus();}else if(!e.shiftKey&&document.activeElement===confirm){e.preventDefault();cancel.focus();}});document.body.append(d);d.showModal();cancel.focus();
   }
   const loaders = { overview,
-    activityStamps:()=>{const born=sequence;return previewStampEditor({container:$('admin-panel'),request,mutate,run:action=>run(action,born),isCurrent:()=>born===sequence&&visible});},
+    activityStamps:()=>{const born=sequence;return renderStampEditor({container:$('admin-panel'),request,mutate,run:action=>run(action,born),isCurrent:()=>born===sequence&&visible,preview:PREVIEW});},
     manualCleanup:async()=>{const born=sequence,stop=await renderManualCleanup({container:$('admin-panel'),request,run:action=>run(action,born,{review:true}),isCurrent:()=>born===sequence&&visible,loadProof:async row=>{await access.check(controller.signal);return session.adminProof('/api/admin/cases/'+row.case_id+'/files/'+row.file_id,controller.signal);}});if(born===sequence)adminInsightsStop=stop;else stop();},
     members:async()=>{const born=sequence,stop=await renderMemberOverview({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},
     healthMonitor:async()=>{const born=sequence,stop=await renderHealthMonitor({container:$('admin-panel'),request,signal:controller.signal});if(born===sequence)adminInsightsStop=stop;else stop();},

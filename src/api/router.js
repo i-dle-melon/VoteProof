@@ -8,6 +8,7 @@ import {adminMembersOverviewRoute} from './admin-members-overview.js';
 import {adminHealthMonitorRoute} from './admin-health-monitor.js';
 import { memberContactRoute } from './admin-member-contact.js';
 import { siteContentRoute } from './site-content.js';
+import { activityStampRoute } from './activity-stamps.js';
 import { jsonError } from "./response.js";
 import { prepareUpload, authorizeBatch, completeUpload, putUpload } from "./uploads.js";
 import { createCase, createDirectCase, getCase } from "./cases.js";
@@ -121,6 +122,7 @@ export async function routeApi(request, env, url) {
     adminHealthMonitorRoute(url.pathname) ??
     memberContactRoute(url.pathname) ??
     siteContentRoute(url.pathname,request.method) ??
+    activityStampRoute(url.pathname,request.method) ??
     imageExportRoute(url.pathname) ??
     campaignRoute(url.pathname, request.method) ??
     pointRoute(url.pathname) ??

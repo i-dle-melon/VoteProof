@@ -49,7 +49,15 @@ export function stampIconBlob(encoded) {
   return null;
 }
 
-function customStampIcon(encoded) {
+function customStampIcon(encoded, url) {
+  if (typeof url === 'string' &&
+      /^\/api\/(admin|me)\/activity-stamps\/[a-f0-9-]{36}\/icon\/[0-9]{1,16}$/.test(url)) {
+    const image = element('img', undefined, 'achievement-custom-icon');
+    image.alt = '';
+    image.loading = 'lazy';
+    image.src = url;
+    return image;
+  }
   const blob = stampIconBlob(encoded);
   if (!blob) return null;
   const canvas = element('canvas', undefined, 'achievement-custom-icon');
@@ -99,13 +107,13 @@ function maskedStampArt(path, className, brightness) {
   return canvas;
 }
 
-export function stampMedal({ icon, color, earned, index = 0, custom_icon, custom_color }) {
+export function stampMedal({ icon, color, earned, index = 0, custom_icon, custom_icon_url, custom_color }) {
   const customColor = color === 'custom' ? stampHexColor(custom_color) : null;
   const colorKey = customColor ? 'custom' : stampColors.find(([key]) => key === color)?.[0] ?? stampColors[index % 4][0];
   const glyph = stampIcons.find(([key]) => key === icon)?.[1] ?? stampIcons[index % 6][1];
   const medal = decorative('span', undefined, 'achievement-medal achievement-tone-' + colorKey);
   if (customColor) medal.style.setProperty('--stamp-core', customColor);
-  const artworkIcon = earned && icon === 'custom' ? customStampIcon(custom_icon) : null;
+  const artworkIcon = earned && icon === 'custom' ? customStampIcon(custom_icon, custom_icon_url) : null;
   if (artworkIcon) medal.append(artworkIcon);
   else if (earned && icon === 'mama') {
     medal.append(maskedStampArt('/assets/mama-stamp-wordmark.png', 'achievement-wordmark', .68));
@@ -220,7 +228,7 @@ export function campaignCollection(container, ranking) {
       button.type = 'button';
       const isMama = campaign.campaign_id?.toLowerCase() === '2026_mama_fans_choice_2nd';
       const stamp = stampMedal({ icon: isMama ? 'mama' : undefined, color: isMama ? 'blue' : undefined, ...campaign.stamp, earned, index: i });
-      const shortName = isMama || campaign.name === "2026 MAMA FAN'CHOICE 第二輪" ? 'MAMA 第二輪' : campaign.name;
+      const shortName = (!campaign.stamp && isMama) || campaign.name === "2026 MAMA FAN'CHOICE 第二輪" ? 'MAMA 第二輪' : campaign.name;
       if (shortName !== campaign.name) button.title = campaign.name;
       button.append(stamp, element('strong', shortName), element('small', earned ? number.format(campaign.points) + ' 點 · ' + number.format(campaign.proof_count) + ' 張' : '未解鎖'));
       button.addEventListener('click', () => void select(i));

@@ -19,11 +19,6 @@ export async function previewFetch(path, options = {}) {
   const { fixtureResponse } = await import("./preview-fixtures.js");
   return fixtureResponse(path, options);
 }
-export async function previewStampEditor(options) {
-  if (!PREVIEW) return;
-  const { renderStampEditor } = await import("./preview-stamp-editor.js");
-  if (options.isCurrent()) await renderStampEditor(options);
-}
 export function setupPreview() {
   if (!PREVIEW) throw Error("Isolated Preview marker/host required");
   document.documentElement.dataset.preview = "isolated";

@@ -1,6 +1,6 @@
 import { stampIcons, stampColors, stampMedal, stampHexColor } from './campaign-collection.js';
 import { taipeiInput, utcFromTaipei } from './admin-api.js';
-import { prepareStampIcon, stampPhase } from './preview-stamps.js';
+import { prepareStampIcon, stampPhase } from './activity-stamp-art.js';
 
 const phaseLabels = { open: '已開放', scheduled: '即將開放', ended: '已結束', draft: '草稿', hidden: '已隱藏' };
 const publication = [['draft', '草稿'], ['published', '公開'], ['hidden', '隱藏']];
@@ -33,7 +33,7 @@ function field(container, name, label, type, value, limits = {}) {
   return control;
 }
 
-export async function renderStampEditor({ container, request, mutate, run, isCurrent }) {
+export async function renderStampEditor({ container, request, mutate, run, isCurrent, preview }) {
   const { stamps, campaigns } = await request('activity-stamps');
   if (!isCurrent()) return;
 
@@ -85,7 +85,8 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     feedback.textContent = '';
     renderList(existing?.stamp_id);
     const form = node('form', '', 'stamp-editor');
-    form.dataset.previewStampEditor = '';
+    form.dataset.activityStampEditor = '';
+    if (preview) form.dataset.previewStampEditor = '';
     const titleRow = node('header', '', 'stamp-editor-heading');
     titleRow.append(node('h3', existing ? '編輯活動集章' : '新增活動集章'));
     if (existing) titleRow.append(action('刪除活動集章', () => {
@@ -95,13 +96,14 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
         if (!current()) return;
         stamps.splice(stamps.findIndex(row => row.stamp_id === existing.stamp_id), 1);
         open();
-        feedback.textContent = '已刪除預覽集章。';
+        feedback.textContent = preview ? '已刪除預覽集章。' : '已刪除活動集章。';
       });
     }, 'btn btn-review-reject stamp-delete'));
     form.append(titleRow);
-    const defaults = campaigns.find(c => c.campaign_id === existing?.campaign_id) ?? campaigns[0];
+    const currentCampaign = campaigns.find(c => c.campaign_id === existing?.campaign_id);
+    const defaults = currentCampaign ?? campaigns[0];
     if (!defaults) {
-      editor.replaceChildren(node('p', '目前沒有可選擇的活動。'));
+      editor.replaceChildren(titleRow, node('p', '目前沒有可選擇的活動。'));
       return;
     }
     function group(title) {
@@ -111,8 +113,10 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
       return section;
     }
     const general = group('基本設定');
-    const linked = field(general, 'campaign_id', '對應投票活動', 'select', defaults.campaign_id, {
-      choices: campaigns.map(c => [c.campaign_id, c.name]), required: true,
+    const campaignChoices = campaigns.map(c => [c.campaign_id, c.name]);
+    if (existing && !currentCampaign) campaignChoices.unshift(['', '請選擇可用活動']);
+    const linked = field(general, 'campaign_id', '對應投票活動', 'select', existing ? currentCampaign?.campaign_id ?? '' : defaults.campaign_id, {
+      choices: campaignChoices, required: true,
     });
     const name = field(general, 'name', '集章名稱', 'text', existing?.name ?? '', { required: true, maxLength: 60 });
     const description = field(general, 'description', '集章說明（選填）', 'textarea', existing?.description ?? '', { maxLength: 160, rows: 2 });
@@ -154,7 +158,8 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     const upload = field(appearance, 'custom_image', '上傳透明 PNG 圖案', 'file', '', { accept: 'image/png,.png' });
     const uploadField = upload.closest('label');
     uploadField.classList.add('stamp-full-field', 'stamp-upload');
-    const uploadStatus = node('span', existing?.custom_icon ? '已載入已儲存的圖案，可選擇新檔替換。' : 'PNG，最多 1 MB，長寬各最多 1024 像素。', 'tiny');
+    const existingArtwork = existing?.custom_icon || existing?.custom_icon_url;
+    const uploadStatus = node('span', existingArtwork ? '已載入已儲存的圖案，可選擇新檔替換。' : 'PNG，最多 1 MB，長寬各最多 1024 像素。', 'tiny');
     uploadStatus.setAttribute('role', 'status');
     uploadField.append(uploadStatus);
     const showUpload = () => { uploadField.hidden = upload.disabled = icon.value !== 'custom'; };
@@ -172,7 +177,8 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
       if (!lastArt || lastArt.icon !== art.icon || lastArt.color !== art.color || lastArt.custom_icon !== art.custom_icon || lastArt.custom_color !== art.custom_color) {
         const unlocked = node('div', '', 'is-earned');
         const locked = node('div', '', 'is-locked');
-        unlocked.append(stampMedal({ ...art, earned: true }), node('small', '已取得'));
+        const custom_icon_url = customIcon ? null : existing?.custom_icon_url;
+        unlocked.append(stampMedal({ ...art, custom_icon_url, earned: true }), node('small', '已取得'));
         locked.append(stampMedal({ ...art, earned: false }), node('small', '未解鎖'));
         visual.replaceChildren(unlocked, locked);
         lastArt = art;
@@ -201,7 +207,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
       } catch (error) {
         if (!form.isConnected || epoch !== uploadEpoch) return;
         upload.value = '';
-        uploadStatus.textContent = error.message + (customIcon ? ' 仍使用先前的圖案。' : '');
+        uploadStatus.textContent = error.message + (customIcon || existingArtwork ? ' 仍使用先前的圖案。' : '');
       } finally {
         if (epoch === uploadEpoch) readingIcon = false;
       }
@@ -235,7 +241,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
         message.textContent = '請輸入集章名稱。';
         return;
       }
-      if (icon.value === 'custom' && (readingIcon || !customIcon)) {
+      if (icon.value === 'custom' && (readingIcon || !(customIcon || existingArtwork))) {
         message.textContent = readingIcon ? '請等圖案讀取完成後再儲存。' : '請先上傳透明 PNG 圖案。';
         return;
       }
@@ -243,7 +249,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
         campaign_id: linked.value, name: name.value.trim(), description: description.value.trim(),
         min_proofs: proofs.valueAsNumber, min_days: days.valueAsNumber, opens_at, closes_at,
         icon: icon.value, color: color.value, status: status.value, sort_order: order.valueAsNumber,
-        ...(icon.value === 'custom' ? { custom_icon: customIcon } : {}),
+        ...(icon.value === 'custom' && customIcon ? { custom_icon: customIcon } : {}),
         ...(color.value === 'custom' ? { custom_color: stampHexColor(hex.value) } : {}),
         ...(existing ? { expected_version: existing.version } : {}),
       };
@@ -254,7 +260,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
         if (existing) stamps.splice(stamps.findIndex(row => row.stamp_id === stamp.stamp_id), 1, stamp);
         else stamps.push(stamp);
         open(stamp);
-        feedback.textContent = '已儲存預覽設定。可前往會員中心查看。';
+        feedback.textContent = preview ? '已儲存預覽設定。可前往會員中心查看。' : '已儲存集章設定。';
       });
     });
   }

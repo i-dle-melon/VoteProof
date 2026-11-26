@@ -34,7 +34,7 @@ export function validUploadedObject(key, object) {
     allowedMime(type) && key.endsWith("." + MIME_EXTENSIONS[type]);
 }
 
-export async function readUploadJson(request) {
+export async function readUploadJson(request, maxBytes = UPLOAD_LIMITS.maxJsonBytes) {
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
     throw new UploadError(400, "INVALID_JSON", "A JSON body is required");
   }
@@ -47,7 +47,7 @@ export async function readUploadJson(request) {
       const { value, done } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > UPLOAD_LIMITS.maxJsonBytes) {
+      if (bytes > maxBytes) {
         await reader.cancel();
         throw new UploadError(413, "INVALID_UPLOAD_REQUEST", "Upload metadata is too large");
       }

@@ -45,7 +45,7 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
     "admin.js", "admin-proof-thumbnails.js", "admin-member-contact.js",
     "admin-api.js",
     "ui-system.js",
-    "leaderboard-ui.js", "campaign-collection.js", "vote-date.js",
+    "leaderboard-ui.js", "campaign-collection.js", "activity-stamp-editor.js", "activity-stamp-art.js", "vote-date.js",
     "campaign-guidance.js", "announcements.js",
     "tier-artwork.js",
     "admin-export.js",

@@ -6,8 +6,8 @@ export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-
 const timestamp = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
   Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const invalid = () => { throw new AdminError(400, "INVALID_ADMIN_QUERY", "Invalid filters or pagination"); };
-export async function readReviewJson(request) {
-  try { return await readUploadJson(request); }
+export async function readReviewJson(request, maxBytes) {
+  try { return await readUploadJson(request, maxBytes); }
   catch (e) {
     if (e instanceof UploadError) throw new AdminError(e.status, e.code === "INVALID_UPLOAD_REQUEST" ? "INVALID_REVIEW_REQUEST" : e.code, "Invalid review JSON body");
     throw e;

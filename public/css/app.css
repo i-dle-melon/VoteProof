@@ -2847,6 +2847,30 @@ button.legacy-case-row:hover {
 [data-theme="light"] .admin-range-dialog{background:#fff;color:#111}
 
 .achievement-link { margin-bottom: 16px; }
+.member-points-tabs {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: .35rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+}
+.member-points-tabs button {
+  min-width: 0;
+  min-height: 44px;
+  padding: .4rem .2rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: clamp(.82rem,2.5vw,1.08rem);
+  font-weight: 750;
+  cursor: pointer;
+}
+.member-points-tabs button[aria-selected="true"] { color: var(--primary); border-bottom-color: currentColor; }
+.member-points-tabs button:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: .35rem; }
+#member-achievements-panel .achievement-profile { grid-template-columns: minmax(0,1fr); gap: 9px; }
+#member-achievements-panel .achievement-banner { min-height: 118px; }
+#member-achievements-panel .achievement-stamp { min-height: 86px; }
 .achievements {
   --achievement-ink: #f0defe;
   --achievement-muted: #cbb8d8;

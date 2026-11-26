@@ -79,3 +79,36 @@ test('Pages campaign collection shows synthetic stamps and updates the selected 
   await expect(panel.getByRole('link', { name: '登入會員' })).toBeVisible();
   await expect(panel.locator('.achievement-stamp')).toHaveCount(0);
 });
+
+test('Pages member center switches between points and campaign stamps in the same card', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 820 });
+  const preview = 'http://127.0.0.1:4174/VoteProof/';
+  await page.goto(preview + '?preview_identity=member#member');
+  const tabs = page.getByRole('tablist', { name: '會員成果' });
+  const points = tabs.getByRole('tab', { name: '點數與目前等級' });
+  const stamps = tabs.getByRole('tab', { name: '活動成果集章' });
+  const pointsPanel = page.locator('#member-points-panel');
+  const stampPanel = page.locator('#member-achievements-panel');
+
+  await expect(points).toHaveAttribute('aria-selected', 'true');
+  await expect(pointsPanel.locator('#member-points')).toHaveText('420');
+  await expect(stampPanel).toBeHidden();
+  expect((await stamps.boundingBox()).x).toBeGreaterThan((await points.boundingBox()).x);
+
+  await stamps.click();
+  await expect(page).toHaveURL(/#member$/);
+  await expect(stamps).toHaveAttribute('aria-selected', 'true');
+  await expect(pointsPanel).toBeHidden();
+  await expect(stampPanel.locator('.achievement-stamp')).toHaveCount(10);
+  await expect(stampPanel.locator('.achievement-rank dd')).toHaveText('#2');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await stamps.press('ArrowLeft');
+  await expect(points).toBeFocused();
+  await expect(stampPanel).toBeHidden();
+  await expect(pointsPanel.locator('#member-points')).toHaveText('420');
+
+  await page.goto(preview + '?preview_identity=guest#member');
+  await expect(tabs).toBeHidden();
+  await expect(page.locator('#member-gate')).toBeVisible();
+});

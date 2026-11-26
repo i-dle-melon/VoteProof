@@ -44,6 +44,7 @@ let submissionIdentityCheck = async () => {};
 let boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
 const rankingClient=new RankingClient(api),boardRefresh=new LeaderboardRefresher(loadBoards);
 const enterCollection=campaignCollection($('achievement-content'),rankingClient);
+const enterMemberCollection=campaignCollection($('member-achievements-panel'),rankingClient);
 boardRefresh.visibility(document.visibilityState==='visible');
 let homeBoardLoaded=false,homeBoardLoading=false;
 let voteDateEdited = false;
@@ -90,9 +91,36 @@ const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => c
   $("member-mode").disabled = !identity;
   $("member-mode").textContent = identity ? "會員 · " + identity.nickname : "會員 · 請先登入";
   syncOwnership(); admin?.identity(identity); renderBoardPosition();
-  void enterCollection(document.documentElement.dataset.route==='achievements',member.session);
+  syncCollections();
 } });
 admin = adminUI(member.session);
+
+const memberPointsTabs = [...$('member-points-tabs').querySelectorAll('[role="tab"]')];
+function syncCollections() {
+  const view = document.documentElement.dataset.route;
+  void enterCollection(view === 'achievements', member.session);
+  void enterMemberCollection(view === 'member' && Boolean(member.session.member) && !$('member-achievements-panel').hidden, member.session);
+}
+function showMemberPointsTab(tab) {
+  for (const button of memberPointsTabs) {
+    const selected = button === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    $(button.getAttribute('aria-controls')).hidden = !selected;
+  }
+  syncCollections();
+}
+for (const [index, tab] of memberPointsTabs.entries()) {
+  tab.addEventListener('click', () => showMemberPointsTab(tab));
+  tab.addEventListener('keydown', event => {
+    const nextIndex = { ArrowLeft: 1 - index, ArrowRight: 1 - index, Home: 0, End: 1 }[event.key];
+    if (!Number.isInteger(nextIndex)) return;
+    event.preventDefault();
+    const next = memberPointsTabs[nextIndex];
+    showMemberPointsTab(next);
+    next.focus();
+  });
+}
 
 function syncOwnership() {
   // Retries keep the captured owner; fresh submissions use the current member.
@@ -711,7 +739,7 @@ function navigate(focus = true) {
   if (focus) { $("view-" + view).querySelector("[data-view-title]").focus(); window.scrollTo(0, 0); }
   if (view === "submit") void loadSubmissionStatus().then(mountChallenge);
   boardRefresh.enter(view==='leaderboards');
-  void enterCollection(view==='achievements',member.session);
+  syncCollections();
   if(view==='home')void loadHomeBoard();
 }
 document.addEventListener('click',event=>{const link=event.target.closest('a[href^="#"]');if(link&&/^\/admin\/?$/.test(location.pathname)&&link.getAttribute('href')!=='#admin'){event.preventDefault();history.pushState(null,'','/'+link.getAttribute('href'));navigate();}});

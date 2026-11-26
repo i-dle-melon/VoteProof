@@ -1191,21 +1191,27 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                   <button class="btn btn-primary" type="submit" id="profile-save">保存資料</button>
                 </form>
                 <article class="card form-card">
-                  <h2>點數與目前等級</h2>
-                  <p id="points-status" role="status" aria-live="polite">正在載入…</p>
-                  <div id="points-content" hidden>
-                    <p>目前點數 <strong class="point-total" id="member-points"></strong></p>
-                    <div class="tier-artwork" id="member-tier-artwork"></div>
-                    <p>目前等級：<strong id="member-tier"></strong></p>
-                    <p id="tier-message"></p>
-                    <div id="tier-next" hidden>
-                      <label for="tier-progress">升級進度</label>
-                      <p id="tier-points"></p>
-                      <progress id="tier-progress" max="100" value="0"></progress>
-                      <p id="tier-gap"></p>
-                    </div>
+                  <div class="member-points-tabs" id="member-points-tabs" role="tablist" aria-label="會員成果">
+                    <button id="member-points-tab" type="button" role="tab" aria-selected="true" aria-controls="member-points-panel">點數與目前等級</button>
+                    <button id="member-achievements-tab" type="button" role="tab" aria-selected="false" aria-controls="member-achievements-panel" tabindex="-1">活動成果集章</button>
                   </div>
-                  <button class="btn btn-white" type="button" id="member-refresh">重新載入</button>
+                  <div id="member-points-panel" role="tabpanel" aria-labelledby="member-points-tab" tabindex="0">
+                    <p id="points-status" role="status" aria-live="polite">正在載入…</p>
+                    <div id="points-content" hidden>
+                      <p>目前點數 <strong class="point-total" id="member-points"></strong></p>
+                      <div class="tier-artwork" id="member-tier-artwork"></div>
+                      <p>目前等級：<strong id="member-tier"></strong></p>
+                      <p id="tier-message"></p>
+                      <div id="tier-next" hidden>
+                        <label for="tier-progress">升級進度</label>
+                        <p id="tier-points"></p>
+                        <progress id="tier-progress" max="100" value="0"></progress>
+                        <p id="tier-gap"></p>
+                      </div>
+                    </div>
+                    <button class="btn btn-white" type="button" id="member-refresh">重新載入</button>
+                  </div>
+                  <div id="member-achievements-panel" class="achievements" role="tabpanel" aria-labelledby="member-achievements-tab" tabindex="0" hidden></div>
                 </article>
               </div>
               <article class="card form-card points-record-card">

@@ -24,11 +24,15 @@ test('Preview upload contract boots every shared summary without module errors o
 });
 
 test('Pages loading notice leaves the preview upload stop button usable', async ({ page }) => {
+  await page.setViewportSize({ width: 667, height: 375 });
   await page.goto('http://127.0.0.1:4174/VoteProof/?preview_submission=uploading#submit');
   const notice = page.locator('#site-loading-notice');
   await expect(notice).toBeVisible();
   await expect(notice).toHaveCSS('pointer-events', 'none');
   await expect(notice).toContainText('正在處理投稿圖片');
+  const { width, height } = await notice.boundingBox();
+  expect(width).toBeCloseTo(height, 1);
+  expect(height).toBeLessThanOrEqual(375 / 4);
   await page.getByRole('button', { name: '停止後續上傳圖片' }).click();
   await expect(notice).toBeHidden();
   await expect(page.locator('#retry-note')).toContainText('已停止後續上傳');

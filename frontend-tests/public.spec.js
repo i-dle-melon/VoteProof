@@ -117,10 +117,18 @@ test('top loading notice allows stopping queued uploads and preserves the two in
     await expect(notice).toBeVisible();
     const position = await notice.evaluate(el => {
       const box = el.getBoundingClientRect();
-      return { top: box.top, offset: Math.abs(box.left + box.width / 2 - innerWidth / 2) };
+      return {
+        top: box.top,
+        offset: Math.abs(box.left + box.width / 2 - innerWidth / 2),
+        width: box.width,
+        height: box.height,
+        viewportHeight: window.visualViewport.height,
+      };
     });
     expect(position.top).toBeLessThan(40);
     expect(position.offset).toBeLessThan(2);
+    expect(position.width).toBeCloseTo(position.height, 1);
+    expect(position.height).toBeLessThanOrEqual(position.viewportHeight / 4);
     await page.getByRole('button', { name: '停止後續上傳圖片' }).click();
     await expect(notice).toContainText('正在完成已開始的圖片');
     release();

@@ -1,13 +1,13 @@
 // Fixtures feed shared render callbacks; no submission, query key or transport.
 import { previewState as state } from "./pages-preview-state.js";
 import { previewPicture } from "./preview-fixtures.js";
-export function submissionFixture() {
+export function submissionFixture(stopped = false) {
   const active = ["uploading", "success", "failed"].includes(state.submission);
   const items = active
     ? Array.from({ length: 3 }, (_, i) => ({
         name: "PREVIEW-" + (i + 1) + ".png",
         status:
-          state.submission === "success"
+          state.submission === "success" || stopped && i === 1
             ? "success"
             : state.submission === "failed" && i === 1
               ? "failed"
@@ -18,7 +18,7 @@ export function submissionFixture() {
                   : "queued",
         error: state.submission === "failed" && i === 1 ? "PUT_FAILED" : null,
         result:
-          state.submission === "success" || i === 0
+          state.submission === "success" || i === 0 || stopped && i === 1
             ? { case_id: "VP-PREVIEW-00" + (i + 1), status: "pending" }
             : null,
       }))
@@ -32,11 +32,12 @@ export function submissionFixture() {
     failed,
     unknown: 0,
     processing: items.length-succeeded-failed-queued,
-    retryable: state.submission === "failed" ? 2 : 0,
+    retryable: stopped ? 1 : state.submission === "failed" ? 2 : 0,
     queued,
     processed: succeeded+failed,
-    paused: state.submission === "failed",
-    fraction: state.submission==='success'?1:state.submission==='uploading'?.47:items.length?succeeded/items.length:0,
+    paused: stopped || state.submission === "failed",
+    stopped,
+    fraction: state.submission==='success'?1:state.submission==='uploading'&&!stopped?.47:items.length?succeeded/items.length:0,
     complete: active && state.submission === "success",
   };
 }

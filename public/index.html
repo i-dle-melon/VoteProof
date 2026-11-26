@@ -121,7 +121,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             </div>
             <div class="card hero campaign-stage">
               <span class="hero-label">投下支持，留下證明</span>
-              <h2 id="hero-campaign-name">正在載入活動…</h2>
+              <h2 id="hero-campaign-name" data-site-loading-status>正在載入活動…</h2>
               <p>活動開放投稿時，選擇活動並提交證明。案件查詢與排行榜隨時可用。</p>
               <p id="submission-gate-message" class="notice info" role="status" aria-live="polite">
                 正在確認投稿是否開放…
@@ -149,10 +149,10 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
             <div class="activity-grid">
               <article class="card activity-card">
                 <span class="tiny">目前活動</span
-                ><strong id="home-campaign-name">正在載入活動…</strong>
+                ><strong id="home-campaign-name" data-site-loading-status>正在載入活動…</strong>
               </article>
               <article class="card activity-card">
-                <span class="tiny">活動狀態</span><strong id="home-campaign-state">正在確認…</strong
+                <span class="tiny">活動狀態</span><strong id="home-campaign-state" data-site-loading-status>正在確認…</strong
                 ><span class="tiny" id="home-campaign-period"></span>
               </article>
               <article class="card activity-card">
@@ -399,6 +399,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 <label for="progress">投稿進度</label
                 ><progress id="progress" max="100" value="0"></progress>
                 <p id="progress-label" role="status" aria-live="polite"></p>
+                <button class="btn btn-white" id="stop-upload-button" type="button" hidden>停止後續上傳圖片</button>
                 <p class="notice warn upload-completion-hint">圖片上傳完成不代表投稿成功，請等畫面顯示「投稿成功」後再離開。</p>
               </div>
               <p class="error" id="submission-error" role="alert"></p>

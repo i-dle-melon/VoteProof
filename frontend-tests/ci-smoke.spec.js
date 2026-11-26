@@ -23,6 +23,18 @@ test('Preview upload contract boots every shared summary without module errors o
  expect(await page.evaluate(()=>document.cookie)).toBe('');
 });
 
+test('Pages loading notice leaves the preview upload stop button usable', async ({ page }) => {
+  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_submission=uploading#submit');
+  const notice = page.locator('#site-loading-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveCSS('pointer-events', 'none');
+  await expect(notice).toContainText('正在處理投稿圖片');
+  await page.getByRole('button', { name: '停止後續上傳圖片' }).click();
+  await expect(notice).toBeHidden();
+  await expect(page.locator('#retry-note')).toContainText('已停止後續上傳');
+  await expect(page.locator('#batch-counts')).toContainText('尚未開始：1');
+});
+
 test('Guest navigation and recovery controls boot without Preview auth', async ({ page }) => {
   await memberFixture(page);
   for(const view of ['home','submit','lookup','leaderboards','login','register','recover']) {

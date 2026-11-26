@@ -29,6 +29,7 @@ async function fixture(page, options = {}) {
         return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'UPLOAD_GRANT_INVALID',message:'Synthetic expired grant'}})});
       }
       state.uploadStates.get(path.split('/')[4]).present=!state.putPending;
+      if (options.holdPut) await options.holdPut;
       // Abort models a lost response after server admission; Complete below is
       // authoritative about whether bytes are available, never a blind success.
       if(state.putFailures-->0)return route.abort('failed');return route.fulfill({status:200,body:''});
@@ -102,6 +103,40 @@ async function form(page, files = 1) {
   await expect(page.locator("#challenge-status")).toHaveText("已完成人機驗證");
 }
 async function noOverflow(page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); }
+
+test('top loading notice allows stopping queued uploads and preserves the two in-flight cases', async ({ page }) => {
+  let release;
+  const holdPut = new Promise(resolve => { release = resolve; });
+  const state = await fixture(page, { holdPut });
+  try {
+    await form(page, 4);
+    await page.locator('#submit-button').click();
+    await expect.poll(() => state.puts.length).toBe(2);
+    const notice = page.locator('#site-loading-notice');
+    await expect(notice).toHaveCSS('pointer-events', 'none');
+    await expect(notice).toBeVisible();
+    const position = await notice.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return { top: box.top, offset: Math.abs(box.left + box.width / 2 - innerWidth / 2) };
+    });
+    expect(position.top).toBeLessThan(40);
+    expect(position.offset).toBeLessThan(2);
+    await page.getByRole('button', { name: '停止後續上傳圖片' }).click();
+    await expect(notice).toContainText('正在完成已開始的圖片');
+    release();
+    await expect(page.locator('#retry-note')).toContainText('已停止後續上傳');
+    await expect(notice).toBeHidden();
+    await expect(page.locator('#batch-counts')).toContainText('真正成功：2');
+    await expect(page.locator('#batch-counts')).toContainText('尚未開始：2');
+    expect(state.puts).toHaveLength(2);
+    const completed = [...state.receipts.keys()];
+    await page.getByRole('button', { name: '安全接續未完成項目' }).click();
+    await expect(page.locator('#submission-success')).toBeVisible();
+    expect(state.puts).toHaveLength(4);
+    expect(state.receipts.size).toBe(4);
+    for (const key of completed) expect(state.calls.filter(call => call.path === '/api/cases' && call.idempotency === key)).toHaveLength(1);
+  } finally { release(); }
+});
 
 test("home uses real campaign, independent paused state and published ranks without demo totals", async ({ page }) => {
   await fixture(page, { submissionsOff: true }); await page.goto("/");

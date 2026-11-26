@@ -477,6 +477,7 @@ export async function renderImageExports({ container, request, session, signal }
     void (async () => {
       querying = true;
       query.disabled = true;
+      form.setAttribute('aria-busy', 'true');
       try {
         const checked = (name) =>
             [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => i.value),
@@ -508,6 +509,7 @@ export async function renderImageExports({ container, request, session, signal }
       } finally {
         querying = false;
         query.disabled = false;
+        form.setAttribute('aria-busy', 'false');
       }
     })();
   });

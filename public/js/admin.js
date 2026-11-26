@@ -433,7 +433,7 @@ export function adminUI(session) {
       if(data.duplicate_evidence!==null)panel.append(renderDuplicateEvidence(data.duplicate_evidence));
       const preview = node("div", "", "admin-proof-grid"); panel.append(preview);
       for (const [index,file] of data.files.entries()) {
-        const imageCard=node("article","正在載入證明…","member-case");preview.append(imageCard);
+        const imageCard=node("article","正在載入證明…","member-case");imageCard.dataset.siteLoadingStatus='';preview.append(imageCard);
         if(['cold','deleting'].includes(file.storage_state)){imageCard.textContent=file.storage_state==='cold'?'圖片已從網站清理，無法預覽。':'圖片清理結果待確認，暫不提供讀取。';continue;}
         try {
           await access.check(controller.signal);

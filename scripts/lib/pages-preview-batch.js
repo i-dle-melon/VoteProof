@@ -4,11 +4,12 @@ import { submissionFixture } from "./pages-preview-submission.js";
 export { validateBatchImages, queryInformation, directIntentPocEnabled, uploadDiagnosticText } from "./submission-core.js";
 export class BatchSubmission extends RealBatchSubmission {
   #active = false;
+  #stopped = false;
   activatePreview() {
     this.#active = true;
   }
   get summary() {
-    return this.#active ? submissionFixture() : super.summary;
+    return this.#active ? submissionFixture(this.#stopped) : super.summary;
   }
   get pending() {
     return (
@@ -18,6 +19,12 @@ export class BatchSubmission extends RealBatchSubmission {
     );
   }
   get busy() {
-    return this.#active && previewState.gate === "on" && previewState.submission === "uploading";
+    return this.#active && !this.#stopped && previewState.gate === "on" && previewState.submission === "uploading";
+  }
+  requestStop() {
+    if (!this.busy) return false;
+    this.#stopped = true;
+    this.changed(this.summary);
+    return true;
   }
 }

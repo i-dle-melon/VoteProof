@@ -288,6 +288,7 @@ export class BatchSubmission {
   #inventoryWait = null;
   #inventoryRetryAt = 0;
   #pauseScheduling = false;
+  #stopRequested = false;
   constructor({ api, put, token, progress = () => {}, changed = () => {}, gate, now = Date.now,
     sleep = ms => new Promise(resolve=>setTimeout(resolve,ms)), directIntent = false, concurrency = 2 }) {
     if(![1,2].includes(concurrency))throw new PublicError('INVALID_CASE_REQUEST');
@@ -302,6 +303,18 @@ export class BatchSubmission {
   get pending() { return this.#items.some(item => !item.result); }
   get busy() { return this.#running !== null; }
   get error() { return this.#error; }
+  requestStop() {
+    if (!this.busy || this.#pauseScheduling) return false;
+    this.#stopRequested = this.#pauseScheduling = true;
+    this.changed(this.summary);
+    return true;
+  }
+  #stopBeforeDispatch() {
+    if (!this.#stopRequested) return false;
+    for (const item of this.#items) if (item.status === 'verify') item.status = 'queued';
+    this.changed(this.summary);
+    return true;
+  }
   #remember(diagnostic) {
     if(!this.#error)this.#error=Object.assign(new PublicError(diagnostic.code,diagnostic.http_status??0),{diagnostic,
       ...(diagnostic.upload_stage?{uploadStage:diagnostic.upload_stage}:{}),
@@ -331,7 +344,7 @@ export class BatchSubmission {
     const processing=items.length-succeeded-unknown-failed-queued;
     return { items, total: items.length, succeeded, failed: items.filter(item => item.status === "failed").length,
       queued, processing, unknown, retryable:items.some(i=>i.recovery==='hold')?0:items.filter(i=>!i.result).length,
-      processed:succeeded+failed+unknown,paused:this.#pauseScheduling,
+      processed:succeeded+failed+unknown,paused:this.#pauseScheduling,stopped:this.#stopRequested,
       fraction:items.length?items.reduce((n,i)=>n+(i.result?1:Math.min(.95,i.state?.fraction??0)*.95),0)/items.length:0,
       complete: items.length > 0 && succeeded === items.length };
   }
@@ -350,7 +363,7 @@ export class BatchSubmission {
     if (this.#items.length) throw new PublicError("SUBMISSION_PENDING");
     validateBatchImages(files);
     const input = normalizedMetadata(metadata);
-    this.#error = null;this.#pauseScheduling=false; this.#metadata=input;this.#caseApi=options.caseApi??this.dependencies.api;
+    this.#error = null;this.#pauseScheduling=false;this.#stopRequested=false; this.#metadata=input;this.#caseApi=options.caseApi??this.dependencies.api;
     this.#mode=typeof this.dependencies.directIntent==='function'?Boolean(this.dependencies.directIntent()):Boolean(this.dependencies.directIntent);
     this.#authorizationExpiresAt=null;
     this.#items = files.map((file, index) => {
@@ -371,7 +384,7 @@ export class BatchSubmission {
   }
   abandon() {
     if (this.busy) throw new PublicError("SUBMISSION_BUSY");
-    this.#items = []; this.#error = null;this.#pauseScheduling=false; this.#metadata = null;this.#caseApi=null;this.#authorizationExpiresAt=null; this.changed(this.summary);
+    this.#items = []; this.#error = null;this.#pauseScheduling=false;this.#stopRequested=false; this.#metadata = null;this.#caseApi=null;this.#authorizationExpiresAt=null; this.changed(this.summary);
   }
   attempt() {
     if (this.#running) return this.#running;
@@ -388,9 +401,10 @@ export class BatchSubmission {
   }
   async #attempt() {
     // Clear only this attempt's displayed error, never the item's first evidence.
-    this.#error=null;this.#pauseScheduling=false;
+    this.#error=null;this.#pauseScheduling=false;this.#stopRequested=false;
     // No prepare/PUT/complete/case happens before a fresh, fail-closed gate.
     await this.#checkGate();
+    if (this.#stopBeforeDispatch()) return this.summary;
     const held=this.#items.find(i=>!i.result&&i.flow.recovery==='hold');
     if(held){
       this.#pauseScheduling=true;
@@ -413,11 +427,16 @@ export class BatchSubmission {
       const now=this.dependencies.now??Date.now;
       for(const item of needs)item.status='verify';this.changed(this.summary);
       const files=[];
-      for(const item of needs)files.push(await item.flow.batchFile());
+      for(const item of needs){
+        files.push(await item.flow.batchFile());
+        if (this.#stopBeforeDispatch()) return this.summary;
+      }
       this.progress({phase:'batch_verify',count:this.#items.length,fraction:this.summary.fraction});
       const challenge=await this.dependencies.token();
+      if (this.#stopBeforeDispatch()) return this.summary;
       if(!challenge)throw new PublicError('TURNSTILE_REQUIRED');
       await this.#checkGate();
+      if (this.#stopBeforeDispatch()) return this.summary;
       const started=now();
       const data=await this.#caseApi('/api/uploads/batch/authorize',{method:'POST',body:{
         turnstile_token:challenge,campaign_id:this.#metadata.campaign_id,

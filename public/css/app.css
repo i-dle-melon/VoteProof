@@ -120,6 +120,39 @@ h3 {
 [hidden] {
   display: none !important;
 }
+.site-loading-notice {
+  position: fixed;
+  top: max(10px,env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100vw - 24px);
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--elevation-2);
+  font-size: .85rem;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.site-loading-notice > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.site-loading-spinner {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: site-loading-spin .75s linear infinite;
+}
+.site-loading-inline { display: none !important; }
+@keyframes site-loading-spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .site-loading-spinner { animation: none; } }
 /* =========================================================
    ACCESSIBILITY · 焦點與隱藏（請保留）
 ========================================================= */

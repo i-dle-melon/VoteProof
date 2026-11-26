@@ -161,13 +161,21 @@ const scoringLabel = c => c.daily_limit === 0 ? "本活動不計分" :
 function syncForm() {
   const ready = submissionReady();
   const canStart = ready || (gateChecking && selectionWasReady);
+  const summary = submission.summary;
   syncOwnership();
   $("submission-fields").disabled = !selectionReady() || submission.pending || submissionStarting;
   $("submit-button").disabled = !canStart || selectionPending > 0 || submissionStarting || submission.busy ||
-    (submission.pending && !submission.summary.retryable) || (!submission.pending && !campaignLoaded);
+    (submission.pending && !summary.retryable) || (!submission.pending && !campaignLoaded);
   $("submit-button").textContent = submissionStarting ? "確認投稿狀態…" : !canStart ? "投稿暫停" : selectionPending ? "正在載入圖片…" : submission.busy ? "正在送出…" : submission.pending ?
-    (submission.summary.retryable ? "安全接續未完成項目" : "結果待確認，請聯絡管理員") : submitLabel;
-  $("submission-form").setAttribute("aria-busy", String(submission.busy || submissionStarting));
+    (summary.retryable ? "安全接續未完成項目" : "結果待確認，請聯絡管理員") : submitLabel;
+  const form = $("submission-form"), stop = $("stop-upload-button");
+  const stopped = submission.busy && summary.stopped;
+  form.setAttribute("aria-busy", String(submission.busy || submissionStarting || selectionPending > 0));
+  form.dataset.siteBusyMessage = stopped ? "正在完成已開始的圖片…" : submissionStarting ? "正在確認投稿狀態…" :
+    submission.busy ? "正在處理投稿圖片…" : "正在載入圖片…";
+  stop.hidden = !submission.busy;
+  stop.disabled = submission.busy && summary.paused;
+  stop.textContent = stopped ? "已要求停止後續上傳" : "停止後續上傳圖片";
   $("submission-form").classList.toggle('submission-in-progress',submission.pending||submission.busy);
   $("abandon-button").hidden = !submission.pending;
   $("abandon-button").disabled = submission.busy;
@@ -346,7 +354,7 @@ function renderBatch(summary) {
   if(summary.total&&!submission.busy){
     $("progress").value=summary.complete?100:Math.min(99,Math.round(summary.fraction*100));
     $("progress-label").textContent=`處理完成 ${summary.processed}／${summary.total} · 成功 ${summary.succeeded} · 未確認 ${summary.unknown} · 已確認失敗 ${summary.failed} · ${
-      summary.complete?'全部案件已確認成功':summary.paused?'已停止啟動新圖片，請保留分頁':'處理進度不代表投稿成功'}`;
+      summary.complete?'全部案件已確認成功':summary.stopped?'已停止後續上傳':summary.paused?'已停止啟動新圖片，請保留分頁':'處理進度不代表投稿成功'}`;
   }
   $("batch-new").hidden = !summary.complete;
   if(!summary.total){batchRows.clear();$("batch-items").replaceChildren();}
@@ -425,6 +433,15 @@ function renderSubmissionFailure(error) {
     "已成功案件會保留。接續只處理安全項目；結果待確認時只核對原上傳／原案件，不直接重傳。請保持此分頁開啟。" :
     "結果無法安全確認，已停止自動重送。請保存成功案件資訊並聯絡管理員，不要另建重複投稿。";
 }
+function renderStoppedUpload() {
+  $("retry-note").hidden = false;
+  $("retry-note").textContent = "已停止後續上傳。未開始的圖片仍留在這一批，可按「安全接續未完成項目」繼續。";
+}
+$("stop-upload-button").addEventListener("click", () => {
+  if (!submission.requestStop()) return;
+  syncForm();
+  if (!submission.busy) renderStoppedUpload();
+});
 $("batch-download").addEventListener('click',()=>downloadReceipts(submission.summary.items.filter(i=>i.result).map(i=>i.result)));
 $("receipt-download").addEventListener('click',()=>downloadReceipts(success?[success]:[]));
 $("batch-copy").addEventListener("click", async () => {
@@ -466,6 +483,7 @@ $("submission-form").addEventListener("submit", async (event) => {
   try {
     const batch = await attempt;
     if (batch.succeeded) void member.loadRecentCases();
+    if (!batch.complete && batch.stopped && !submission.error) { renderStoppedUpload(); return; }
     if (!batch.complete) throw submission.error ?? new PublicError("BATCH_INCOMPLETE");
     void member.loadRecentCases();
     renderSubmissionReceipt(batch);

@@ -12,7 +12,11 @@ for(const consistent of [false,true])test('pending boot '+(consistent?'consisten
  const pending=new Promise(r=>release=r);
  await page.route('**/api/auth/me',async route=>{await pending;await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data:{member:state.member,csrf_token:state.csrf,expires_in:600}})});});
  try{
-  await page.goto('/#login');await expect(page.locator('#login-session-status')).toBeVisible();await expect(page.locator('#login-content')).toBeHidden();
+  await page.goto('/#login');
+  const notice = page.locator('#site-loading-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText('正在確認登入狀態…');
+  await expect(page.locator('#login-content')).toBeHidden();
   const methods=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/auth/login-security');
   state.authenticated=consistent;release();const response=await methods;
   expect(response.status()).toBe(consistent?200:401);

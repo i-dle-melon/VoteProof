@@ -62,7 +62,10 @@ test("login stays hidden while the initial session probe is pending", async ({ p
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, data: { member: state.member, csrf_token: state.csrf, expires_in: 600 } }) });
   });
   try {
-    await page.goto("/#login"); await expect(page.locator("#login-session-status")).toBeVisible();
+    await page.goto("/#login");
+    const notice = page.locator("#site-loading-notice");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("正在確認登入狀態…");
     await expect(page.locator("#login-content")).toBeHidden();
     const reads=['/api/auth/login-security','/api/me/points','/api/me/cases'].map(path=>page.waitForResponse(r=>new URL(r.url()).pathname===path));
     // Boot /auth/me and subsequent member reads must describe the same session.

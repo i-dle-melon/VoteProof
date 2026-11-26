@@ -1,7 +1,7 @@
 // Read only. Match Wrangler 4.156.2's no-route scope; never log payloads.
 import {mkdir,writeFile,appendFile,readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-import {CASE_COMPLETION_CRON} from '../../src/lib/case-auto-completion.js';
+import {isCaseCompletionCron} from '../../src/lib/case-auto-completion.js';
 const account='7a1ae5a3d1e51008d0880ac526740717';
 const database='9e2b885d-66e2-4e4d-b768-4bded261296a';
 export function assertLocalRoutingScope(local){
@@ -83,7 +83,7 @@ export async function metadataPreflight({accountId,token,localConfig,fetcher=fet
    const schedules=result.data?.schedules;
    if(!Array.isArray(schedules)||schedules.some(item=>typeof item?.cron!=='string'))
     return finish(false,'REMOTE_SCHEDULES_UNKNOWN');
-   if(schedules.length!==1||schedules[0].cron!==CASE_COMPLETION_CRON)
+   if(schedules.length!==1||!isCaseCompletionCron(schedules[0].cron))
     return finish(false,'UNEXPECTED_REMOTE_SCHEDULES');
   }
  }

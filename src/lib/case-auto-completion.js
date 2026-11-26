@@ -1,4 +1,11 @@
-export const CASE_COMPLETION_CRON = '*/30 * * * *';
+export const CASE_COMPLETION_CRON = '0 0 1 nov *';
+
+export function isCaseCompletionCron(cron) {
+  if (typeof cron !== 'string') return false;
+  const expression = cron.trim().toLowerCase().replace(/\s+/g, ' ');
+  return expression === CASE_COMPLETION_CRON || expression === '0 0 1 11 *';
+}
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const BATCH_LIMIT = 200;
 const APPROVAL_TIME = 'COALESCE(status_updated_at, reviewed_at)';

@@ -118,11 +118,13 @@ test('unknown environment metadata or schedules hold with explicit diagnostics',
   assert.equal(r.reason,Object.hasOwn(overrides,3)?'REMOTE_ENVIRONMENT_METADATA_UNKNOWN':'REMOTE_SCHEDULES_UNKNOWN');
  }
 });
-test('only the approved automatic completion schedule passes',async()=>{
- const approved={cron:CASE_COMPLETION_CRON},unexpected={cron:'15,45 * * * *'};
- const f=fixture({overrides:{4:{schedules:[{...approved,created_on:'2026-11-26T02:25:00Z'}]}}});
- assert.equal((await f.run()).ok,true);
- for(const schedules of [[],[unexpected],[approved,unexpected],[approved,approved]]){
+test('only the annual November 1 automatic completion schedule passes',async()=>{
+ const approved={cron:'0 0 1 nov *'},unexpected={cron:'*/30 * * * *'};
+ for(const cron of [approved.cron,'0 0 1 NOV *','0 0 1 11 *']){
+  const f=fixture({overrides:{4:{schedules:[{cron,created_on:'2026-11-26T02:25:00Z'}]}}});
+  assert.equal((await f.run()).ok,true);
+ }
+ for(const schedules of [[],[unexpected],[{cron:'15,45 * * * *'}],[approved,unexpected],[approved,approved]]){
   const result=await fixture({overrides:{4:{schedules}}}).run();
   assert.equal(result.reason,'UNEXPECTED_REMOTE_SCHEDULES');assert.equal(result.ok,false);
   assert.equal(result.mutations,0);

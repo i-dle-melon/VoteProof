@@ -21,6 +21,7 @@ const expected = ["_headers", "_redirects", "css/app.css", "index.html", "js/api
 expected.push('js/admin-export.js','js/export-format.js','js/zip-store.js','js/export-worker.js');
 expected.push('js/leaderboard-ui.js','js/leaderboard-refresh.js','js/vote-date.js');
 expected.push('js/campaign-guidance.js','js/announcements.js','js/admin-proof-thumbnails.js');
+expected.push('js/campaign-collection.js');
 expected.push('js/admin-member-contact.js','js/admin-storage.js','js/paginated-dialog.js');
 expected.push('js/admin-audit.js');
 expected.push('js/admin-members-overview.js','js/admin-health-monitor.js');

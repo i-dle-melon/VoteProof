@@ -55,10 +55,11 @@ test('reject stop finishes only current chunk, and never runs approve concurrent
  let release;const wait=new Promise(r=>release=r),f=await reviewFixture(page,{wait});page.on('dialog',d=>d.accept(d.type()==='prompt'?'Reason':undefined));await enter(page);await page.getByRole('button',{name:'選取全部未審案件',exact:true}).click();
  try{await page.locator('#admin-batch-reject').click();await expect.poll(()=>f.posts.length).toBe(1);await expect(page.locator('#admin-batch-approve')).toBeDisabled();await page.getByRole('button',{name:'停止後續批次'}).click();release();await expect(page.locator('.batch-review-results')).toContainText('已停止');expect(f.posts).toHaveLength(1);expect(f.state.cases.filter(c=>c.status==='rejected')).toHaveLength(4);}finally{release();}
 });
-async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFiles=false}={}){
+async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFiles=false,withoutArchive=false}={}){
  const state=await adminFixture(page,{autoConfirm:false}),at='2026-10-01T00:00:00.000Z',cutoff=new Date().toISOString(),calls=[];
  const rows=Array.from({length:25},(_,i)=>({file_id:randomUUID(),case_id:caseId(i),case_version:2,backup_version:1,size:3,status:'completed',eligible:true,cleanup_state:null,reason:'執行前將即時驗證Drive',ordinal:i}));
  Object.assign(rows[0],{archive_source:'export',backup_version:null,reason:'已確認下載；清理前會重新核對匯出紀錄及 R2'});
+ if(withoutArchive)Object.assign(rows[1],{status:'duplicate',archive_source:'none',backup_version:null,reason:'依案件狀態可清理 R2，無需備份、下載或等待 7 天'});
  await page.route('**/api/admin/storage/manual**',async route=>{
   const r=route.request(),u=new URL(r.url()),p=u.pathname,body=r.postData()?r.postDataJSON():null;
   const allowEarlyExport=u.searchParams.get('allow_early_export')==='1';
@@ -66,7 +67,7 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFi
   calls.push({p,method:r.method(),body,allowEarlyExport,summary});
   if(p==='/api/admin/storage/manual'){
    const all=rows.filter(r=>r.cleanup_state===null).map(row=>{
-    const eligible=!earlyFiles||row.ordinal>1||(row.archive_source==='export'&&allowEarlyExport);
+    const eligible=!earlyFiles||row.ordinal>1||row.archive_source==='none'||(row.archive_source==='export'&&allowEarlyExport);
     return {...row,eligible,reason:eligible?row.reason:'結案後尚未滿7天'};
    });
    const eligibleCount=all.filter(r=>r.eligible).length;
@@ -96,6 +97,21 @@ test('manual cleanup all covers 25 files over pages, first20 is stable and each 
 test('manual cleanup unknown stops without re-delete',async({page})=>{
  const f=await cleanupFixture(page,{unknown:true});page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('未確認 1');
  expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(1);await expect(page.getByRole('checkbox',{name:'選取圖片 '+f.rows[0].file_id,exact:true})).toBeDisabled();
+});
+test('archive-free duplicate can be selected without the early download checkbox',async({page})=>{
+ const f=await cleanupFixture(page,{earlyFiles:true,withoutArchive:true}),[recentExport,duplicate]=f.rows;
+ const box=row=>page.getByRole('checkbox',{name:'選取圖片 '+row.file_id,exact:true});
+ await expect(box(recentExport)).toBeDisabled();
+ await page.getByRole('button',{name:'選取前20張可清理圖片',exact:true}).click();
+ await expect(box(duplicate)).toBeChecked();
+ await page.getByRole('button',{name:'清除目前選取',exact:true}).click();
+ await box(duplicate).check();
+ page.on('dialog',d=>{expect(d.message()).toContain('清理後將無法取回原圖');return d.accept();});
+ await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();
+ await expect(page.locator('#admin-panel')).toContainText('已清理 1');
+ expect(f.calls.filter(c=>c.method==='POST').map(c=>c.body)).toEqual([
+  {file_id:duplicate.file_id,case_version:duplicate.case_version,backup_version:null,attempt_id:expect.any(String),without_archive:true}
+ ]);
 });
 test('early export checkbox resets selection and only opts in confirmed downloads',async({page})=>{
  const f=await cleanupFixture(page,{earlyFiles:true}),[exported,driveOnly]=f.rows;
@@ -183,5 +199,12 @@ test('a visible current-comeback campaign also gets its own named ranking button
 test('isolated Preview mocks reject and keeps manual cleanup read-only without API transport',async({page})=>{
  const realApi=[],errors=[];page.on('request',r=>{const u=new URL(r.url());if(u.pathname.includes('/api/'))realApi.push(u.origin+u.pathname);});page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept(d.type()==='prompt'?'Preview reason':undefined));
  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_identity=admin#admin');await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');await page.locator('#admin-tabs').getByRole('button',{name:'案件審核',exact:true}).click();await page.locator('[data-review-select]').first().check();await page.locator('#admin-batch-reject').click();await expect(page.locator('.batch-review-results')).toContainText('成功 1');
- await selectAdminTab(page,'R2 手動清理');await expect(page.locator('#admin-panel')).toContainText('目前只提供唯讀候選清單');await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(realApi).toEqual([]);expect(errors).toEqual([]);
+ await selectAdminTab(page,'R2 手動清理');await expect(page.locator('#admin-panel')).toContainText('目前只提供唯讀候選清單');
+ await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();
+ await expect(page.locator('#admin-panel')).toContainText('已選 3 張');
+ await page.getByRole('combobox',{name:'案件狀態',exact:true}).selectOption('revoked');
+ await page.getByRole('button',{name:'搜尋',exact:true}).click();
+ await expect(page.locator('#admin-panel article')).toHaveCount(1);
+ await expect(page.locator('#admin-panel article')).toContainText('revoked');
+ await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(realApi).toEqual([]);expect(errors).toEqual([]);
 });

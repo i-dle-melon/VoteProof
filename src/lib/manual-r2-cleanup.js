@@ -7,11 +7,14 @@ import {ISOLATED_FINAL_PREFIX,isIsolatedFinalKey} from './proof-generation.js';
 const at=()=>Math.floor(Date.now()/1000),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const LEGACY_CUTOFF='2026-11-24T16:00:00.000Z'; // 2026-11-25 00:00 in Taipei.
 const LEGACY_OPERATIONS_END='2026-11-06T18:38:36.141Z';
+const noArchiveStatuses=['duplicate','rejected','revoked'];
+const noArchiveStatusSql=`c.status IN('${noArchiveStatuses.join("','")}')`;
 const fail=(code='MANUAL_CLEANUP_BLOCKED',status=409)=>new AdminError(status,code,'圖片清理安全條件未成立；未重送刪除。');
 const message='圖片已清理，備份保存在 Google Drive';
 export const CLEANED_PROOF_MESSAGE=message;
 const exportMessage='圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。';
-const cleanedMessage=saved=>saved?.archive_source==='export'?exportMessage:message;
+export const CLEANED_R2_PROOF_MESSAGE='圖片已從 R2 清理，無法線上預覽。';
+const cleanedMessage=saved=>saved?.archive_source==='none'?CLEANED_R2_PROOF_MESSAGE:saved?.archive_source==='export'?exportMessage:message;
 // The prior valid=1 INSERT + DELETE cost three written rows per guard.
 // A failed assertion still INSERTs valid=0 and aborts the entire D1 batch;
 // success writes no guard row. Fence/Permit and all business writes remain.
@@ -64,7 +67,7 @@ export function cleanupEligibility(env){
 const candidateSafety=({isolatedProofs,legacyOperations,legacyDriveReady})=>isolatedProofs
  ?`(CASE WHEN f.object_key GLOB '${ISOLATED_FINAL_PREFIX}*'
  THEN (${isolatedReceipt}) IS NOT NULL AND ${isolatedOperationsSafe}
- ELSE ${legacyOperationsSafe}${legacyOperations?` OR (${legacyDriveReady?'':'d.file_id IS NOT NULL AND '}${reviewedLegacyOperationsSafe} AND (${legacyReceipt}) IS NOT NULL)`:''} END) AND ${capacitySafe}`
+ ELSE ${legacyOperationsSafe}${legacyOperations?` OR (${legacyDriveReady?'':`(${noArchiveStatusSql} OR d.file_id IS NOT NULL) AND `}${reviewedLegacyOperationsSafe} AND (${legacyReceipt}) IS NOT NULL)`:''} END) AND ${capacitySafe}`
  :`${legacyOperationsSafe} AND ${capacitySafe}`;
 const unfinishedExport=until=>`EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id
  LEFT JOIN export_packages pkg ON pkg.job_id=e.job_id AND pkg.number=e.package_no
@@ -84,8 +87,8 @@ const driveBound=`b.status='confirmed' AND b.lease_until IS NULL AND b.drive_fil
  AND b.source_object_key=f.object_key AND b.source_size=f.size AND b.source_etag=f.etag AND b.source_mime=f.content_type`;
 const exportMatch=`d.file_id=f.id AND d.etag=f.etag AND d.file_size=f.size AND d.content_type=f.content_type`;
 const candidateSql=eligibility=>`SELECT f.id file_id,c.id case_internal_id,c.case_id,c.campaign_id,c.status,c.created_at,c.updated_at,c.version case_version,
- f.size,f.object_key,f.created_at file_created_at,CASE WHEN d.file_id IS NULL THEN b.version END backup_version,b.status backup_status,
- CASE WHEN d.file_id IS NOT NULL THEN 'export' WHEN ${driveBound} THEN 'drive' END archive_source,
+ f.size,f.object_key,f.created_at file_created_at,CASE WHEN NOT ${noArchiveStatusSql} AND d.file_id IS NULL THEN b.version END backup_version,b.status backup_status,
+ CASE WHEN ${noArchiveStatusSql} THEN 'none' WHEN d.file_id IS NOT NULL THEN 'export' WHEN ${driveBound} THEN 'drive' END archive_source,
  p.state cleanup_state,p.verification_context,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,
  (${backupQuiet}) backup_quiet,
  EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved') has_reservation,
@@ -93,10 +96,11 @@ const candidateSql=eligibility=>`SELECT f.id file_id,c.id case_internal_id,c.cas
  (${listedUnfinishedExport("strftime('%Y-%m-%dT%H:%M:%fZ','now')")}
  OR EXISTS(SELECT 1 FROM export_file_claims e WHERE e.file_id=f.id AND e.lease_until>CAST(strftime('%s','now') AS INTEGER))) has_export,
  (${candidateSafety(eligibility)}) r2_safe,
- CASE WHEN (d.file_id IS NOT NULL OR (${driveBound})) AND ${backupQuiet} AND f.size BETWEEN 1 AND 5242880
- AND c.status IN('completed','rejected','duplicate','revoked') AND c.reviewed_at IS NOT NULL
+ CASE WHEN (${noArchiveStatusSql} OR (c.status='completed' AND c.reviewed_at IS NOT NULL
+ AND (d.file_id IS NOT NULL OR (${driveBound}))
  AND julianday(coalesce(c.status_updated_at,c.updated_at))<=julianday(?,
-  CASE WHEN ?=1 AND d.file_id IS NOT NULL THEN '0 days' ELSE '-${ARCHIVE_RETENTION_DAYS} days' END)
+  CASE WHEN ?=1 AND d.file_id IS NOT NULL THEN '0 days' ELSE '-${ARCHIVE_RETENTION_DAYS} days' END)))
+ AND ${backupQuiet} AND f.size BETWEEN 1 AND 5242880
  AND (p.file_id IS NULL OR p.state IN('blocked','dry_run')) AND ${fileSafe(listedUnfinishedExport('?'))} AND ${candidateSafety(eligibility)}
  AND NOT EXISTS(SELECT 1 FROM storage_audit a WHERE a.id='manual-cleanup:dispatch:'||f.id) THEN 1 ELSE 0 END eligible
  FROM case_files f JOIN cases c ON c.id=f.case_id LEFT JOIN proof_backups b ON b.file_id=f.id AND b.provider='google_drive'
@@ -142,14 +146,17 @@ export async function cleanupCandidates(db,url,eligibility={}){
  }
  const rows=page.slice(0,20),last=rows.at(-1);
  return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,file_created_at,case_internal_id,has_reservation,has_pin,has_export,r2_safe,backup_quiet,verification_context,...r})=>{
+  const withoutArchive=r.archive_source==='none';
   const reasons=[];if(!r.archive_source)reasons.push('尚無符合目前圖片版本的 Drive 備份或已確認下載的匯出');
   if(!backup_quiet)reasons.push('Drive 備份作業尚未結束');
-  if(!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at)reasons.push('案件尚未完成可清理審核');
+  if(!withoutArchive&&(r.status!=='completed'||!r.reviewed_at))reasons.push('案件尚未完成可清理審核');
   const closedAt=Date.parse(r.closed_at);
   const withinRetention=closedAt>cutoffMs-86400000*ARCHIVE_RETENTION_DAYS;
   const earlyExport=f.allowEarlyExport&&r.archive_source==='export'&&withinRetention;
-  if(!Number.isFinite(closedAt)||closedAt>cutoffMs)reasons.push('無法確認結案時間');
-  else if(withinRetention&&!earlyExport)reasons.push('結案後尚未滿7天');
+  if(!withoutArchive){
+   if(!Number.isFinite(closedAt)||closedAt>cutoffMs)reasons.push('無法確認結案時間');
+   else if(withinRetention&&!earlyExport)reasons.push('結案後尚未滿7天');
+  }
   if(has_reservation)reasons.push('有未決Reservation');if(has_pin)reasons.push('有Write Pin');if(has_export)reasons.push('有效匯出或下載lease尚未結束');
   if(!r2_safe){
    const needsDriveRelay=eligibility.legacyOperations&&!eligibility.legacyDriveReady&&r.archive_source==='drive'
@@ -158,7 +165,7 @@ export async function cleanupCandidates(db,url,eligibility={}){
   }
   if(r.cleanup_state==='verifying')reasons.push('已有驗證作業；不按逾時接管');if(r.cleanup_state==='deleting')reasons.push('DELETE結果待人工核對，不會重送');
   if(r.cleanup_state==='cold')return{...r,eligible:false,reason:cleanedMessage(context({verification_context}))};
-  const archiveReason=r.archive_source==='export'
+  const archiveReason=withoutArchive?'依案件狀態可清理 R2，無需備份、下載或等待 7 天':r.archive_source==='export'
    ?(earlyExport?'結案未滿 7 天，已確認下載；清理前會重新核對匯出紀錄及 R2':'已確認下載；清理前會重新核對匯出紀錄及 R2')
    :'清理前會即時驗證 Drive 和 R2';
   return{...r,eligible:!!r.eligible,reason:r.eligible?archiveReason:reasons.join('；')||'清理狀態需人工確認'};
@@ -166,8 +173,9 @@ export async function cleanupCandidates(db,url,eligibility={}){
 }
 export function cleanupInput(body){
  const version=v=>Number.isSafeInteger(v)&&v>=0;
- if(!body||Object.keys(body).filter(k=>k!=='allow_early_export').sort().join(',')!=='attempt_id,backup_version,case_version,file_id'
+ if(!body||Object.keys(body).filter(k=>k!=='allow_early_export'&&k!=='without_archive').sort().join(',')!=='attempt_id,backup_version,case_version,file_id'
   ||(Object.hasOwn(body,'allow_early_export')&&typeof body.allow_early_export!=='boolean')
+  ||(Object.hasOwn(body,'without_archive')&&(body.without_archive!==true||body.backup_version!==null||Object.hasOwn(body,'allow_early_export')))
   ||!uuid.test(body.file_id??'')||!uuid.test(body.attempt_id??'')||!version(body.case_version)||(body.backup_version!==null&&!version(body.backup_version)))throw fail('INVALID_CLEANUP_REQUEST',400);
  return body;
 }
@@ -178,15 +186,15 @@ async function readiness(env){
 }
 async function source(env,input){
  const db=env.DB;
- const exportSource=input.backup_version===null;
+ const withoutArchive=input.without_archive===true,exportSource=input.backup_version===null&&!withoutArchive;
  let r;
- if(exportSource){
+ if(withoutArchive||exportSource){
   r=await db.prepare(`SELECT f.id file_id,f.object_key,f.size,f.etag,f.content_type,c.id case_internal_id,c.status,c.version case_version,
-   c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,d.job_id,d.package_no,d.confirmed_at,d.confirmed_by,
+   c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,${exportSource?'d.job_id,d.package_no,d.confirmed_at,d.confirmed_by,':''}
    (SELECT sha256 FROM proof_exact_hashes h WHERE h.file_id=f.id AND h.source_etag=f.etag AND h.source_size=f.size) known_sha
-   FROM case_files f JOIN cases c ON c.id=f.case_id JOIN export_completed_files d ON ${exportMatch}
+   FROM case_files f JOIN cases c ON c.id=f.case_id ${exportSource?`JOIN export_completed_files d ON ${exportMatch}`:''}
    WHERE f.id=? AND ${backupQuiet}`).bind(input.file_id).first();
-  if(r)r={...r,archive_source:'export',backup_version:null};
+  if(r)r={...r,archive_source:withoutArchive?'none':'export',backup_version:null};
  }else{
   const f=await db.prepare('SELECT object_key FROM case_files WHERE id=?').bind(input.file_id).first();
   const drive=f?await coldContext(db,f.object_key):null;
@@ -195,9 +203,10 @@ async function source(env,input){
  const closedAt=Date.parse(r?.closed_at);
  const allowEarlyExport=exportSource&&input.allow_early_export===true;
  const latestAllowed=(at()-(allowEarlyExport?0:86400*ARCHIVE_RETENTION_DAYS))*1000;
- if(!r||r.file_id!==input.file_id||r.case_version!==input.case_version||r.backup_version!==input.backup_version||r.size<1||r.size>5242880
-  ||!['completed','rejected','duplicate','revoked'].includes(r.status)||!r.reviewed_at
-  ||!Number.isFinite(closedAt)||closedAt>latestAllowed)throw fail();
+ if(!r||r.file_id!==input.file_id||r.case_version!==input.case_version||r.backup_version!==input.backup_version||r.size<1||r.size>5242880)throw fail();
+ const noArchiveStatus=noArchiveStatuses.includes(r.status);
+ const canUseArchive=(r.status==='completed'||noArchiveStatus)&&r.reviewed_at&&Number.isFinite(closedAt)&&closedAt<=latestAllowed;
+ if(!(withoutArchive?noArchiveStatus:canUseArchive))throw fail();
  if(env.PRELAUNCH_RESET_CONTEXT?.isolatedProofs&&isIsolatedFinalKey(r.object_key)){
   const version=await db.prepare(`SELECT (${isolatedReceipt}) AS version
    FROM case_files f JOIN cases c ON c.id=f.case_id WHERE f.id=?`).bind(r.file_id).first('version');
@@ -205,7 +214,7 @@ async function source(env,input){
   r.isolated_r2_version=version;
  }else{
   const {legacyOperations,legacyDriveReady}=cleanupEligibility(env);
-  if(legacyOperations&&(r.archive_source==='export'||legacyDriveReady)&&r.object_key.startsWith('proofs/final/g')){
+  if(legacyOperations&&(withoutArchive||r.archive_source==='export'||legacyDriveReady)&&r.object_key.startsWith('proofs/final/g')){
    const version=await db.prepare(`SELECT (${legacyReceipt}) AS version
     FROM case_files f JOIN cases c ON c.id=f.case_id WHERE f.id=?`).bind(r.file_id).first('version');
    if(version){r.legacy_r2_version=version;r.legacy_operations=legacyOperations;}
@@ -220,7 +229,7 @@ function guards(row,actor){
    ?{sql:`(${legacyOperationsSafe} OR (${reviewedLegacyOperationsSafe} AND (${legacyReceipt})=?))`,
      args:[row.legacy_operations,row.legacy_r2_version]}
    :{sql:legacyOperationsSafe,args:[]};
- const durableSource=row.archive_source==='export'
+ const durableSource=row.archive_source==='none'?{sql:'1',args:[]}:row.archive_source==='export'
   ?{sql:`EXISTS(SELECT 1 FROM export_completed_files d WHERE ${exportMatch} AND d.job_id=? AND d.package_no=? AND d.confirmed_at=? AND d.confirmed_by=?)`,
     args:[row.job_id,row.package_no,row.confirmed_at,row.confirmed_by]}
   :{sql:`EXISTS(SELECT 1 FROM proof_backups b WHERE b.file_id=f.id AND b.provider='google_drive' AND b.id=? AND b.version=?
@@ -234,7 +243,7 @@ function guards(row,actor){
  AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=? AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe(unfinishedExport('?'))} AND ${operations.sql})`,
  args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at(),...operations.args]},
  ];}
-const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,archive_source:row.archive_source,...(row.allow_early_export?{allow_early_export:true}:{}),...(row.legacy_r2_version?{reviewed_legacy_candidate:true}:{}),...detail}));
+const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,archive_source:row.archive_source,...(row.archive_source==='none'?{case_status:row.status}:{}),...(row.allow_early_export?{allow_early_export:true}:{}),...(row.legacy_r2_version?{reviewed_legacy_candidate:true}:{}),...detail}));
 function context(p){try{return JSON.parse(p?.verification_context??'null');}catch{return null;}}
 const sameObject=(o,row,sha,version)=>o&&o.etag===row.etag&&o.size===row.size&&o.httpMetadata?.contentType===row.content_type&&o.version&&(!version||o.version===version)&&r2VerifiedSha256(o)===sha;
 export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}={}){
@@ -252,9 +261,10 @@ export async function verifyCleanup(env,actor,input,{verify=verifyDriveArchive}=
  try{
   const object=await env.PROOFS_BUCKET.head(row.object_key),sha=r2VerifiedSha256(object);
   if(!sha||!sameObject(object,row,sha,row.isolated_r2_version??row.legacy_r2_version)||row.known_sha&&row.known_sha!==sha)throw fail('MANUAL_CLEANUP_R2_MISMATCH');
-  const v=row.archive_source==='export'
-   ?{sha256:sha,verified_at:at(),receipt:{job_id:row.job_id,package_no:row.package_no,confirmed_at:row.confirmed_at,confirmed_by:row.confirmed_by}}
-   :await verify(env,row,sha);
+  const v=row.archive_source==='drive'?await verify(env,row,sha)
+   :{sha256:sha,verified_at:at(),receipt:row.archive_source==='export'
+     ?{job_id:row.job_id,package_no:row.package_no,confirmed_at:row.confirmed_at,confirmed_by:row.confirmed_by}
+     :null};
   const verifiedAt=v.verified_at;
   if(v.sha256!==sha||!Number.isSafeInteger(verifiedAt)||verifiedAt>at()||at()-verifiedAt>ARCHIVE_VERIFICATION_TTL)throw fail('MANUAL_CLEANUP_DRIVE_MISMATCH');
   if(!sameObject(await env.PROOFS_BUCKET.head(row.object_key),row,sha,object.version))throw fail('MANUAL_CLEANUP_R2_MISMATCH');

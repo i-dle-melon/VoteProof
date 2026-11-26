@@ -12,6 +12,7 @@ import { setDefaultVoteDate } from "./vote-date.js";
 import {RankingClient,LeaderboardRefresher} from './leaderboard-refresh.js';
 import {campaignGuidance} from './campaign-guidance.js';
 import {setupAnnouncements} from './announcements.js';
+import {campaignCollection} from './campaign-collection.js';
 
 setupPreview();
 setupUI();
@@ -42,6 +43,7 @@ let campaignAvailability = "正在載入活動…";
 let submissionIdentityCheck = async () => {};
 let boardLoading = false, boardSequence = 0, lookupBusy = false, publicBoards = [], currentBoard = null;
 const rankingClient=new RankingClient(api),boardRefresh=new LeaderboardRefresher(loadBoards);
+const enterCollection=campaignCollection($('achievement-content'),rankingClient);
 boardRefresh.visibility(document.visibilityState==='visible');
 let homeBoardLoaded=false,homeBoardLoading=false;
 let voteDateEdited = false;
@@ -88,6 +90,7 @@ const member = memberUI({ summaryChanged:renderHomeMember, campaignName: id => c
   $("member-mode").disabled = !identity;
   $("member-mode").textContent = identity ? "會員 · " + identity.nickname : "會員 · 請先登入";
   syncOwnership(); admin?.identity(identity); renderBoardPosition();
+  void enterCollection(document.documentElement.dataset.route==='achievements',member.session);
 } });
 admin = adminUI(member.session);
 
@@ -698,16 +701,17 @@ function navigate(focus = true) {
   const requested = location.hash.slice(1) || (/^\/admin\/?$/.test(location.pathname)?"admin":"home");
   if(requested==="about"){history.replaceState(null,"",location.pathname+location.search+"#home");navigate(false);document.dispatchEvent(new Event("voteproof-about-open"));return;}
   if (requested === "main") { $("main").focus(); return; }
-  const view = ["home", "submit", "lookup", "leaderboards", "about", "register", "login", "recover", "member", "google", "security", "admin"].includes(requested) ? requested : "home";
+  const view = ["home", "submit", "lookup", "leaderboards", "achievements", "about", "register", "login", "recover", "member", "google", "security", "admin"].includes(requested) ? requested : "home";
   document.documentElement.dataset.route=view;
   member.enter(view); admin.enter(view);
   for (const section of $("main").querySelectorAll("[data-view-panel]")) section.hidden = section.id !== "view-" + view;
   for (const link of document.querySelectorAll("[data-view]")) {
-    if (link.dataset.view === view) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+    if (link.dataset.view === view || view === "achievements" && link.dataset.view === "leaderboards") link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
   }
   if (focus) { $("view-" + view).querySelector("[data-view-title]").focus(); window.scrollTo(0, 0); }
   if (view === "submit") void loadSubmissionStatus().then(mountChallenge);
   boardRefresh.enter(view==='leaderboards');
+  void enterCollection(view==='achievements',member.session);
   if(view==='home')void loadHomeBoard();
 }
 document.addEventListener('click',event=>{const link=event.target.closest('a[href^="#"]');if(link&&/^\/admin\/?$/.test(location.pathname)&&link.getAttribute('href')!=='#admin'){event.preventDefault();history.pushState(null,'','/'+link.getAttribute('href'));navigate();}});

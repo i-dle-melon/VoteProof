@@ -47,7 +47,7 @@ export class MemberSession {
     this.changed(this.#member);
   }
   async request(path, { method = "GET", body, headers = {}, signal } = {}) {
-    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|point-transactions|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|uploads\/(?:prepare|complete|batch\/authorize)|cases(?:\/direct)?)$/.test(path))
+    if (path.includes("..") || !/^\/api\/(?:auth\/(?:[a-z/-]+|trusted-devices\/[a-f0-9-]{36}\/revoke)|me\/(?:profile|points|point-transactions|campaign-results|cases(?:\/[A-Z0-9-]+)?)(?:\?[^#]*)?|uploads\/(?:prepare|complete|batch\/authorize)|cases(?:\/direct)?)$/.test(path))
       throw new PublicError("INVALID_AUTH_REQUEST");
     return this.#send(path, { method, body, headers, signal });
   }
@@ -102,6 +102,9 @@ export class MemberSession {
     const revision = this.#revision, data = await this.request("/api/auth/me");
     if (revision === this.#revision) this.accept(data);
     return data;
+  }
+  campaignResults(signal) {
+    return this.request('/api/me/campaign-results', { signal });
   }
   // Capture the owner at logical submission start. Recheck the actual cookie
   // owner before EVERY case attempt (including cross-tab login/logout). A

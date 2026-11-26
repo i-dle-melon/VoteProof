@@ -70,6 +70,32 @@ export const getMemberCase = authHandler(async (env, url, request) => {
   return jsonSuccess({ ...data, files: await guestFiles(authDatabase(env), id) });
 });
 
+export const memberCampaignResults = authHandler(async (env, url, request) => {
+  const member = await memberSession(request, env);
+  if (url.search) throw new AuthError(400, 'INVALID_CAMPAIGN_RESULTS_QUERY', 'Invalid campaign results query');
+  const { results } = await authDatabase(env).prepare(`WITH eligible AS (
+    SELECT c.campaign_id,c.name,c.category,c.end_at,(
+      SELECT b.leaderboard_id FROM leaderboards b
+      WHERE b.campaign_id=c.campaign_id AND b.type='campaign' AND b.status='active' AND b.is_public=1
+        AND (b.vote_type IS NULL OR b.vote_type=c.category)
+      ORDER BY b.is_current_comeback DESC,b.created_at,b.leaderboard_id LIMIT 1
+    ) leaderboard_id
+    FROM campaigns c
+    WHERE (c.status='closed' OR (c.status='active' AND julianday(c.end_at)<=julianday(?)))
+      AND c.category IN('團體','Solo')
+  ), recent AS (
+    SELECT * FROM eligible WHERE leaderboard_id IS NOT NULL ORDER BY end_at DESC,campaign_id LIMIT 10
+  )
+  SELECT r.*,COALESCE(SUM(p.points),0) points,COALESCE(SUM(CASE
+    WHEN p.category IN('proof_approved','proof_reapproved') THEN 1 WHEN p.category='proof_revoked' THEN -1 ELSE 0 END),0) proof_count
+  FROM recent r JOIN leaderboards b ON b.leaderboard_id=r.leaderboard_id
+  LEFT JOIN point_transactions p ON p.member_id=? AND p.campaign_id=r.campaign_id
+    AND (b.vote_type IS NULL OR p.vote_type=b.vote_type)
+  GROUP BY r.campaign_id ORDER BY r.end_at DESC,r.campaign_id`)
+    .bind(new Date().toISOString(), member.member_id).all();
+  return jsonSuccess({ campaigns: results });
+});
+
 export const checkNickname = authHandler(async (env,_url,request)=>{
  const db=await authContext(request,env),input=profileInput(await readAuthJson(request));
  if(Object.keys(input).length!==1 || !input.nickname)throw new AuthError(400,"INVALID_AUTH_REQUEST","請提供暱稱。");

@@ -53,11 +53,29 @@ test('Pages shared UI, mobile themes and fixture transport stay public-safe', as
   for(const width of [320,390,430,1024,1440])for(const theme of ['dark','light']) {
     await page.setViewportSize({width,height:900});
     if(await page.locator('html').getAttribute('data-theme')!==theme)await page.locator('#theme-toggle').click();
-    for(const view of ['home','lookup','leaderboards','member','admin']) {
+    for(const view of ['home','lookup','leaderboards','achievements','member','admin']) {
       await page.evaluate(v=>{location.hash=v;},view); await expect(page.locator('#view-'+view)).toBeVisible();
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     }
   }
   expect(errors).toEqual([]);
   expect(requests.filter(r=>new URL(r.url).origin!==origin||new URL(r.url).pathname.includes('/api/')||!['GET','HEAD'].includes(r.method))).toEqual([]);
+});
+
+test('Pages campaign collection shows synthetic stamps and updates the selected result', async ({ page }) => {
+  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_theme=light#leaderboards');
+  await page.getByRole('link', { name: '查看我的活動成果集章' }).click();
+  const panel = page.locator('#view-achievements');
+  await expect(panel.getByRole('heading', { name: '活動成果集章', exact: true })).toBeVisible();
+  await expect(panel.locator('.achievement-collection-head')).toContainText('已收集 6 / 10');
+  await expect(panel.locator('.achievement-rank dd')).toHaveText('#2');
+  await expect(panel.locator('.achievement-metrics')).toContainText('8,100');
+  await panel.getByRole('button', { name: /音放應援/ }).click();
+  await expect(panel.locator('.achievement-banner h2')).toHaveText('音放應援');
+  await expect(panel.locator('.achievement-rank dd')).toHaveText('#6');
+  await panel.getByRole('button', { name: /冬日舞台投票/ }).click();
+  await expect(panel.locator('.achievement-rank dd')).toHaveText('—');
+  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_identity=guest#achievements');
+  await expect(panel.getByRole('link', { name: '登入會員' })).toBeVisible();
+  await expect(panel.locator('.achievement-stamp')).toHaveCount(0);
 });

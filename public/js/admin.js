@@ -439,7 +439,7 @@ export function adminUI(session) {
           const url=URL.createObjectURL(blob),img=node("img");urls.push(url);img.src=url;img.alt=copy("admin-copy-053")+(index+1);imageCard.replaceChildren(img);
         } catch(error) {
           if(["ADMIN_FORBIDDEN","ADMIN_STEP_UP_REQUIRED","AUTH_REQUIRED","MEMBER_SUSPENDED"].includes(error.code))throw error;
-          if(['PROOF_ARCHIVED_IN_DRIVE','PROOF_ARCHIVED_IN_EXPORT'].includes(error.code)){imageCard.replaceChildren(node('p',error.message));continue;}
+          if(['PROOF_ARCHIVED_IN_DRIVE','PROOF_ARCHIVED_IN_EXPORT','PROOF_CLEANED_FROM_R2'].includes(error.code)){imageCard.replaceChildren(node('p',error.message));continue;}
           imageCard.replaceChildren(node("p",adminMessage(error)),button("重試載入案件",()=>{collapseReview();void caseDetail(id);}));
         }
       }

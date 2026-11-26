@@ -28,6 +28,60 @@ export const campaign = {
   version: 1,
   note: "UI PREVIEW 假資料",
 };
+const collectedCampaigns = [
+  ["2026 MAMA FAN'CHOICE 第二輪", 8100, 2700, 2],
+  ['音放應援', 1140, 114, 6],
+  ['年度特別活動', 780, 78, 4],
+  ['排行榜應援', 630, 63, 8],
+  ['回歸應援', 420, 42, 7],
+  ['全球投票', 300, 30, 9],
+  ['冬日舞台投票', 0, 0, null],
+  ['團體應援特輯', 0, 0, null],
+  ['粉絲選擇獎', 0, 0, null],
+  ['週末衝刺', 0, 0, null],
+].map(([name, points, proof_count, rank], i) => ({
+  campaign_id: 'PREVIEW-COLLECTION-' + i,
+  leaderboard_id: 'PREVIEW-COLLECTION-BOARD-' + i,
+  name, points, proof_count, rank, category: i === 1 ? 'Solo' : '團體',
+  end_at: new Date(Date.UTC(2026, 10, 25-i)).toISOString(),
+}));
+const cleanupSample = [
+  ['duplicate','none','pending',true],
+  ['rejected','none','failed',true],
+  ['revoked','none','confirmed',true],
+  ['completed','export','pending',true],
+  ['completed','drive','confirmed',false],
+  ['pending',null,'pending',false],
+];
+function cleanupPreview(url) {
+  const query = url.searchParams;
+  const cutoff = query.get('cutoff') ?? new Date().toISOString();
+  const labels = {
+    none: '依案件狀態可清理 R2，無需備份、下載或等待 7 天',
+    export: '結案未滿 7 天，已確認下載；清理前會重新核對匯出紀錄及 R2',
+    drive: '結案後尚未滿7天',
+  };
+  const items = (state.data === 'empty' ? [] : cleanupSample).map(([status, archive_source, backup_status, selectable], i) => {
+    const eligible = selectable && (archive_source !== 'export' || query.get('allow_early_export') === '1');
+    return {
+      file_id: 'PREVIEW-IMAGE-' + (i + 1), case_id: 'VP-PREVIEW-00' + (i + 1), case_version:1,
+      campaign_id: campaign.campaign_id, created_at: '2026-10-14T03:00:00.000Z', size: (i+2)*81920,
+      backup_version: archive_source === 'drive' ? 1 : null, status, archive_source, backup_status,
+      eligible, cleanup_state: null, reason: archive_source === 'export' && !eligible ? labels.drive : labels[archive_source] ?? '案件尚未完成可清理審核',
+    };
+  }).filter(row =>
+    (!query.get('status') || query.get('status') === row.status) &&
+    (!query.get('campaign_id') || query.get('campaign_id') === row.campaign_id) &&
+    (!query.get('backup') || query.get('backup') === row.backup_status) &&
+    (!query.get('from') || query.get('from') <= row.created_at.slice(0,10)) &&
+    (!query.get('to') || query.get('to') >= row.created_at.slice(0,10)) &&
+    (!query.get('eligible') || (query.get('eligible') === 'yes') === row.eligible));
+  const eligible = items.filter(row => row.eligible);
+  return {
+    enabled:false, cutoff, items, next_cursor:null,
+    ...(query.has('summary') ? {} : {total:items.length, eligible_count:eligible.length, eligible_bytes:eligible.reduce((total,row)=>total+row.size,0)}),
+  };
+}
 const tierNames = ["普通", "青銅", "白銀", "黃金", "白金", "翡翠", "鑽石", "星耀"];
 export const tiers = [
   "normal",
@@ -192,7 +246,7 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   const storageFixture={budget:{budget:10000000000},used_bytes:{normal:7200000000,high:9100000000,stopped:9600000000,recovered:8400000000}[state.storage]??0,reserved_bytes:20000000,blocked:['stopped','unknown'].includes(state.storage),observed_at:1791979200,trusted_until:1791979800,cleanup_mode:'dry-run',retention_approved:false,anomaly:state.storage==='cleanup_failed'?'CLEANUP_VERIFICATION_FAILED':state.storage==='unknown'?'USAGE_UNKNOWN':null,history:[{created_at:1791975600,bytes:7000000000,object_count:1400,staging_bytes:10000000,other_bytes:20000000}],drive_quota:{state:state.storage==='drive_error'?'error':state.storage==='unknown'?'unknown':'known',total_bytes:state.storage==='unknown'?null:15*1024**3,used_bytes:10*1024**3,remaining_percent:['unknown','drive_error'].includes(state.storage)?null:33.3,observed_at:1791979200,stale:false}};
   if(state.storage==='unknown'){storageFixture.used_bytes=null;storageFixture.observed_at=null;}
   if(p.startsWith('/api/admin/storage')&&(!isManager||previewLoggedOut))return reply('ADMIN_FORBIDDEN',403);
-  if(p==='/api/admin/storage/manual'&&method==='GET')return reply({enabled:false,cutoff:new Date().toISOString(),items:[],next_cursor:null,total:0,eligible_count:0,eligible_bytes:0});
+  if(p==='/api/admin/storage/manual'&&method==='GET')return state.data==='error'?reply('SERVICE_UNAVAILABLE',503):reply(cleanupPreview(url));
   if(p==='/api/admin/storage/history'){
     if(state.data==='error')return reply('SERVICE_UNAVAILABLE',503);
     const page=Number(url.searchParams.get('page')??1),total=state.data==='empty'?0:23;
@@ -341,6 +395,11 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
   if (p === "/api/leaderboards/solo-targets") return reply("NOT_FOUND",404);
   if (p === "/api/leaderboards") {
     if(url.searchParams.has("solo_target"))return reply("INVALID_LEADERBOARD_QUERY",400);
+    const collectionBoard = collectedCampaigns.find(c=>c.leaderboard_id===url.searchParams.get('id'));
+    if(collectionBoard)return reply({leaderboards:[{
+      leaderboard_id:collectionBoard.leaderboard_id,
+      rankings:collectionBoard.rank===null?[]:[{member_id:identity.member_id,rank:collectionBoard.rank,points:collectionBoard.points,proof_count:collectionBoard.proof_count}],
+    }]});
     const selected =
       state.data === "empty"
         ? []
@@ -360,6 +419,10 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
           vote_type,
         })),
     });
+  }
+  if (p === '/api/me/campaign-results') {
+    if (state.identity === 'guest' || previewLoggedOut) return reply('AUTH_REQUIRED',401);
+    return reply({ campaigns:state.data==='empty'?[]:collectedCampaigns.map(({rank,...result})=>result) });
   }
   if(p==='/api/me/point-transactions'){
     if(state.identity==='guest'||previewLoggedOut)return reply('AUTH_REQUIRED',401);

@@ -569,6 +569,7 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
               </div>
               <button class="pill" type="button" id="boards-refresh">重新載入</button>
             </div>
+            <a class="btn btn-soft achievement-link" href="#achievements">查看我的活動成果集章 <span aria-hidden="true">→</span></a>
             <div id="board-categories" class="board-categories" aria-label="排行榜分類"></div>
             <div class="tabs" id="leader-tabs" aria-label="公開排行榜"></div>
             <div class="field board-selector sr-only">
@@ -630,6 +631,15 @@ Commit 後先看 GitHub Pages Preview；確認後才手動發布 Production。
                 </div>
               </aside>
             </div>
+          </section>
+
+          <section class="view achievements" id="view-achievements" data-view-panel hidden aria-labelledby="achievements-title">
+            <a class="achievement-back" href="#leaderboards">← 返回排行榜</a>
+            <header class="achievement-head">
+              <h1 id="achievements-title" data-view-title tabindex="-1">活動成果集章</h1>
+              <p>每次應援，都留下一段值得收藏的成績紀錄。</p>
+            </header>
+            <div id="achievement-content"></div>
           </section>
 
           <!-- =========================================================

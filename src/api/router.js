@@ -14,7 +14,7 @@ import { createCase, createDirectCase, getCase } from "./cases.js";
 import { currentMember, logout } from "./auth.js";
 import { googleStart, googleCallback, googleResult, googleConfirm, googleCancel, loginSecurity } from "./auth-google.js";
 import { addPasswordStart, addPasswordVerify, googleTotpEnrollStart, googleTotpEnrollVerify, googleStepUp } from "./auth-methods.js";
-import { checkNickname, updateProfile, listMemberCases, getMemberCase } from "./members.js";
+import { checkNickname, updateProfile, listMemberCases, getMemberCase, memberCampaignResults } from "./members.js";
 import { adminRoute } from "./admin.js";
 import { imageExportRoute } from './admin-image-exports.js';
 import { backupAdminRoute } from "./admin-backups.js";
@@ -100,6 +100,7 @@ const routes = new Map([
   ["/api/auth/logout", { method: "POST", handler: logout }],
   ["/api/me/profile", { method: "PATCH", handler: updateProfile }],
   ["/api/me/cases", { method: "GET", handler: listMemberCases }],
+  ["/api/me/campaign-results", { method: "GET", handler: memberCampaignResults }],
 ]);
 
 export async function routeApi(request, env, url) {

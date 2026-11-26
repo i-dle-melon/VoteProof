@@ -263,6 +263,68 @@ test('manual cleanup verifies signed Drive identity/checksum; preserves Case, po
  const relay=await f.fetch('/api/internal/drive-backup/'+b.id+'/content','GET',undefined,{Authorization:'Bearer '+f.env.DRIVE_BACKUP_RELAY_SECRET,'X-VoteProof-Reset-Epoch':'1','X-VoteProof-Backup-Lease':randomUUID(),'X-VoteProof-Backup-Attempt':'1'});assert.equal(relay.status,409);assert.equal(f.gets(),0);assert.equal(f.driveCalls(),1);
  assert.equal((await(await f.call(c,'delete')).json()).data.state,'deleted');assert.equal(f.deleteCalls(),1);
 });
+test('duplicate, rejected and revoked cases qualify immediately with no archive or duplicate review timestamp',async t=>{
+ const f=await fixture(t,{count:6,isolatedFrom:2}),statuses=['duplicate','rejected','revoked','completed','approved','pending'];
+ for(const [i,c] of f.cases.entries()){
+  await f.write('UPDATE cases SET status=?,reviewed_at=?,status_updated_at=?,duplicate_flag=?,duplicate_of_case_id=? WHERE id=?',
+   statuses[i],i===0?null:ago(1),ago(0),Number(i===0),i===0?f.cases[4].row.id:null,c.row.id);
+  await f.write("UPDATE proof_backups SET status='failed',drive_file_id=NULL WHERE file_id=?",c.file.id);
+ }
+ const tables=['cases','members','point_transactions','proof_backups','proof_exact_hashes'];
+ const snapshot=()=>tables.map(name=>f.sqlite.prepare('SELECT * FROM '+name).all());
+ const before=snapshot();
+ const list=await f.fetch('/api/admin/storage/manual?eligible=yes','GET',undefined,f.admin.headers);
+ assert.equal(list.status,200,await list.clone().text());
+ const data=(await list.json()).data;
+ assert.equal(data.eligible_count,3);
+ assert.deepEqual(data.items.map(row=>row.status).sort(),statuses.slice(0,3).sort());
+ assert.ok(data.items.every(row=>row.archive_source==='none'&&row.backup_version===null));
+ for(const [i,c] of f.cases.entries()){
+  const input={...c.input,backup_version:null,without_archive:true};
+  const result=await f.call({...c,input},'clean');
+  if(i>=3){assert.equal(result.status,409);continue;}
+  assert.equal(result.status,200,await result.clone().text());
+  assert.equal((await result.json()).data.state,'deleted');
+  assert.equal((await (await f.call(c,'status')).json()).data.message,'圖片已從 R2 清理，無法線上預覽。');
+  assert.equal((await f.call({...c,input},'clean')).status,200);
+  const preview=await f.fetch('/api/admin/cases/'+c.data.case_id+'/files/'+c.file.id,'GET',undefined,f.admin.headers);
+  assert.equal(preview.status,410);assert.equal((await preview.json()).error.code,'PROOF_CLEANED_FROM_R2');
+ }
+ assert.equal(f.deleteCalls(),3);assert.equal(f.driveCalls(),0);assert.equal(f.gets(),0);
+ assert.deepEqual(snapshot(),before);
+ const receipts=f.sqlite.prepare("SELECT detail FROM storage_audit WHERE action='manual_cleanup_deleted'").all().map(r=>JSON.parse(r.detail));
+ assert.deepEqual(receipts.map(r=>r.case_status).sort(),statuses.slice(0,3).sort());
+ assert.ok(receipts.every(r=>r.archive_source==='none'&&r.sha256&&r.r2_version));
+});
+test('archive-free cleanup preserves legacy receipt and unresolved operation guards',async t=>{
+ const f=await reviewedLegacyFixture(t,['2026-10-25T10:00:00.000Z','2026-10-25T10:00:00.000Z']),[ready,missing]=f.cases;
+ delete f.env.DRIVE_COLD_RELAY_URL;
+ for(const c of f.cases)await f.write("UPDATE cases SET status='revoked' WHERE id=?",c.row.id);
+ await f.write('UPDATE storage_reservations SET object_version=NULL WHERE object_key=?',missing.file.object_key);
+ const withoutArchive=c=>({...c,input:{...c.input,backup_version:null,without_archive:true}});
+ const list=await f.list();
+ assert.deepEqual(list.items.map(row=>row.file_id),[ready.file.id]);
+ assert.equal((await f.call(withoutArchive(missing),'clean')).status,400);
+ assert.equal((await f.call(withoutArchive(ready),'verify')).status,200);
+ f.insert.run(randomUUID(),'unknown');
+ assert.equal((await f.list()).eligible_count,0);
+ assert.equal((await f.call(withoutArchive(ready),'delete')).status,400);
+ assert.equal(f.deleteCalls(),0);assert.equal(f.driveCalls(),0);
+});
+test('archive-free verification cannot be reused after review or with different cleanup options',async t=>{
+ const f=await fixture(t,{count:2}),[changed,pinned]=f.cases;
+ for(const c of f.cases)await f.write("UPDATE cases SET status='rejected' WHERE id=?",c.row.id);
+ const input=c=>({...c.input,backup_version:null,without_archive:true});
+ assert.equal((await f.call({...changed,input:{...input(changed),allow_early_export:true}},'verify')).status,400);
+ assert.equal((await f.call({...changed,input:input(changed)},'verify')).status,200);
+ assert.equal((await f.call(changed,'delete')).status,409);
+ await assert.rejects(f.write("UPDATE cases SET status='approved',version=version+1 WHERE id=?",changed.row.id),/ARCHIVED_PROOF_REQUIRES_RESTORE/);
+ await f.write('UPDATE cases SET version=version+1 WHERE id=?',changed.row.id);
+ assert.equal((await f.call({...changed,input:{...input(changed),case_version:changed.input.case_version+1}},'delete')).status,409);
+ await f.write('UPDATE proof_upload_intents SET write_token=? WHERE object_key=?',randomUUID(),pinned.file.object_key);
+ assert.notEqual((await f.call({...pinned,input:input(pinned)},'clean')).status,200);
+ assert.equal(f.deleteCalls(),0);assert.equal(f.driveCalls(),0);
+});
 test('manual cleanup accepts a confirmed export and skips its queued Drive backup',async t=>{
  const f=await fixture(t,{count:2}),[c,next]=f.cases;
  const data=async r=>{assert.equal(r.status,200,await r.clone().text());return (await r.json()).data;};

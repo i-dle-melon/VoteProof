@@ -33,7 +33,7 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   // entry graph. A missing shim export must fail Build before 77 UI timeouts.
   await build({entryPoints:[resolve(out,"js/app.js")],bundle:true,write:false,
     platform:"browser",format:"esm",logLevel:"silent"});
-  for (const view of ["home", "member", "security", "admin"])
+  for (const view of ["home", "member", "security", "admin", "achievements"])
     assert.match(html, new RegExp('id="view-' + view + '"'));
   assert.match(html, /UI PREVIEW · 非正式網站/);
   assert.match(html, /connect-src 'none'/);
@@ -45,7 +45,7 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
     "admin.js", "admin-proof-thumbnails.js", "admin-member-contact.js",
     "admin-api.js",
     "ui-system.js",
-    "leaderboard-ui.js", "vote-date.js",
+    "leaderboard-ui.js", "campaign-collection.js", "vote-date.js",
     "campaign-guidance.js", "announcements.js",
     "tier-artwork.js",
     "admin-export.js",

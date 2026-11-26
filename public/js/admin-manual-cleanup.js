@@ -1,8 +1,8 @@
 const el=(tag,text='',cls)=>{const n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;return n;};
 const button=(text,action,cls='btn btn-white')=>{const b=el('button',text,cls);b.type='button';b.addEventListener('click',action);return b;};
 export async function renderManualCleanup({container,request,run,isCurrent,loadProof}){
- const selected=new Map(),filters=el('form','','admin-filter'),list=el('section','','grid grid-2'),status=el('p','','notice info'),count=el('p'),progress=el('p');status.setAttribute('role','status');
- container.append(el('h2','R2 手動清理'),el('p','結案滿 7 天後，可憑已驗證的 Drive 備份或已確認的批次匯出下載紀錄清理。已確認下載的圖片可選擇提早清理。','tiny'));
+ const selected=new Map(),filters=el('form','','admin-filter manual-cleanup-filter'),list=el('section','','grid grid-2'),status=el('p','','notice info'),count=el('p'),progress=el('p');status.setAttribute('role','status');
+ container.append(el('h2','R2 手動清理'),el('p','重複投稿、未通過及已撤銷的圖片可直接選取，無需備份、下載或等待 7 天。已完成案件須結案滿 7 天且有已驗證的 Drive 備份或已確認下載紀錄。已確認下載的圖片可選擇提早清理。','tiny'));
  const control=(name,title,type,choices)=>{const l=el('label',title),n=el(type==='select'?'select':'input');n.name=name;n.setAttribute('aria-label',title);if(type==='select')for(const[v,t]of choices)n.append(new Option(t,v));else n.type=type;l.append(n);filters.append(l);return n;};
  const campaign=control('campaign_id','Campaign','text'),choices=el('datalist');choices.id='manual-cleanup-campaigns';campaign.setAttribute('list',choices.id);filters.append(choices);
  void request('campaigns?limit=50').then(d=>{if(isCurrent())for(const c of d.campaigns??[]){const option=new Option(c.name,c.campaign_id);choices.append(option);}}).catch(()=>{});
@@ -46,12 +46,12 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
   if(working||!enabled||(!all&&!selected.size))return;closePreview();const plan=all?{...all,query:new URLSearchParams(all.query),excluded:new Map(all.excluded)}:null,items=[...selected.values()],total=plan?plan.total-plan.excluded.size:items.length;if(!total)return;
   const allowEarlyExport=query.has('allow_early_export');
   const earlyWarning=allowEarlyExport?'\n已勾選提早清理，符合條件的已下載圖片可在結案未滿 7 天時刪除。':'';
-  if(!confirm('確認清理已選 '+total+' 張R2原始圖片？'+earlyWarning+'\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。遇到未知ACK立即停止，不重送DELETE。'))return;
+  if(!confirm('確認清理已選 '+total+' 張R2原始圖片？'+earlyWarning+'\n重複投稿、未通過及已撤銷的圖片可無備份清理。若沒有另外留存，清理後將無法取回原圖。\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。遇到未知ACK立即停止，不重送DELETE。'))return;
   await run(async()=>{working=true;stopRequested=false;stop.hidden=false;let done=0,deleted=0,failed=0,unknown=0,next=null,queue=items,morePages=!!plan;
    try{while(isCurrent()&&!stopRequested&&(queue.length||morePages)){
     if(!queue.length){const p=new URLSearchParams(plan.query);p.set('summary','0');if(next)p.set('cursor',next);const d=await request('storage/manual?'+p);queue=d.items;next=d.next_cursor;morePages=!!next;if(!queue.length)continue;}
     const row=queue.shift();if(plan?.excluded.has(row.file_id))continue;const input={file_id:row.file_id,case_version:row.case_version,backup_version:row.backup_version,attempt_id:crypto.randomUUID(),
-     ...(allowEarlyExport&&row.archive_source==='export'?{allow_early_export:true}:{})};
+     ...(row.archive_source==='none'?{without_archive:true}:allowEarlyExport&&row.archive_source==='export'?{allow_early_export:true}:{})};
     try{const d=await request('storage/manual/'+row.file_id+'/clean',{method:'POST',body:input});
      if(d.state==='deleted'){deleted++;markDeleted(row,d);}else{unknown++;markUnknown(row);stopRequested=true;}
     }catch(e){

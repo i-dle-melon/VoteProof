@@ -48,6 +48,9 @@ export class MemberSession {
   async adminRequest(path, options = {}) {
     return this.request(path, options);
   }
+  campaignResults(signal) {
+    return this.request('/api/me/campaign-results', { signal });
+  }
   async adminProof(path) {
     if (
       !PREVIEW ||

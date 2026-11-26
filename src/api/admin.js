@@ -9,6 +9,7 @@ import { caseNotFound, reviewInput } from "../lib/case-review.js";
 import { adminPage, readReviewJson, UUID_PATTERN } from "./admin-validation.js";
 import { adminCases, adminCase, adminFiles, applyReview, auditLogs } from "../lib/admin-store.js";
 import {proofStorageState} from '../lib/proof-storage-metadata.js';
+import {CLEANED_R2_PROOF_MESSAGE} from '../lib/manual-r2-cleanup.js';
 import { allowedMime, UPLOAD_LIMITS } from "./upload-validation.js";
 import { adminExactEvidence } from '../lib/proof-exact-hash.js';
 import {exactClassificationEnabled,requireExactPolicy,exactDecision} from '../lib/case-exact-classification.js';
@@ -94,6 +95,7 @@ export const getAdminProof = adminHandler(async (env, url, request) => {
 function archivedProof(lifecycle) {
   let source;
   try { source=JSON.parse(lifecycle.verification_context)?.archive_source; } catch {}
+  if(source==='none')return new AdminError(410,'PROOF_CLEANED_FROM_R2',CLEANED_R2_PROOF_MESSAGE);
   if(source==='export')return new AdminError(410,'PROOF_ARCHIVED_IN_EXPORT','圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。');
   return new AdminError(410,'PROOF_ARCHIVED_IN_DRIVE','圖片已清理，備份保存在 Google Drive');
 }

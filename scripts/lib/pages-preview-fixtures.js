@@ -189,14 +189,17 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply("UI_PREVIEW_ONLY", 403);
   const url = new URL(path, "https://preview.invalid"),
     p = url.pathname;
-  const stampUpdate = /^\/api\/admin\/activity-stamps\/(PREVIEW-STAMP-[\da-f-]+)\/update$/.exec(p);
-  if (p === '/api/admin/activity-stamps' || stampUpdate) {
+  const stampMutation = /^\/api\/admin\/activity-stamps\/(PREVIEW-STAMP-[\da-f-]+)\/(update|delete)$/.exec(p);
+  if (p === '/api/admin/activity-stamps' || stampMutation) {
     if (!isManager || previewLoggedOut) return reply('ADMIN_FORBIDDEN', 403);
     if (url.search || state.data === 'error') return reply('SERVICE_UNAVAILABLE', 503);
-    if (method === 'GET' && !stampUpdate) return reply(stamps.list());
+    if (method === 'GET' && !stampMutation) return reply(stamps.list());
     if (method !== 'POST') return reply('UI_PREVIEW_ONLY', 403);
     try {
-      const [data, status] = stamps.update(typeof body === 'string' ? JSON.parse(body) : body, stampUpdate?.[1] ?? null);
+      const input = typeof body === 'string' ? JSON.parse(body) : body;
+      const [data, status] = stampMutation?.[2] === 'delete'
+        ? stamps.remove(stampMutation[1], input)
+        : stamps.update(input, stampMutation?.[1] ?? null);
       return reply(data, status);
     } catch { return reply('INVALID_STAMP_SETTING', 400); }
   }

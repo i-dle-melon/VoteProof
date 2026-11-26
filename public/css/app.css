@@ -2988,6 +2988,7 @@ button.legacy-case-row:hover {
 .achievement-medal-symbol { font-size: clamp(1rem,4.5vw,2.4rem); line-height: 1; text-shadow: 0 1px 5px #281045; transform: translateY(-21%); }
 /* Size and align the visible wordmark against the badge, including the source image's margins. */
 .achievement-wordmark { position: absolute; left: 49%; top: 47%; width: 76%; height: auto; max-width: none; transform: translate(-50%,-50%); mix-blend-mode: screen; filter: grayscale(1) brightness(.68) contrast(12); }
+.achievement-custom-icon { position: absolute; left: 50%; top: 43%; width: 64%; height: 38%; object-fit: contain; transform: translate(-50%,-50%); }
 /* Show only the two laurels from the supplied 253 × 249 artwork. */
 .achievement-laurel { position: absolute; left: 18%; width: 64%; bottom: 16%; aspect-ratio: 145 / 54; overflow: hidden; clip-path: polygon(0 0,100% 0,100% 67%,85% 100%,15% 100%,0 67%); mix-blend-mode: screen; pointer-events: none; }
 .achievement-laurel img { position: absolute; width: calc(253 * 100% / 145); height: auto; max-width: none; left: calc(-54 * 100% / 145); top: calc(-151 * 100% / 54); filter: grayscale(1) brightness(.67) contrast(12); }
@@ -3024,6 +3025,8 @@ button.legacy-case-row:hover {
 .stamp-fields .field { margin: 0; display: grid; align-content: start; gap: 5px; min-width: 0; }
 .stamp-fields :is(input,select,textarea) { width: 100%; min-width: 0; max-width: 100%; }
 .stamp-fields input[type="datetime-local"] { padding-inline: 8px; font-size: .9rem; }
+.stamp-fields .stamp-upload { padding: 10px; border: 1px dashed var(--line); border-radius: 10px; }
+.stamp-editor-heading .stamp-delete { min-height: 44px; }
 .stamp-full-field { grid-column: 1/-1; }
 .stamp-form-preview { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--achievement-line); border-radius: 14px; background: var(--achievement-soft); overflow-wrap: anywhere; }
 .stamp-form-preview small { color: var(--achievement-muted); }

@@ -24,11 +24,45 @@ function decorative(tag, text, className) {
   return node;
 }
 
-export function stampMedal({ icon, color, earned, index = 0 }) {
+export function stampPngSize(bytes) {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 33 || !signature.every((byte, i) => bytes[i] === byte)) return null;
+  const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (header.getUint32(8) !== 13 || header.getUint32(12) !== 0x49484452) return null;
+  return { width: header.getUint32(16), height: header.getUint32(20) };
+}
+
+export function stampIconBlob(encoded) {
+  if (typeof encoded !== 'string' || encoded.length > 370000) return null;
+  try {
+    const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
+    const size = stampPngSize(bytes);
+    if (size?.width > 0 && size?.height > 0 && size.width <= 256 && size.height <= 256)
+      return new Blob([bytes], { type: 'image/png' });
+  } catch { /* Ignore malformed preview artwork. */ }
+  return null;
+}
+
+function customStampIcon(encoded) {
+  const blob = stampIconBlob(encoded);
+  if (!blob) return null;
+  const canvas = element('canvas', undefined, 'achievement-custom-icon');
+  void createImageBitmap(blob).then(bitmap => {
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    try { canvas.getContext('2d').drawImage(bitmap, 0, 0); }
+    finally { bitmap.close(); }
+  }).catch(() => { canvas.hidden = true; });
+  return canvas;
+}
+
+export function stampMedal({ icon, color, earned, index = 0, custom_icon }) {
   const colorKey = stampColors.find(([key]) => key === color)?.[0] ?? stampColors[index % 4][0];
   const glyph = stampIcons.find(([key]) => key === icon)?.[1] ?? stampIcons[index % 6][1];
   const medal = decorative('span', undefined, 'achievement-medal achievement-tone-' + colorKey);
-  if (earned && icon === 'mama') {
+  const artworkIcon = earned && icon === 'custom' ? customStampIcon(custom_icon) : null;
+  if (artworkIcon) medal.append(artworkIcon);
+  else if (earned && icon === 'mama') {
     const image = element('img', undefined, 'achievement-wordmark');
     image.src = assetURL('/assets/mama-stamp-wordmark.png');
     image.alt = '';

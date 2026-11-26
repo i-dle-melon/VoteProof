@@ -173,3 +173,70 @@ test('Pages stamp settings create and edit a preview rule and show it only after
   await expect(page.getByRole('button',{name:'活動集章', exact:true})).toHaveCount(0);
   expect(outside).toEqual([]);
 });
+
+test('Pages uploads a transparent stamp icon and requires confirmation before deleting the stamp', async ({ page }) => {
+  const origin = 'http://127.0.0.1:4174';
+  const outside = [];
+  page.on('request', request => {
+    if (new URL(request.url()).origin !== origin || /\/api\//.test(request.url()) || request.method() !== 'GET') outside.push(request.url());
+  });
+  await page.goto(origin + '/VoteProof/?preview_identity=admin&preview_admin=activity-stamps#admin');
+  const panel = page.locator('#admin-panel');
+  const form = panel.locator('[data-preview-stamp-editor]');
+  await form.getByLabel('集章名稱').fill('透明圖案測試章');
+  const upload = form.locator('input[type=file]');
+  await expect(upload).toBeHidden();
+  await form.getByLabel('印章圖案').selectOption('custom');
+  await expect(upload).toBeVisible();
+  const sample = async transparent => ({
+    name: transparent ? 'transparent.png' : 'opaque.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(await page.evaluate(transparent => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32;
+      canvas.height = 24;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#aa2255';
+      if (transparent) ctx.fillRect(8, 5, 16, 14);
+      else ctx.fillRect(0, 0, 32, 24);
+      return canvas.toDataURL().split(',')[1];
+    }, transparent), 'base64'),
+  });
+  await upload.setInputFiles(await sample(false));
+  await expect(form.locator('.stamp-upload')).toContainText('PNG 必須同時包含透明背景與可見的圖案');
+  await upload.setInputFiles(await sample(true));
+  await expect(form.locator('.stamp-upload')).toContainText('圖案已載入');
+  const icon = form.locator('.stamp-form-preview canvas.achievement-custom-icon');
+  await expect.poll(() => icon.evaluate(canvas => {
+    const ctx = canvas.getContext('2d');
+    return [ctx.getImageData(0, 0, 1, 1).data[3], ctx.getImageData(12, 8, 1, 1).data[3]];
+  })).toEqual([0, 255]);
+  await form.getByLabel('顯示狀態').selectOption('published');
+  await form.getByRole('button',{name:'儲存集章設定'}).click();
+  await expect(form.getByRole('heading',{name:'編輯活動集章'})).toBeVisible();
+  await expect(form.locator('.stamp-upload')).toContainText('已載入已儲存的圖案');
+  await panel.getByRole('link',{name:'查看會員中心'}).click();
+  await page.getByRole('tab',{name:'活動成果集章'}).click();
+  const badge = page.locator('#member-achievements-panel').getByRole('button',{name:/透明圖案測試章/});
+  await expect(badge.locator('canvas.achievement-custom-icon')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'admin'; });
+  const row = panel.getByRole('button',{name:/透明圖案測試章/});
+  await row.click();
+  const remove = form.getByRole('button',{name:'刪除活動集章'});
+  const prompt = page.waitForEvent('dialog');
+  const cancelClick = remove.click();
+  const confirm = await prompt;
+  expect(confirm.message()).toContain('透明圖案測試章');
+  expect(confirm.message()).toContain('這筆集章設定');
+  await confirm.dismiss();
+  await cancelClick;
+  await expect(row).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await remove.click();
+  await expect(panel).toContainText('已刪除預覽集章');
+  await expect(row).toHaveCount(0);
+  await panel.getByRole('link',{name:'查看會員中心'}).click();
+  await page.getByRole('tab',{name:'活動成果集章'}).click();
+  await expect(badge).toHaveCount(0);
+  expect(outside).toEqual([]);
+});

@@ -35,11 +35,10 @@ export function stampMedal({ icon, color, earned, index = 0 }) {
     medal.append(image);
   } else medal.append(element('span', earned ? glyph : '', 'achievement-medal-symbol'));
   const laurel = decorative('span', undefined, 'achievement-laurel');
-  for (let side = 0; side < 2; side++) {
-    const branch = element('span', undefined, 'achievement-laurel-branch');
-    for (let leaf = 0; leaf < 5; leaf++) branch.append(element('span'));
-    laurel.append(branch);
-  }
+  const artwork = element('img');
+  artwork.src = assetURL('/assets/stamp-laurel-reference.png');
+  artwork.alt = '';
+  laurel.append(artwork);
   medal.append(laurel);
   if (earned) medal.append(element('span', '✓', 'achievement-check'));
   return medal;

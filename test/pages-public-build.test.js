@@ -76,6 +76,7 @@ test("isolated artifact shares actual UI sources and contains only build-only fi
   assert.match(fixture, /PREVIEW-MEMBER/);
   assert.match(fixture, /preview-stamps\.js/);
   assert.ok((await readFile(resolve(out, "assets/mama-stamp-wordmark.png"))).length > 0);
+  assert.deepEqual(await readFile(resolve(out, "assets/stamp-laurel-reference.png")), await readFile("public/assets/stamp-laurel-reference.png"));
   await assert.rejects(readFile("public/js/preview-stamp-editor.js"));
   assert.match(fixture, /method\s*!==\s*['"]GET['"]/);
   assert.match(await readFile("public/js/preview.js", "utf8"), /PREVIEW = false/);

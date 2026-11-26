@@ -2987,16 +2987,12 @@ button.legacy-case-row:hover {
 .is-earned .achievement-medal { filter: drop-shadow(0 1px 6px var(--stamp-edge)); }
 .achievement-medal-symbol { font-size: clamp(1rem,4.5vw,2.4rem); line-height: 1; text-shadow: 0 1px 5px #281045; transform: translateY(-21%); }
 .achievement-wordmark { width: 62%; height: auto; max-width: none; transform: translateY(-32%); mix-blend-mode: screen; filter: grayscale(1) brightness(.68) contrast(12); }
-.achievement-laurel { position: absolute; left: 19%; right: 19%; bottom: 16%; height: 26%; pointer-events: none; }
-.achievement-laurel-branch { position: absolute; left: 0; bottom: 0; width: 46%; height: 100%; border-bottom: 1px solid currentColor; border-left: 1px solid currentColor; border-bottom-left-radius: 85%; transform: rotate(14deg); }
-.achievement-laurel-branch + .achievement-laurel-branch { left: auto; right: 0; transform: scaleX(-1) rotate(14deg); }
-.achievement-laurel-branch span { position: absolute; width: 29%; height: 29%; background: currentColor; border-radius: 85% 0 85% 0; box-shadow: 0 0 3px #fff4; }
-.achievement-laurel-branch span:nth-child(1) { left: -3%; bottom: 68%; transform: rotate(-72deg); }
-.achievement-laurel-branch span:nth-child(2) { left: -8%; bottom: 42%; transform: rotate(-33deg); }
-.achievement-laurel-branch span:nth-child(3) { left: 20%; bottom: 42%; transform: rotate(-78deg); }
-.achievement-laurel-branch span:nth-child(4) { left: 18%; bottom: 9%; transform: rotate(-12deg); }
-.achievement-laurel-branch span:nth-child(5) { left: 49%; bottom: 18%; transform: rotate(-61deg); }
+/* Show only the two laurels from the supplied 253 × 249 artwork. */
+.achievement-laurel { position: absolute; left: 20%; width: 60%; bottom: 16%; aspect-ratio: 145 / 54; overflow: hidden; clip-path: polygon(0 0,100% 0,100% 67%,85% 100%,15% 100%,0 67%); mix-blend-mode: screen; pointer-events: none; }
+.achievement-laurel img { position: absolute; width: calc(253 * 100% / 145); height: auto; max-width: none; left: calc(-54 * 100% / 145); top: calc(-151 * 100% / 54); filter: grayscale(1) brightness(.67) contrast(12); }
 .is-locked .achievement-laurel { opacity: .5; }
+[data-theme="light"] .is-locked .achievement-laurel { mix-blend-mode: multiply; opacity: .34; }
+[data-theme="light"] .is-locked .achievement-laurel img { filter: grayscale(1) brightness(.67) contrast(12) invert(1); }
 .achievement-rule { border-top: 1px solid var(--achievement-line); color: var(--achievement-muted); font-size: .84rem; margin: 0; padding: 10px 16px; }
 .achievement-check { position: absolute; top: 0; right: 1%; border: 2px solid #fff6ff; border-radius: 50%; width: clamp(17px,4vw,25px); aspect-ratio: 1; display: grid; place-items: center; background: #7b299d; color: #fff; font: 700 12px/1 system-ui; }
 .is-locked .achievement-medal { color: var(--achievement-muted); }

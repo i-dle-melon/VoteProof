@@ -56,6 +56,7 @@ export async function buildPagesPreview(output) {
     "js/leaderboard-ui.js", "js/leaderboard-refresh.js", "js/vote-date.js",
     "js/campaign-collection.js",
     "assets/mama-stamp-wordmark.png",
+    "assets/stamp-laurel-reference.png",
     "js/campaign-guidance.js", "js/announcements.js",
     "js/api.js",
     "js/member.js",

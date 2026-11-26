@@ -70,7 +70,9 @@ test('Pages campaign collection shows synthetic stamps and updates the selected 
   await expect(panel.locator('.achievement-collection-head')).toContainText('已收集 1 / 10');
   await expect(panel.locator('.achievement-rank dd')).toHaveText('#2');
   await expect(panel.locator('.achievement-metrics')).toContainText('8,100');
-  await expect(panel.locator('.achievement-stamp .achievement-laurel')).toHaveCount(10);
+  const laurels = panel.locator('.achievement-stamp .achievement-laurel img');
+  await expect(laurels).toHaveCount(10);
+  await expect.poll(() => laurels.first().evaluate(img => img.naturalWidth)).toBe(253);
   const wordmark = panel.getByRole('button', {name:/MAMA/}).locator('img.achievement-wordmark');
   await expect(wordmark).toBeVisible();
   await expect.poll(() => wordmark.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);

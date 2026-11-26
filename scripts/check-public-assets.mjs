@@ -23,6 +23,7 @@ expected.push('js/leaderboard-ui.js','js/leaderboard-refresh.js','js/vote-date.j
 expected.push('js/campaign-guidance.js','js/announcements.js','js/admin-proof-thumbnails.js');
 expected.push('js/campaign-collection.js');
 expected.push('assets/mama-stamp-wordmark.png');
+expected.push('assets/stamp-laurel-reference.png');
 expected.push('js/admin-member-contact.js','js/admin-storage.js','js/paginated-dialog.js');
 expected.push('js/admin-audit.js');
 expected.push('js/admin-members-overview.js','js/admin-health-monitor.js');

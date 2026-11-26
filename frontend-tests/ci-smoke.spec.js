@@ -73,9 +73,25 @@ test('Pages campaign collection shows synthetic stamps and updates the selected 
   const laurels = panel.locator('.achievement-stamp .achievement-laurel img');
   await expect(laurels).toHaveCount(10);
   await expect.poll(() => laurels.first().evaluate(img => img.naturalWidth)).toBe(253);
-  const wordmark = panel.getByRole('button', {name:/MAMA/}).locator('img.achievement-wordmark');
+  const mama = panel.getByRole('button', {name:/MAMA/});
+  const wordmark = mama.locator('img.achievement-wordmark');
   await expect(wordmark).toBeVisible();
   await expect.poll(() => wordmark.evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
+  const proportions = await mama.locator('.achievement-medal').evaluate(medal => {
+    const frame = medal.getBoundingClientRect();
+    const logo = medal.querySelector('.achievement-wordmark').getBoundingClientRect();
+    const laurel = medal.querySelector('.achievement-laurel').getBoundingClientRect();
+    return {
+      logoWidth: logo.width / frame.width,
+      logoCenter: (logo.top + logo.height / 2 - frame.top) / frame.height,
+      laurelWidth: laurel.width / frame.width,
+      laurelBottom: (frame.bottom - laurel.bottom) / frame.height,
+    };
+  });
+  expect(proportions.logoWidth).toBeCloseTo(.76, 2);
+  expect(proportions.logoCenter).toBeCloseTo(.47, 2);
+  expect(proportions.laurelWidth).toBeCloseTo(.64, 2);
+  expect(proportions.laurelBottom).toBeCloseTo(.16, 2);
   await panel.getByRole('button', { name: /音放應援/ }).click();
   await expect(panel.locator('.achievement-banner h2')).toHaveText('音放應援');
   await expect(panel.locator('.achievement-rank dd')).toHaveText('—');

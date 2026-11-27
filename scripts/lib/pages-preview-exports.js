@@ -66,7 +66,8 @@ export async function exportFixture(path, options, state, picture, reply) {
   const pack = job.packages.find((x) => x.number === Number(p[3]));
   if (!pack) return reply("EXPORT_NOT_FOUND", 404);
   if (p[4] === "state") {
-    if(b.status==='completed'&&b.confirmed!==true)return reply('INVALID_EXPORT_QUERY',400);
+    if(b.status==='completed'&&(b.completion_source==='browser_handoff'
+      ? Object.hasOwn(b,'confirmed') : b.confirmed!==true))return reply('INVALID_EXPORT_QUERY',400);
     if(pack.status==='completed'&&redownloads.get(pack)===b.attempt_id){redownloads.delete(pack);return reply(pack);}
     if (pack.attempt_id !== b.attempt_id) return reply("EXPORT_PACKAGE_CONFLICT", 409);
     if(pack.status==='completed' && b.status!=='completed')return reply('EXPORT_PACKAGE_CONFLICT',409);

@@ -143,11 +143,13 @@ export const imageExportHandler = adminHandler(async (env, url, request) => {
   }
   if (parts[4] === "state") {
     const b = await readExportJson(request);
+    const browserHandoff=b.completion_source==='browser_handoff';
     if (
       !UUID_PATTERN.test(b.attempt_id ?? "") ||
-      (b.status==="completed" && b.confirmed!==true) ||
+      (b.status==="completed" && (browserHandoff ? Object.hasOwn(b,"confirmed") : b.confirmed!==true)) ||
+      (Object.hasOwn(b,"completion_source") && (!browserHandoff || b.status!=="completed")) ||
       !["completed", "failed"].includes(b.status) ||
-      Object.keys(b).some((k) => !["attempt_id", "status", "error_code", "confirmed"].includes(k)) ||
+      Object.keys(b).some((k) => !["attempt_id", "status", "error_code", "confirmed", "completion_source"].includes(k)) ||
       (b.error_code &&
         !["EXPORT_CANCELLED", "EXPORT_PROOF_UNAVAILABLE", "EXPORT_DOWNLOAD_FAILED"].includes(
           b.error_code,

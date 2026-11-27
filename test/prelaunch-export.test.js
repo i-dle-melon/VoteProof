@@ -9,14 +9,25 @@ test('completed export re-download is an owned private read, never downgrades co
  try{
  const campaign_id='EXPORT_PRELAUNCH';await data(await h.fetch('/api/admin/campaigns','POST',{campaign_id,name:'Synthetic export',category:'團體',solo_target:null,start_at:'2000-01-01T00:00:00.000Z',end_at:'2100-01-01T00:00:00.000Z',status:'active',points_per_proof:10,daily_limit:null},admin.headers),201);
  await h.db.prepare('UPDATE submission_settings SET submissions_enabled=1 WHERE id=1').run();const {ref}=await h.upload(campaign_id,actor);await data(await h.fetch('/api/cases/direct','POST',{campaign_id,vote_date:new Date().toISOString().slice(0,10),upload_session:ref},{...actor.headers,'Idempotency-Key':randomUUID()}),201);
- const job=await data(await call('/jobs',{job_id:randomUUID(),filters:{campaign_id,entire_campaign:true,statuses:['pending'],vote_types:['團體'],sources:['member']}}));assert.equal(job.image_count,1);
+ const filters={campaign_id,entire_campaign:true,statuses:['pending'],vote_types:['團體'],sources:['member']};
+ const handoffJob=await data(await call('/jobs',{job_id:randomUUID(),filters:{...filters,only_undownloaded:true}}));
+ const handoffBase='/jobs/'+handoffJob.id+'/packages/1',handoffAttempt=randomUUID();
+ await data(await call(handoffBase+'/start',{attempt_id:handoffAttempt,expected_attempt_id:null}));
+ const handoff={attempt_id:handoffAttempt,status:'completed',completion_source:'browser_handoff'};
+ assert.equal((await call(handoffBase+'/state',{...handoff,confirmed:true})).status,400);
+ assert.equal((await data(await call(handoffBase+'/state',handoff))).status,'completed');
+ assert.equal((await data(await call(handoffBase+'/state',handoff))).status,'completed');
+ assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM export_completed_files').first()).n,0);
+ assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM export_file_claims WHERE job_id=?').bind(handoffJob.id).first()).n,0);
+ assert.equal((await data(await call('/query',{...filters,only_undownloaded:true}))).image_count,1);
+ const job=await data(await call('/jobs',{job_id:randomUUID(),filters}));assert.equal(job.image_count,1);
  const base='/jobs/'+job.id+'/packages/1',attempt_id=randomUUID(),start=await data(await call(base+'/start',{attempt_id,expected_attempt_id:null}));assert.equal(start.items.length,1);
  const initial=await h.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(job.id).first();
  for(const confirmed of [undefined,false,null,'true']){
   const rejected=await call(base+'/state',{attempt_id,status:'completed',...(confirmed===undefined?{}:{confirmed})});assert.equal(rejected.status,400);assert.equal((await rejected.json()).error.code,'INVALID_EXPORT_QUERY');
   assert.deepEqual(await h.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(job.id).first(),initial);
   assert.equal((await h.db.prepare('SELECT COUNT(*) n FROM export_completed_files').first()).n,0);
-  assert.equal((await h.db.prepare("SELECT COUNT(*) n FROM export_operation_audit WHERE action='completed'").first()).n,0);
+  assert.equal((await h.db.prepare("SELECT COUNT(*) n FROM export_operation_audit WHERE job_id=? AND action='completed'").bind(job.id).first()).n,0);
  }
  await data(await call(base+'/state',{attempt_id,status:'completed',confirmed:true}));const before=await h.db.prepare('SELECT * FROM export_packages WHERE job_id=? AND number=1').bind(job.id).first();
  const repeated=await data(await call(base+'/start',{attempt_id:randomUUID(),expected_attempt_id:attempt_id}));assert.equal(repeated.read_only,true);assert.equal(repeated.package.attempt_id,attempt_id);assert.equal(repeated.package.status,'completed');

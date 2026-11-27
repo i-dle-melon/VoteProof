@@ -107,9 +107,11 @@ test('export defaults use inclusive Taipei minute and only-undownloaded, shared 
  await page.locator('#export-only-undownloaded').uncheck();await expect(page.locator('.export-summary')).toHaveCount(0);await expect(page.locator('.export-history')).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
-test('ZIP generation alone does not mark complete; explicit confirmation records completed',async({page})=>{
+test('ZIP completes automatically and the download notice does not open a dialog',async({page})=>{
  await page.goto('http://127.0.0.1:4174/VoteProof/?preview_identity=admin&preview_exports=small#admin');await expect(page.locator('html')).toHaveAttribute('data-preview-ready','true');await tab(page,'圖片批次匯出');
- const dialog=async d=>d.dismiss();page.on('dialog',dialog);await page.locator('.export-package').first().getByRole('button',{name:'下載',exact:true}).click();
- await expect(page.locator('[data-export-state=failed]')).toBeVisible();await expect(page.locator('.image-export [role=status]')).toContainText('尚未確認完成');
- page.off('dialog',dialog);page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'重新下載',exact:true}).click();await expect(page.locator('[data-export-state=completed]')).toBeVisible();
+ const dialogs=[];page.on('dialog',async d=>{dialogs.push(d.type());await d.dismiss();});
+ await page.locator('.export-package').first().getByRole('button',{name:'下載',exact:true}).click();
+ await expect(page.locator('[data-export-state=completed]')).toBeVisible();
+ await expect(page.locator('.image-export [role=status]')).toContainText('請在下載清單確認存檔');
+ expect(dialogs).toEqual([]);
 });

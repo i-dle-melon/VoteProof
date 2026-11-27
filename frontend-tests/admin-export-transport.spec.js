@@ -21,7 +21,10 @@ async function fixture(page, { direct = false, packages = 1, shared = false } = 
       window.showSaveFilePicker = async () => ({
         createWritable: async () => ({
           write: async (bytes) => window.__exportWrites.push(Array.from(bytes)),
-          close: async () => (window.__exportClosed = true),
+          close: async () => {
+            if (window.__exportFailClose) throw Error("Synthetic disk-close failure");
+            window.__exportClosed = true;
+          },
           abort: async () => (window.__exportAborted = true),
         }),
       });
@@ -46,6 +49,7 @@ async function fixture(page, { direct = false, packages = 1, shared = false } = 
   const state = {
     proofs: 0,
     failProof: false,
+    lastProofGate: null,
     slow: false,
     ackFailures: 0,
     failQuery: false,
@@ -102,6 +106,7 @@ async function fixture(page, { direct = false, packages = 1, shared = false } = 
     }
     if (path.includes("/files/")) {
       state.proofs++;
+      if (path.endsWith(files.at(-1).file_id)) await state.lastProofGate;
       if (state.slow) await new Promise((resolve) => setTimeout(resolve, 1000));
       if (state.failProof) return reply(route, "PROOF_NOT_FOUND", 404);
       return route.fulfill({
@@ -111,7 +116,8 @@ async function fixture(page, { direct = false, packages = 1, shared = false } = 
       });
     }
     if (path.endsWith("/state")) {
-      if(b.status==='completed'&&b.confirmed!==true)return reply(route,'INVALID_EXPORT_QUERY',400);
+      if(b.status==='completed'&&(b.completion_source==='browser_handoff'
+        ? Object.hasOwn(b,'confirmed') : b.confirmed!==true))return reply(route,'INVALID_EXPORT_QUERY',400);
       if (b.status === "completed" && state.ackFailures-- > 0)
         return reply(route, "ADMIN_SERVICE_UNAVAILABLE", 503);
       if(shared&&p.status==='completed'){
@@ -140,7 +146,16 @@ test("real Worker transport: private proof fetch then valid ZIP, completed reloa
 }) => {
   const state = await fixture(page),
     event = page.waitForEvent("download");
-  await download(page).click();
+  let releaseLast;
+  state.lastProofGate = new Promise(resolve=>{releaseLast=resolve;});
+  try {
+    await download(page).click();
+    await expect.poll(()=>state.proofs).toBe(3);
+    expect(state.calls.filter(c=>c.path.endsWith('/state'))).toHaveLength(0);
+    await expect(page.locator('[data-export-state]')).not.toHaveAttribute('data-export-state','completed');
+  } finally {
+    releaseLast();
+  }
   const file = await event;
   const zip = unzipSync(new Uint8Array(await readFile(await file.path())));
   expect(Object.keys(zip)).toHaveLength(4);
@@ -149,6 +164,9 @@ test("real Worker transport: private proof fetch then valid ZIP, completed reloa
     "completed",
   );
   expect(state.proofs).toBe(3);
+  expect(state.calls.find(c=>c.path.endsWith('/state')).body).toMatchObject({
+    status:'completed', completion_source:'browser_handoff',
+  });
   await page.reload();
   await page
     .locator("#admin-tabs")
@@ -233,6 +251,16 @@ test("direct file writer applies chunks and closes only after complete ZIP", asy
   const bytes = Uint8Array.from(saved.chunks.flat());
   expect(Object.keys(unzipSync(bytes))).toHaveLength(4);
   expect(state.proofs).toBe(3);
+  expect(state.calls.find(c=>c.path.endsWith('/state')).body).toMatchObject({status:'completed',confirmed:true});
+});
+test('last image and a complete ZIP do not mark success after disk close fails',async({page})=>{
+ const state=await fixture(page,{direct:true});
+ await page.evaluate(()=>{window.__exportFailClose=true;});
+ await download(page).click();
+ await expect(page.locator('[data-export-state]')).toHaveAttribute('data-export-state','failed');
+ expect(state.proofs).toBe(3);
+ expect(state.calls.filter(c=>c.path.endsWith('/state')).map(c=>c.body.status)).toEqual(['failed']);
+ expect(await page.evaluate(()=>({closed:window.__exportClosed,aborted:window.__exportAborted}))).toEqual({closed:false,aborted:true});
 });
 test("reviewer sees bulk export with only review tabs", async ({ page }) => {
   await adminFixture(page, { role: "reviewer" });
@@ -279,11 +307,11 @@ test('shared V2 re-download failure, cancel, success and lost ACK preserve compl
  state.failProof=true;await page.getByRole('button',{name:'再次下載',exact:true}).click();await expect(page.locator('.image-export')).toContainText('再次下載未完成');expect(state.claims.size).toBe(0);expect(state.jobs[0].packages[0]).toEqual(before);
  state.failProof=false;state.slow=true;await page.getByRole('button',{name:'再次下載',exact:true}).click();await expect(page.locator('#export-progress')).toContainText('下載圖片');await page.getByRole('button',{name:'取消',exact:true}).click();await expect(page.locator('.image-export')).toContainText('再次下載已取消');expect(state.claims.size).toBe(0);expect(state.jobs[0].packages[0]).toEqual(before);
  state.slow=false;state.ackFailures=1;await actualZIP(page,()=>page.getByRole('button',{name:'再次下載',exact:true}).click());await expect(page.getByRole('button',{name:'重送完成確認'})).toBeVisible();expect(state.jobs[0].packages[0]).toEqual(before);const reads=state.proofs;await page.getByRole('button',{name:'重送完成確認'}).click();await expect(page.getByRole('button',{name:'重送完成確認'})).toHaveCount(0);expect(state.proofs).toBe(reads);expect(state.claims.size).toBe(0);expect(state.jobs[0].packages[0]).toEqual(before);
- const reports=state.calls.filter(c=>c.path.endsWith('/state'));expect(reports.map(c=>c.body.status)).toEqual(['completed','failed','failed','completed','completed']);expect(reports.filter(c=>c.body.status==='completed').every(c=>c.body.confirmed===true)).toBe(true);expect(reports.slice(1).every(c=>c.body.attempt_id!==before.attempt_id)).toBe(true);
+ const reports=state.calls.filter(c=>c.path.endsWith('/state'));expect(reports.map(c=>c.body.status)).toEqual(['completed','failed','failed','completed','completed']);expect(reports.filter(c=>c.body.status==='completed').every(c=>c.body.completion_source==='browser_handoff')).toBe(true);expect(reports.slice(1).every(c=>c.body.attempt_id!==before.attempt_id)).toBe(true);
 });
 
 test('shared V2 batch-all releases redownload leases and reports every package exactly once',async({page})=>{
  const state=await fixture(page,{packages:3,shared:true});state.jobs[0].packages[1].status='completed';state.jobs[0].packages[1].attempt_id=randomUUID();const before=structuredClone(state.jobs[0].packages[1]);
  await page.getByRole('button',{name:'批次全下載',exact:true}).click();await expect(page.locator('.image-export')).toContainText('全部套件已依序產生');expect(state.jobs[0].packages.every(p=>p.status==='completed')).toBe(true);expect(state.jobs[0].packages[1]).toEqual(before);expect(state.claims.size).toBe(0);
- expect(state.calls.filter(c=>c.path.endsWith('/state')).map(c=>Number(c.path.match(/packages\/(\d+)/)[1]))).toEqual([1,2,3]);expect(state.calls.filter(c=>c.path.endsWith('/state')).every(c=>c.body.confirmed===true)).toBe(true);
+ expect(state.calls.filter(c=>c.path.endsWith('/state')).map(c=>Number(c.path.match(/packages\/(\d+)/)[1]))).toEqual([1,2,3]);expect(state.calls.filter(c=>c.path.endsWith('/state')).every(c=>c.body.completion_source==='browser_handoff')).toBe(true);
 });

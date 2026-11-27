@@ -74,7 +74,8 @@ export async function finishExportPackage(db,actor,job,number,b){
      l.file_id IS NULL OR l.job_id!=? OR l.package_no!=? OR l.attempt_id!=? OR l.member_id!=? OR l.lease_until<=?))`,
  args:[job.id,number,b.attempt_id,member,t,job.id,number,job.id,number,b.attempt_id,member,t]};
  const writes=[];
- if(b.status==='completed')writes.push(db.prepare(`INSERT INTO export_completed_files
+ // Browser download handoff can complete the job, while archive evidence requires a saved file.
+ if(b.status==='completed'&&b.confirmed===true)writes.push(db.prepare(`INSERT INTO export_completed_files
   SELECT i.file_id,i.etag,i.file_size,i.content_type,i.job_id,i.package_no,?,? FROM export_job_items i WHERE i.job_id=? AND i.package_no=?
    AND NOT EXISTS(SELECT 1 FROM export_completed_files d WHERE d.file_id=i.file_id AND d.etag=i.etag AND d.file_size=i.file_size AND d.content_type=i.content_type)`)
    .bind(member,new Date().toISOString(),job.id,number));

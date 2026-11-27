@@ -38,7 +38,7 @@ export async function renderImageExports({ container, request, session, signal }
     element("h3", "圖片批次匯出"),
     element(
       "p",
-      "以台灣時間篩選投稿；包含所選結束分鐘。已下載指已確認完成匯出，不保證檔案永久保存；ZIP 由瀏覽器產生。",
+      "以台灣時間篩選投稿，包含所選結束分鐘。ZIP 完成後會自動更新狀態。直接寫檔成功會計入已下載，但不保證檔案永久保存。相容模式請在瀏覽器下載清單確認存檔。",
       "muted",
     ),
   );
@@ -327,6 +327,7 @@ export async function renderImageExports({ container, request, session, signal }
     let written = 0,
       started = false,
       saved = false,
+      savedToDisk = false,
       readOnly = p.status === 'completed',
       succeeded = false,
       redownloadLease = false;
@@ -336,7 +337,9 @@ export async function renderImageExports({ container, request, session, signal }
       post(`jobs/${downloadJob.id}/packages/${p.number}/state`, {
         attempt_id: attempt,
         status,
-        ...(status === "completed" ? { confirmed: true } : {}),
+        ...(status === "completed"
+          ? savedToDisk ? { confirmed: true } : { completion_source: "browser_handoff" }
+          : {}),
         ...(status === "failed"
           ? { error_code: abort.signal.aborted ? "EXPORT_CANCELLED" : "EXPORT_DOWNLOAD_FAILED" }
           : {}),
@@ -397,9 +400,11 @@ export async function renderImageExports({ container, request, session, signal }
         });
       });
       if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      cancel.disabled = true;
       if (sink) {
         await sink.close();
         sink = null;
+        savedToDisk = true;
       } else {
         const blob = new Blob(chunks, { type: "application/zip" }),
           url = URL.createObjectURL(blob),
@@ -411,18 +416,15 @@ export async function renderImageExports({ container, request, session, signal }
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 30000);
       }
-      if (abort.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       saved = true;
-      cancel.disabled = true;
-      if(!readOnly){
-        if(!window.confirm('ZIP 已產生。請檢查下載結果後確認完成匯出；這不保證檔案永久保存。')){
-          await state('failed');p.status='failed';message.textContent='尚未確認完成；圖片仍可列入下次匯出。';return false;
-        }
-        await state("completed");
-      }else await state('completed');
+      await state("completed");
       p.status = "completed";
       succeeded=true;
-      message.textContent = readOnly ? "ZIP 已再次產生；原本已完成狀態保持不變。" : "ZIP 已產生，完成狀態已保存。";
+      message.textContent = readOnly
+        ? "ZIP 已再次產生；原本已完成狀態保持不變。"
+        : savedToDisk
+          ? "ZIP 已寫入磁碟，完成狀態已保存。"
+          : "匯出已完成。ZIP 已交給瀏覽器，請在下載清單確認存檔。";
     } catch (error) {
       await sink?.abort().catch(() => {});
       sink = null;

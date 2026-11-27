@@ -116,6 +116,34 @@ test('both admin capacity panels use the active upload policy even when the R2 i
    assert.equal(storage.inventory_invalidated, true);
  }
 });
+test('admin R2 usage pages read only object sizes without changing the inventory or exposing keys', async t => {
+ const f = await setup(t);
+ await f.edit('UPDATE storage_capacity SET inventory_dirty=1,reserved_bytes=24 WHERE id=1');
+ const before = f.read('SELECT * FROM storage_capacity WHERE id=1');
+ const path = '/api/admin/storage/r2-usage';
+ const calls = [];
+ f.bucket.list = async options => {
+   calls.push(options);
+   return options.cursor
+     ? {objects:[{size:5,key:'private-b'}],truncated:false}
+     : {objects:[{size:12,key:'private-a'}],truncated:true,cursor:'page+2='};
+ };
+ assert.equal((await f.fetch(path, 'GET')).status, 401);
+ assert.equal((await f.fetch(path + '?cursor=1&cursor=2', 'GET', undefined, f.actor.headers)).status, 400);
+ assert.equal(calls.length, 0);
+ for (const [suffix, expected] of [
+   ['', {bytes:12,objects:1,next_cursor:'page+2='}],
+   ['?cursor=page%2B2%3D', {bytes:5,objects:1,next_cursor:null}],
+ ]) {
+   const response = await f.fetch(path + suffix, 'GET', undefined, f.actor.headers);
+   assert.equal(response.status, 200);
+   assert.equal(response.headers.get('cache-control'), 'no-store');
+   assert.deepEqual((await response.json()).data, expected);
+ }
+ assert.deepEqual(calls, [{limit:200},{limit:200,cursor:'page+2='}]);
+ assert.deepEqual(f.read('SELECT * FROM storage_capacity WHERE id=1'), before);
+ assert.equal(f.read('SELECT COUNT(*) n FROM storage_history').n, 0);
+});
 test('member case replay and repeated review cannot award points twice',async t=>{
  const f=await setup(t),p=await f.prepare('direct',true);assert.equal((await f.put(p)).status,200);
  const body={campaign_id:'OBSERVE',vote_date:new Date().toISOString().slice(0,10),upload_session:{session_id:p.session_id,keys:[p.uploads[0].key]}},headers={...p.headers,'Idempotency-Key':randomUUID()};

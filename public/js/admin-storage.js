@@ -36,14 +36,50 @@ export function renderStorage(container, data, { node, button, mutate, reload, r
   }
   section.append(node("p", status, data.blocked ? "notice warn" : "notice"));
   if (data.inventory_invalidated || data.snapshot_stale) {
-    const snapshotStatus = data.inventory_invalidated ? "R2 盤點已失效，須重新建立盤點快照。" : "R2 盤點快照已過期。";
-    section.append(node("p", snapshotStatus + "目前顯示帳本用量。", "notice warn"));
+    const snapshotStatus = data.inventory_invalidated ? "R2 盤點已失效。" : "R2 盤點快照已過期。";
+    section.append(node("p", snapshotStatus + "目前顯示帳本用量。", observing && !data.blocked ? "tiny" : "notice warn"));
   }
   if (data.anomaly) section.append(node("p", "容量異常：" + data.anomaly, "notice warn"));
   section.append(
     node("p", "容量限制開啟時：90% 啟動清理檢查 · 95% 停止新圖片 · 低於 90% 且重新盤點後解除容量封鎖。", "tiny"),
   );
   section.append(node("p",data.cleanup_mode==="live"?"結案滿 7 天且 Drive 驗證成功的舊圖片，達 90% 自動清理至 85%。":"自動清理目前僅試算（dry-run），試算保留期為結案後 7 天。",data.cleanup_mode==="live"?"notice":"notice warn"));
+  const usageStatus = node("p", "", "tiny");
+  usageStatus.setAttribute("role", "status");
+  const usageButton = node("button", "查詢 R2 實際用量", "btn btn-white");
+  usageButton.type = "button";
+  usageButton.addEventListener("click", async () => {
+    if (usageButton.getAttribute("aria-disabled") === "true") return;
+    usageButton.setAttribute("aria-disabled", "true");
+    let bytes = 0, objects = 0, cursor = null;
+    const seen = new Set();
+    usageStatus.textContent = "正在讀取 R2 物件用量…";
+    try {
+      for (let pages = 0; pages < 100; pages++) {
+        const page = await request("storage/r2-usage" + (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""));
+        if (!Number.isSafeInteger(page?.bytes) || page.bytes < 0 ||
+            !Number.isSafeInteger(page.objects) || page.objects < 0 || page.objects > 200 ||
+            !Number.isSafeInteger(bytes + page.bytes) ||
+            (page.next_cursor !== null && (typeof page.next_cursor !== "string" || !page.next_cursor || seen.has(page.next_cursor))))
+          break;
+        bytes += page.bytes;
+        objects += page.objects;
+        if (page.next_cursor === null) {
+          usageStatus.textContent = "本次查詢 " + time(Math.floor(Date.now() / 1000)) +
+            " · R2 物件用量約 " + gb(bytes) + " · " + objects.toLocaleString("zh-TW") + " 個物件";
+          return;
+        }
+        cursor = page.next_cursor;
+        seen.add(cursor);
+      }
+      usageStatus.textContent = "R2 用量未讀取完整。可至 Cloudflare 查看儲存指標。";
+    } catch {
+      usageStatus.textContent = "R2 用量查詢未完成。";
+    } finally {
+      usageButton.removeAttribute("aria-disabled");
+    }
+  });
+  if (request) section.append(usageButton, usageStatus);
   const inventoryButton = button("更新 R2 盤點（每次最多 200 個物件）", async () => {
     const r = await mutate("storage/inventory", {});
     await reload();

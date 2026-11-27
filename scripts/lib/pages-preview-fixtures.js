@@ -274,6 +274,13 @@ export async function fixtureResponse(path, { method = "GET",body } = {}) {
     return reply({history,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
   }
   if(p==='/api/admin/storage')return reply(storageFixture);
+  if(p==='/api/admin/storage/r2-usage'){
+    if(state.data==='error'||storageFixture.used_bytes===null)return reply('R2_USAGE_UNAVAILABLE',503);
+    return url.searchParams.get('cursor')==='preview-next'
+      ? reply({bytes:storageFixture.used_bytes-3600000000,objects:100,next_cursor:null})
+      : reply({bytes:Math.min(storageFixture.used_bytes,3600000000),objects:200,
+        next_cursor:storageFixture.used_bytes>=3600000000?'preview-next':null});
+  }
   if(p==='/api/admin/storage/inventory')return reply({complete:true,bytes:storageFixture.used_bytes});
   if(p==='/api/admin/storage/dry-run')return reply({dry_run:true,retention_approved:false,items:state.storage==='cleanup_failed'?[{state:'blocked',would_delete:false}]:[{state:'dry_run',would_delete:true}]});
   if(method!=="GET") {

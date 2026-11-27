@@ -21,6 +21,8 @@ test("storage shared Admin renderer has decimal budget, Drive quota, dry-run and
   await expect(panel).toContainText("10.00 GB");
   await expect(panel).toContainText("總額 15.00 GB · 已用 10.00 GB · 剩餘 33.3%");
   await expect(panel).toContainText("33.3%");
+  await panel.getByRole("button", { name:"查詢 R2 實際用量" }).click();
+  await expect(panel.getByRole("status")).toContainText("R2 物件用量約 7.20 GB · 300 個物件");
   await panel.getByRole("button", { name: "檢查歷史圖片（dry-run）" }).click();
   await expect(panel).toContainText("實際刪除 0 張");
   await page.locator("#preview-controls > summary").click();

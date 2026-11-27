@@ -56,6 +56,30 @@ const historyList = adminHandler(async (env, url, request) => {
   const total=count.results[0].total;
   return jsonSuccess({history:rows.results,page,page_size:10,total,total_pages:Math.max(1,Math.ceil(total/10))});
 });
+const r2UsagePage = adminHandler(async (env, url, request) => {
+  await adminIdentity(request, env, ELEVATED_ROLES);
+  const cursors = url.searchParams.getAll('cursor');
+  const cursor = cursors[0];
+  if ([...url.searchParams.keys()].some(key => key !== 'cursor') ||
+      cursors.length > 1 || (cursor !== undefined && (!cursor || cursor.length > 4096)))
+    throw new AdminError(400, 'INVALID_PAGINATION', 'R2 用量查詢進度無效。');
+  const limit = 200;
+  const page = await env.PROOFS_BUCKET.list({limit, ...(cursor ? {cursor} : {})});
+  if (!Array.isArray(page?.objects) || page.objects.length > limit ||
+      typeof page.truncated !== 'boolean' ||
+      (page.truncated && (typeof page.cursor !== 'string' || !page.cursor ||
+        page.cursor === cursor || page.cursor.length > 4096)))
+    throw new AdminError(503, 'R2_USAGE_UNAVAILABLE', 'R2 用量查詢未完成。');
+  let bytes = 0;
+  for (const object of page.objects) {
+    if (!Number.isSafeInteger(object?.size) || object.size < 0)
+      throw new AdminError(503, 'R2_USAGE_UNAVAILABLE', 'R2 用量查詢未完成。');
+    bytes += object.size;
+  }
+  if (!Number.isSafeInteger(bytes))
+    throw new AdminError(503, 'R2_USAGE_UNAVAILABLE', 'R2 用量查詢未完成。');
+  return jsonSuccess({bytes, objects:page.objects.length, next_cursor:page.truncated ? page.cursor : null});
+});
 const admin = adminHandler(async (env, url, request) => {
   const actor = await adminIdentity(request, env, ELEVATED_ROLES);
   if (url.search) throw new AdminError(400, "INVALID_STORAGE_REQUEST", "不支援查詢參數。");
@@ -107,6 +131,7 @@ export function storageRoute(path) {
   const manual=manualCleanupRoute(path);if(manual)return manual;
   if (path === "/api/admin/storage") return { method: "GET", handler: admin };
   if (path === "/api/admin/storage/history") return { method: "GET", handler: historyList };
+  if (path === "/api/admin/storage/r2-usage") return { method: "GET", handler: r2UsagePage };
   if (["/api/admin/storage/inventory", "/api/admin/storage/dry-run"].includes(path))
     return { method: "POST", handler: admin };
   if (

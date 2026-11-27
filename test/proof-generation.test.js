@@ -6,7 +6,7 @@ globalThis.fetch=async u=>{if(String(u)!=='https://challenges.cloudflare.com/tur
 const sql=fs.readFileSync('migrations-reset-v1/0001_reset_fence.sql','utf8'),sha=b=>createHash('sha256').update(b).digest('hex');
 const scoped=n=>({PRELAUNCH_RESET_FENCE_ENABLED:'true',PRELAUNCH_RESET_CONTEXT:{epoch:n}});
 async function setup(t,{old=false}={}){
- const rt=await embeddedCaseRuntime();t.after(()=>rt.close());rt.sqlite.exec('UPDATE submission_settings SET submissions_enabled=1');
+ const rt=await embeddedCaseRuntime({migrationThrough:'0028_admin_operations_v2.sql'});t.after(()=>rt.close());rt.sqlite.exec('UPDATE submission_settings SET submissions_enabled=1');
  rt.sqlite.prepare("INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at) VALUES('GEN-TEST','Synthetic','團體','2000-01-01T00:00:00.000Z','2100-01-01T00:00:00.000Z','Asia/Taipei','2000-01-01','2099-12-31',10,'active',?,?)").run(new Date().toISOString(),new Date().toISOString());
  if(old)rt.old=await rt.upload('GEN-TEST',null,{storageVersion:1,direct:false});
  rt.sqlite.exec('UPDATE submission_settings SET submissions_enabled=0');installResetExtensionLocal(rt.sqlite,sql);rt.sqlite.prepare('UPDATE prelaunch_reset_control SET run_id=?').run(randomUUID());

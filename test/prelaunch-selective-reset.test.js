@@ -14,7 +14,7 @@ const synthetic={legacy_io:'LOCAL_SYNTHETIC_ALL_INVOCATIONS_ENDED',image_bypass_
 globalThis.fetch=async url=>{if(String(url)!=='https://challenges.cloudflare.com/turnstile/v0/siteverify')throw Error('NETWORK_FORBIDDEN');return Response.json({success:true});};
 const sha=b=>createHash('sha256').update(b).digest('hex');
 async function protocol(t,{oldUpload=false}={}){
- const rt=await embeddedCaseRuntime();t.after(()=>rt.close());
+ const rt=await embeddedCaseRuntime({migrationThrough:'0028_admin_operations_v2.sql'});t.after(()=>rt.close());
  rt.sqlite.exec('UPDATE submission_settings SET submissions_enabled=1 WHERE id=1');
  rt.sqlite.prepare(`INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at)
  VALUES('RESET-TEST','Synthetic','團體','2000-01-01T00:00:00.000Z','2100-01-01T00:00:00.000Z','Asia/Taipei','2000-01-01','2099-12-31',10,'active',?,?)`).run(new Date().toISOString(),new Date().toISOString());

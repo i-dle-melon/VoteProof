@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 const source = readFileSync(new URL('../apps-script/drive-backup/Code.gs', import.meta.url), 'utf8');
 const inventorySource = readFileSync(new URL('../apps-script/drive-backup/StorageInventory.gs', import.meta.url), 'utf8');
+const presenceSource = readFileSync(new URL('../apps-script/drive-backup/DriveBackupPresence.gs', import.meta.url), 'utf8');
 const FOLDER = 'application/vnd.google-apps.folder';
 function fixture() {
   const secret=randomBytes(32).toString('hex'), root='isolated_root', files=new Map([[root,{id:root,name:'Private root',mimeType:FOLDER,trashed:false}]]);
@@ -77,6 +78,7 @@ test('manual quota refresh publishes one valid Drive quota and never runs the R2
 });
 test('Drive changes require the root owner, dedupe changes and keep the cursor until an ACK',()=>{
   const {context,properties,files,state}=fixture();
+  vm.runInContext(presenceSource,context);
   const root=properties.get('ROOT_FOLDER_ID');
   let sent, acknowledge=false, opens=0;
   context.Drive.Changes={

@@ -21,11 +21,22 @@ const iso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2
   new Date(value).toISOString() === value;
 const length = value => typeof value === 'string' ? Array.from(value.trim()).length : -1;
 const adminColumns = 'stamp_id,version,' + fields.join(',');
+const MAMA_CAMPAIGN_ID = '2026_MAMA_Fans_Choice_2nd';
+const MAMA_DEFAULT_STAMP_ID = '2a38768c-c0cf-471d-81dd-68f55d3e36fb';
 const adminIcon = row => ({
   ...row,
+  ...(row.stamp_id === MAMA_DEFAULT_STAMP_ID ? { campaign_locked: true } : {}),
   custom_icon_url: row.icon === 'custom' ? '/api/admin/activity-stamps/' + row.stamp_id + '/icon/' + row.version : null,
 });
 const eligibleCampaign = "category IN ('團體','Solo') AND status IN ('draft','active','closed')";
+const mamaDefaultSelect = `SELECT c.start_at,c.end_at
+  FROM campaigns c
+  WHERE c.campaign_id=? AND c.category IN ('團體','Solo')
+    AND (c.status='closed' OR (c.status='active' AND julianday(c.end_at)<=julianday(?)))
+    AND EXISTS(SELECT 1 FROM leaderboards b WHERE b.campaign_id=c.campaign_id AND b.type='campaign'
+      AND b.status='active' AND b.is_public=1 AND (b.vote_type IS NULL OR b.vote_type=c.category))
+    AND NOT EXISTS(SELECT 1 FROM activity_stamps s WHERE s.stamp_id=? OR (s.campaign_id=c.campaign_id AND s.replaces_legacy=1))`;
+const mamaDefaultBindings = now => [MAMA_CAMPAIGN_ID, now, MAMA_DEFAULT_STAMP_ID];
 
 export async function activityStampSchemaReady(db) {
   const row = await db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'
@@ -54,30 +65,31 @@ async function editInput(body, updating) {
   };
 }
 
-async function saveStamp(db, actor, body, id, action) {
+async function saveStamp(db, actor, body, id, action, adoptMama = false) {
   const marker = crypto.randomUUID(), now = new Date().toISOString();
   const updateGuard = `stamp_id=? AND version=? AND status<>'deleted' AND ${ELEVATED_AUTH_GUARD}`;
   const actorArgs = actorBindings(actor);
   let change;
   if (action === 'delete') {
     if (!body || Object.keys(body).length !== 1 || !integer(body.expected_version, 0, Number.MAX_SAFE_INTEGER - 1)) throw invalid();
-    change = db.prepare(`UPDATE activity_stamps SET status='deleted',custom_icon=NULL,
+    change = db.prepare(`UPDATE activity_stamps SET status='deleted',custom_icon=NULL,replaces_legacy=MAX(replaces_legacy,?),
       version=version+1,updated_at=?,updated_by=?,last_mutation_id=? WHERE ${updateGuard}`)
-      .bind(now, actor.member.member_id, marker, id, body.expected_version, ...actorArgs);
+      .bind(Number(id === MAMA_DEFAULT_STAMP_ID), now, actor.member.member_id, marker, id, body.expected_version, ...actorArgs);
   } else {
     const input = await editInput(body, action === 'update');
+    if ((adoptMama || id === MAMA_DEFAULT_STAMP_ID) && input.campaign_id !== MAMA_CAMPAIGN_ID) throw invalid();
     const campaign = await db.prepare(`SELECT campaign_id FROM campaigns WHERE campaign_id=? AND ${eligibleCampaign}`)
       .bind(input.campaign_id).first();
     if (!campaign) throw invalid();
     const values = fields.map(key => input[key]);
     if (action === 'create') {
-      id = crypto.randomUUID();
+      id = adoptMama ? MAMA_DEFAULT_STAMP_ID : crypto.randomUUID();
       const columns = [...fields, 'stamp_id', 'custom_icon', 'replaces_legacy', 'updated_at', 'updated_by', 'last_mutation_id'];
       change = db.prepare(`INSERT INTO activity_stamps(${columns.join(',')})
         SELECT ${columns.map(() => '?').join(',')} WHERE ${ELEVATED_AUTH_GUARD}
-        AND EXISTS(SELECT 1 FROM campaigns WHERE campaign_id=? AND ${eligibleCampaign})`)
+        AND EXISTS(${adoptMama ? mamaDefaultSelect : `SELECT 1 FROM campaigns WHERE campaign_id=? AND ${eligibleCampaign}`})`)
         .bind(...values, id, input.custom_icon, Number(input.status !== 'draft'), now, actor.member.member_id,
-          marker, ...actorArgs, input.campaign_id);
+          marker, ...actorArgs, ...(adoptMama ? mamaDefaultBindings(now) : [input.campaign_id]));
     } else {
       change = db.prepare(`UPDATE activity_stamps SET ${fields.map(key => key + '=?').join(',')},
         custom_icon=CASE WHEN ?<>'custom' THEN NULL ELSE COALESCE(?,custom_icon) END,
@@ -108,15 +120,24 @@ const admin = adminHandler(async (env, url, request) => {
   const [, , , , id, action] = url.pathname.split('/');
   if (request.method === 'POST') {
     const input = await readReviewJson(request, action === 'delete' ? undefined : MAX_STAMP_ICON_LENGTH + 6000);
-    return jsonSuccess(await saveStamp(db, actor, input, id, action ?? 'create'));
+    const adoptMama = id === 'mama-default';
+    return jsonSuccess(await saveStamp(db, actor, input, id, action ?? 'create', adoptMama));
   }
   if (action === 'icon') return stampIcon(db, url, true);
-  const [stamps, campaigns] = await db.batch([
+  const [stamps, campaigns, inherited] = await db.batch([
     db.prepare(`SELECT ${adminColumns} FROM activity_stamps WHERE status<>'deleted' ORDER BY sort_order,stamp_id`),
     db.prepare(`SELECT campaign_id,name,category,start_at,end_at FROM campaigns WHERE ${eligibleCampaign}
       ORDER BY start_at DESC,campaign_id`),
+    db.prepare(mamaDefaultSelect).bind(...mamaDefaultBindings(new Date().toISOString())),
   ]);
-  return jsonSuccess({ stamps: stamps.results.map(adminIcon), campaigns: campaigns.results });
+  const records = stamps.results.map(adminIcon);
+  const mama = inherited.results[0];
+  if (mama) records.unshift({
+    stamp_id: MAMA_DEFAULT_STAMP_ID, campaign_id: MAMA_CAMPAIGN_ID, name: 'MAMA 第二輪', description: '',
+    min_proofs: 1, min_days: 1, opens_at: mama.start_at, closes_at: mama.end_at,
+    icon: 'mama', color: 'blue', status: 'published', sort_order: 0, inherited: true, campaign_locked: true,
+  });
+  return jsonSuccess({ stamps: records, campaigns: campaigns.results });
 });
 
 async function stampIcon(db, url, isAdmin) {
@@ -140,6 +161,7 @@ const memberArtwork = adminHandler(async (env, url, request) => {
 
 export function activityStampRoute(path, method) {
   if (path === '/api/admin/activity-stamps') return { method: method === 'POST' ? 'POST' : 'GET', allow: 'GET, POST', handler: admin };
+  if (path === '/api/admin/activity-stamps/mama-default') return { method: 'POST', handler: admin };
   if (/^\/api\/admin\/activity-stamps\/[a-f0-9-]{36}\/(update|delete)$/.test(path)) return { method: 'POST', handler: admin };
   if (/^\/api\/admin\/activity-stamps\/[a-f0-9-]{36}\/icon\/[0-9]{1,16}$/.test(path)) return { method: 'GET', handler: admin };
   if (/^\/api\/me\/activity-stamps\/[a-f0-9-]{36}\/icon\/[0-9]{1,16}$/.test(path)) return { method: 'GET', handler: memberArtwork };

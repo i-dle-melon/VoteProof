@@ -4,7 +4,7 @@ import { prepareStampIcon, stampPhase } from './activity-stamp-art.js';
 
 const phaseLabels = { open: '已開放', scheduled: '即將開放', ended: '已結束', draft: '草稿', hidden: '已隱藏' };
 const publication = [['draft', '草稿'], ['published', '公開'], ['hidden', '隱藏']];
-const dateControl = value => taipeiInput(value).slice(0, 16);
+const dateControl = value => taipeiInput(value);
 const dateLabel = value => dateControl(value).replace('T', ' ');
 
 function node(tag, text = '', className) {
@@ -75,7 +75,8 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
       const row = action('', () => open(stamp), 'stamp-admin-row');
       row.setAttribute('aria-pressed', String(stamp.stamp_id === selected));
       const detail = node('span', '', 'stamp-admin-detail');
-      detail.append(node('strong', stamp.name), node('small', `${phaseLabels[stampPhase(stamp)]} · ${stamp.min_proofs} 次／${stamp.min_days} 天`));
+      const label = stamp.inherited ? '既有預設 · 可編輯' : `${phaseLabels[stampPhase(stamp)]} · ${stamp.min_proofs} 次／${stamp.min_days} 天`;
+      detail.append(node('strong', stamp.name), node('small', label));
       row.append(stampMedal({ ...stamp, earned: true }), detail, node('span', '編輯', 'stamp-row-action'));
       return row;
     }));
@@ -89,7 +90,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     if (preview) form.dataset.previewStampEditor = '';
     const titleRow = node('header', '', 'stamp-editor-heading');
     titleRow.append(node('h3', existing ? '編輯活動集章' : '新增活動集章'));
-    if (existing) titleRow.append(action('刪除活動集章', () => {
+    if (existing && !existing.inherited) titleRow.append(action('刪除活動集章', () => {
       if (!window.confirm(`確定刪除「${existing.name}」？\n刪除對象為這筆集章設定與會員集章頁上的顯示。`)) return;
       void run(async current => {
         await mutate('activity-stamps/' + existing.stamp_id + '/delete', { expected_version: existing.version });
@@ -100,6 +101,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
       });
     }, 'btn btn-review-reject stamp-delete'));
     form.append(titleRow);
+    if (existing?.inherited) form.append(node('p', '既有集章。首次設為公開並儲存後，會依下列活動期間與門檻計算解鎖。', 'tiny'));
     const currentCampaign = campaigns.find(c => c.campaign_id === existing?.campaign_id);
     const defaults = currentCampaign ?? campaigns[0];
     if (!defaults) {
@@ -116,7 +118,7 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     const campaignChoices = campaigns.map(c => [c.campaign_id, c.name]);
     if (existing && !currentCampaign) campaignChoices.unshift(['', '請選擇可用活動']);
     const linked = field(general, 'campaign_id', '對應投票活動', 'select', existing ? currentCampaign?.campaign_id ?? '' : defaults.campaign_id, {
-      choices: campaignChoices, required: true,
+      choices: campaignChoices, required: true, disabled: existing?.campaign_locked === true,
     });
     const name = field(general, 'name', '集章名稱', 'text', existing?.name ?? '', { required: true, maxLength: 60 });
     const description = field(general, 'description', '集章說明（選填）', 'textarea', existing?.description ?? '', { maxLength: 160, rows: 2 });
@@ -126,8 +128,8 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
     const intRange = (min, max) => ({ required: true, min, max, step: 1 });
     const proofs = field(conditions, 'min_proofs', '活動內有效投稿次數', 'number', existing?.min_proofs ?? 1, intRange(1, 10000));
     const days = field(conditions, 'min_days', '活動內不同投稿天數', 'number', existing?.min_days ?? 1, intRange(1, 3650));
-    const opens = field(conditions, 'opens_at', '開始時間（台灣）', 'datetime-local', dateControl(existing?.opens_at ?? defaults.start_at), { required: true });
-    const closes = field(conditions, 'closes_at', '結束時間（台灣）', 'datetime-local', dateControl(existing?.closes_at ?? defaults.end_at), { required: true });
+    const opens = field(conditions, 'opens_at', '開始時間（台灣）', 'datetime-local', dateControl(existing?.opens_at ?? defaults.start_at), { required: true, step: 1 });
+    const closes = field(conditions, 'closes_at', '結束時間（台灣）', 'datetime-local', dateControl(existing?.closes_at ?? defaults.end_at), { required: true, step: 1 });
     conditions.append(node('p', '兩項門檻都要達成，投稿天數以台灣日期計算。', 'tiny stamp-full-field'));
 
     const appearance = group('外觀與公開');
@@ -251,10 +253,11 @@ export async function renderStampEditor({ container, request, mutate, run, isCur
         icon: icon.value, color: color.value, status: status.value, sort_order: order.valueAsNumber,
         ...(icon.value === 'custom' && customIcon ? { custom_icon: customIcon } : {}),
         ...(color.value === 'custom' ? { custom_color: stampHexColor(hex.value) } : {}),
-        ...(existing ? { expected_version: existing.version } : {}),
+        ...(existing && !existing.inherited ? { expected_version: existing.version } : {}),
       };
       void run(async current => {
-        const path = existing ? 'activity-stamps/' + existing.stamp_id + '/update' : 'activity-stamps';
+        const path = existing?.inherited ? 'activity-stamps/mama-default' :
+          existing ? 'activity-stamps/' + existing.stamp_id + '/update' : 'activity-stamps';
         const { stamp } = await mutate(path, input);
         if (!current()) return;
         if (existing) stamps.splice(stamps.findIndex(row => row.stamp_id === stamp.stamp_id), 1, stamp);

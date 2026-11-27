@@ -14,6 +14,14 @@ test('the production stamp editor saves browser PNGs and the member view reads t
       vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at)
       VALUES('LOCAL','合成活動','團體','2001-01-01T00:00:00.000Z','2001-02-01T00:00:00.000Z','Asia/Taipei',
         '2001-01-01','2001-02-01',3,'closed','2001-01-01','2001-01-01')`);
+    const mamaId = '2026_MAMA_Fans_Choice_2nd';
+    worker.sqlite.prepare(`INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,
+      vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at)
+      VALUES(?,'合成 MAMA 第二輪','團體','2000-01-01T00:00:00.000Z','2000-02-01T00:00:59.000Z','Asia/Taipei',
+        '2000-01-01','2000-02-01',3,'closed','2000-01-01','2000-01-01')`).run(mamaId);
+    worker.sqlite.prepare(`INSERT INTO leaderboards(leaderboard_id,name,type,campaign_id,top_n,is_public,status,created_at,updated_at,created_by,updated_by)
+      VALUES('mama-fixture','MAMA','campaign',?,100,1,'active','2000-01-01','2000-01-01',?,?)`)
+      .run(mamaId, actor.memberId, actor.memberId);
     const useWorker = async route => {
       const request = route.request(), method = request.method();
       if (method === 'POST') {
@@ -36,6 +44,18 @@ test('the production stamp editor saves browser PNGs and the member view reads t
     const panel = page.locator('#admin-panel');
     await panel.getByRole('button', { name: '活動集章', exact: true }).click();
     const editor = panel.locator('[data-activity-stamp-editor]');
+    const mama = panel.getByRole('button', { name: /MAMA 第二輪.*既有預設/ });
+    await expect(mama).toHaveCount(1);
+    await mama.click();
+    await expect(editor.getByLabel('對應投票活動')).toHaveValue(mamaId);
+    await expect(editor.getByLabel('印章圖案')).toHaveValue('mama');
+    await expect(editor.getByLabel('結束時間（台灣）')).toHaveValue('2000-02-01T08:00:59');
+    await editor.getByLabel('顯示狀態').selectOption('draft');
+    await editor.getByRole('button', { name: '儲存集章設定' }).click();
+    await expect(panel.getByRole('button', { name: /MAMA 第二輪.*草稿/ })).toHaveCount(1);
+    await expect(mama).toHaveCount(0);
+
+    await panel.getByRole('button', { name: '新增活動集章', exact: true }).click();
     await editor.getByLabel('集章名稱').fill('正式模式合成集章');
     await editor.getByLabel('集章說明').fill('合成門檻說明');
     await editor.getByLabel('印章圖案').selectOption('custom');

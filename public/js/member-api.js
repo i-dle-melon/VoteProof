@@ -152,7 +152,7 @@ export function adminPath(path) {
     pathname==='/api/admin/points/adjustments'?[]:null;
   if(insights){const p=new URLSearchParams(query??'');return [...p.keys()].every(k=>insights.includes(k)&&p.getAll(k).length===1);}
   if(['/api/admin/member-lookup','/api/admin/member-mail/send'].includes(pathname)&&query===undefined)return true;
-  if(query===undefined && /^\/api\/admin\/activity-stamps(?:\/[a-f0-9-]{36}\/(?:update|delete))?$/.test(pathname))return true;
+  if(query===undefined && /^\/api\/admin\/activity-stamps(?:\/(?:mama-default|[a-f0-9-]{36}\/(?:update|delete)))?$/.test(pathname))return true;
   if(query===undefined&&/^\/api\/admin\/(?:announcements(?:\/[a-f0-9-]{36}\/update)?|campaign-assets\/[A-Za-z0-9_-]{1,100}|campaigns\/[A-Za-z0-9_-]{1,100}\/guidance)$/.test(pathname))return true;
   if(['/api/admin/cases/initial-review','/api/admin/cases/batch-status','/api/admin/backups/jobs'].includes(pathname)){
     const allowed=pathname.endsWith('initial-review')?['cutoff','cursor']:pathname.endsWith('batch-status')?['items']:['status','page'];

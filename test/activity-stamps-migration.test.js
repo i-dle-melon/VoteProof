@@ -155,3 +155,52 @@ test('native local D1 installs the independent stamp schema and stores transpare
   assert.equal(Buffer.from(await image.arrayBuffer()).toString('base64'), artwork);
   assert.deepEqual((await local.db.prepare('PRAGMA foreign_key_check').all()).results, []);
 });
+
+test('the existing MAMA badge is editable without a backfill and its first save is atomic', async t => {
+  const f = await embeddedCaseRuntime();
+  t.after(() => f.close());
+  f.sqlite.exec(await readFile(migrationFile, 'utf8'));
+  const actor = await f.identity('admin');
+  const campaign = '2026_MAMA_Fans_Choice_2nd';
+  const opens = '2001-01-01T00:00:00.000Z', closes = '2001-02-01T00:00:59.000Z';
+  f.sqlite.prepare(`INSERT INTO campaigns(campaign_id,name,category,start_at,end_at,campaign_timezone,
+    vote_start_date,vote_end_date,points_per_proof,status,created_at,updated_at)
+    VALUES(?,'MAMA original','團體',?,?,'Asia/Taipei','2001-01-01','2001-02-01',3,'closed',?,?)`)
+    .run(campaign, opens, closes, opens, opens);
+  f.sqlite.prepare(`INSERT INTO leaderboards(leaderboard_id,name,type,campaign_id,top_n,is_public,status,created_at,updated_at,created_by,updated_by)
+    VALUES('board-mama','MAMA','campaign',?,100,1,'active',?,?,?,?)`).run(campaign, opens, opens, actor.memberId, actor.memberId);
+  const get = async path => {
+    const response = await f.fetch(path, 'GET', undefined, actor.headers);
+    assert.equal(response.status, 200, await response.clone().text());
+    return (await response.json()).data;
+  };
+  const [legacy] = (await get(adminPath)).stamps;
+  assert.equal(legacy.campaign_id, campaign);
+  assert.equal(legacy.name, 'MAMA 第二輪');
+  assert.equal(legacy.inherited, true);
+  assert.equal(legacy.campaign_locked, true);
+  assert.equal(legacy.icon, 'mama');
+  assert.equal(legacy.color, 'blue');
+  assert.equal(legacy.opens_at, opens);
+  assert.equal(legacy.closes_at, closes);
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) AS count FROM activity_stamps').get().count, 0);
+  assert.equal((await get(resultsPath)).campaigns[0].stamp, undefined);
+
+  const rule = {
+    campaign_id: campaign, name: legacy.name, description: '', opens_at: opens, closes_at: closes,
+    min_proofs: 1, min_days: 1, status: 'draft', icon: 'mama', color: 'blue', sort_order: 0,
+  };
+  const writes = await Promise.all([0, 1].map(() => f.fetch(adminPath + '/mama-default', 'POST', rule, actor.headers)));
+  assert.deepEqual(writes.map(r => r.status).sort(), [200, 409]);
+  const [saved] = (await get(adminPath)).stamps;
+  assert.equal(saved.stamp_id, legacy.stamp_id);
+  assert.equal(saved.inherited, undefined);
+  assert.equal(saved.status, 'draft');
+  assert.equal((await get(resultsPath)).campaigns[0].stamp, undefined);
+  const edit = await f.fetch(adminPath + '/' + saved.stamp_id + '/update', 'POST',
+    { ...rule, status: 'published', expected_version: saved.version }, actor.headers);
+  assert.equal(edit.status, 200, await edit.clone().text());
+  const results = (await get(resultsPath)).campaigns;
+  assert.equal(results.length, 1);
+  assert.equal(results[0].stamp.icon, 'mama');
+});

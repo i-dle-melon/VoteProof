@@ -254,6 +254,12 @@ test('manual cleanup verifies signed Drive identity/checksum; preserves Case, po
  const list=await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers);assert.equal(list.status,200);assert.equal((await list.json()).data.items[0].eligible,true);
  const v=await f.call(c,'verify');assert.equal(v.status,200,await v.clone().text());assert.equal((await v.json()).data.state,'verified');
  const d=await f.call(c,'delete');assert.equal(d.status,200,await d.clone().text());assert.equal((await d.json()).data.state,'deleted');assert.equal(f.deleteCalls(),1);assert.equal(f.driveCalls(),1);assert.equal(f.gets(),0);
+ for(const filter of ['', '?eligible=no', '?status=completed']) {
+  const filtered=await f.fetch('/api/admin/storage/manual'+filter,'GET',undefined,f.admin.headers);
+  assert.equal(filtered.status,200,await filtered.clone().text());
+  const remaining=(await filtered.json()).data;
+  assert.deepEqual(remaining.items,[]);assert.equal(remaining.total,0);assert.equal(remaining.next_cursor,null);
+ }
  assert.deepEqual(f.sqlite.prepare('SELECT * FROM point_transactions').all(),before);assert.deepEqual(f.sqlite.prepare('SELECT * FROM members').all(),members);assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM cases').first()).n,1);
  assert.match((await f.db.prepare('SELECT sha256 FROM cold_proofs').first()).sha256,/^[a-f0-9]{64}$/);assert.equal((await f.db.prepare('SELECT used_bytes FROM storage_capacity').first()).used_bytes,0);
  const get=await f.fetch('/api/admin/cases/'+c.data.case_id+'/files/'+c.file.id,'GET',undefined,f.admin.headers);assert.equal(get.status,410);assert.equal(f.gets(),0);
@@ -482,6 +488,14 @@ test('manual candidates span pages in stable order; filters/cutoff bind the curs
  assert.equal((await f.fetch(base+'&status=rejected&cutoff='+first.cutoff+'&cursor='+encodeURIComponent(first.next_cursor),'GET',undefined,f.admin.headers)).status,400);
  assert.equal((await f.fetch(base+'&summary=1','GET',undefined,f.admin.headers)).status,400);
  const again=(await(await f.fetch(base+'&cutoff='+first.cutoff,'GET',undefined,f.admin.headers)).json()).data;assert.deepEqual(again.items.map(x=>x.file_id),first.items.map(x=>x.file_id));assert.equal(f.driveCalls(),0);assert.equal(f.deleteCalls(),0);
+ const removed=f.cases.find(c=>c.file.id===first.items[0].file_id);
+ const cleaned=await f.call(removed,'clean');assert.equal(cleaned.status,200,await cleaned.clone().text());
+ const remainingUrl='/api/admin/storage/manual?campaign_id=MANUAL&cutoff='+first.cutoff;
+ const remaining=(await(await f.fetch(remainingUrl,'GET',undefined,f.admin.headers)).json()).data;
+ assert.equal(remaining.total,24);assert.equal(remaining.items.length,20);assert.equal(remaining.eligible_bytes,72);
+ const last=(await(await f.fetch(remainingUrl+'&cursor='+encodeURIComponent(remaining.next_cursor),'GET',undefined,f.admin.headers)).json()).data;
+ assert.equal(last.items.length,4);assert.equal(last.next_cursor,null);
+ assert.deepEqual([...remaining.items,...last.items].map(row=>row.file_id),[...first.items.slice(1),...next.items].map(row=>row.file_id));
 });
 test('R2 version race and source version changes are refused before DELETE',async t=>{
  const f=await fixture(t),c=f.cases[0],head=f.bucket.head;let calls=0;

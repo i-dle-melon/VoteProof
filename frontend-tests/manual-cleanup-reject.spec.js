@@ -83,15 +83,23 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFi
 }
 test('manual cleanup all covers 25 files over pages, first20 is stable and each file has independent verified cleanup',async({page},info)=>{
  const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());
+ const panel=page.locator('#admin-panel');
+ await expect(panel.getByLabel('活動',{exact:true})).toBeVisible();
+ await expect(panel.getByLabel('案件狀態').locator('option')).toHaveText(['全部','待審核','已通過','已完成','未通過','重複投稿','已撤銷']);
+ await expect(panel.getByLabel('Drive 備份狀態').locator('option')).toHaveText(['全部','已確認','待備份','備份中','備份失敗']);
+ await expect(panel.locator('.member-case').first()).toContainText('已完成 · 3 位元組');
  await page.getByRole('button',{name:'選取前20張可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 20 張');
  const chosen=await page.locator('#admin-panel input[type=checkbox]:checked').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));expect(chosen).toHaveLength(20);
  await page.getByRole('button',{name:'清除目前選取',exact:true}).click();await page.getByRole('button',{name:'選取前20張可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel input[type=checkbox]:checked')).toHaveCount(20);expect(await page.locator('#admin-panel input[type=checkbox]:checked').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')))).toEqual(chosen);
- await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張 · 預計釋放 75 bytes');
+ await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張 · 預計釋放 75 位元組');
  await page.screenshot({path:'.wrangler/frontend-previews/manual-cleanup-'+info.project.name+'.png'});await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();
  await expect(page.locator('#admin-panel')).toContainText('已處理 25/25 · 已清理 25');expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(25);
  expect(f.calls.filter(c=>c.p==='/api/admin/storage/manual').map(c=>c.summary)).toEqual([false,false,false,true,false,false]);
  for(const row of f.rows){const operations=f.calls.filter(c=>c.p.includes(row.file_id)&&c.method==='POST');expect(operations.map(c=>c.p.split('/').at(-1))).toEqual(['clean']);expect(operations[0].body.file_id).toBe(row.file_id);expect(operations[0].body.backup_version).toBe(row.backup_version);}
- await expect(page.locator('#admin-panel')).toContainText('請從已確認下載的匯出 ZIP 取得原圖');
+ await expect(panel.locator('.member-case')).toHaveCount(0);
+ await panel.getByRole('button',{name:'搜尋',exact:true}).click();
+ await expect(panel).toContainText('沒有符合篩選的圖片');
+ await expect(panel.locator('.member-case')).toHaveCount(0);
  await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(f.state.calls.filter(c=>c.path.includes('/files/'))).toHaveLength(f.initialImageReads);
 });
 test('manual cleanup unknown stops without re-delete',async({page})=>{
@@ -172,7 +180,7 @@ test('selectable older photos use the same checkboxes, bulk selection and early-
 });
 test('manual all-page selection retains individual exclusions across pagination',async({page})=>{
  const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張');
- const omitted=f.rows[0].file_id;await page.getByRole('checkbox',{name:'選取圖片 '+omitted,exact:true}).uncheck();await expect(page.locator('#admin-panel')).toContainText('已選 24 張 · 預計釋放 72 bytes');
+ const omitted=f.rows[0].file_id;await page.getByRole('checkbox',{name:'選取圖片 '+omitted,exact:true}).uncheck();await expect(page.locator('#admin-panel')).toContainText('已選 24 張 · 預計釋放 72 位元組');
  await page.getByRole('button',{name:'載入更多',exact:true}).click();await expect(page.locator('#admin-panel input[type=checkbox]:checked')).toHaveCount(24);
  await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已處理 24/24 · 已清理 24');expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(24);expect(f.calls.some(c=>c.method==='POST'&&c.p.includes(omitted))).toBe(false);expect(f.rows[0].cleanup_state).toBeNull();
 });
@@ -205,6 +213,6 @@ test('isolated Preview mocks reject and keeps manual cleanup read-only without A
  await page.getByRole('combobox',{name:'案件狀態',exact:true}).selectOption('revoked');
  await page.getByRole('button',{name:'搜尋',exact:true}).click();
  await expect(page.locator('#admin-panel article')).toHaveCount(1);
- await expect(page.locator('#admin-panel article')).toContainText('revoked');
+ await expect(page.locator('#admin-panel article')).toContainText('已撤銷');
  await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(realApi).toEqual([]);expect(errors).toEqual([]);
 });

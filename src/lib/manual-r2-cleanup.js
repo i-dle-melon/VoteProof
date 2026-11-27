@@ -89,7 +89,7 @@ const exportMatch=`d.file_id=f.id AND d.etag=f.etag AND d.file_size=f.size AND d
 const candidateSql=eligibility=>`SELECT f.id file_id,c.id case_internal_id,c.case_id,c.campaign_id,c.status,c.created_at,c.updated_at,c.version case_version,
  f.size,f.object_key,f.created_at file_created_at,CASE WHEN NOT ${noArchiveStatusSql} AND d.file_id IS NULL THEN b.version END backup_version,b.status backup_status,
  CASE WHEN ${noArchiveStatusSql} THEN 'none' WHEN d.file_id IS NOT NULL THEN 'export' WHEN ${driveBound} THEN 'drive' END archive_source,
- p.state cleanup_state,p.verification_context,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,
+ p.state cleanup_state,c.reviewed_at,coalesce(c.status_updated_at,c.updated_at) closed_at,
  (${backupQuiet}) backup_quiet,
  EXISTS(SELECT 1 FROM storage_reservations r WHERE r.object_key=f.object_key AND r.state='reserved') has_reservation,
  EXISTS(SELECT 1 FROM proof_upload_intents i WHERE i.object_key=f.object_key AND i.write_token IS NOT NULL) has_pin,
@@ -133,7 +133,7 @@ export async function cleanupCandidates(db,url,eligibility={}){
  const f=filters(url),cutoffMs=Date.parse(f.cutoff),time=Math.floor(cutoffMs/1000);
  const legacyArgs=eligibility.isolatedProofs&&eligibility.legacyOperations?[eligibility.legacyOperations]:[];
  const base=[...legacyArgs,f.cutoff,Number(f.allowEarlyExport),f.cutoff,time,...legacyArgs];
- const candidates=`FROM (${candidateSql(eligibility)}) WHERE ${f.where}`;
+ const candidates=`FROM (${candidateSql(eligibility)}) WHERE (cleanup_state IS NULL OR cleanup_state<>'cold') AND ${f.where}`;
  const eligibleArgs=f.eligible?[Number(f.eligible==='yes')]:[];
  const page=(await db.prepare(`SELECT * ${candidates}${f.eligible?' AND eligible=?':''} ORDER BY created_at,file_id LIMIT 21`)
   .bind(...base,...f.args,...eligibleArgs).all()).results;
@@ -145,7 +145,7 @@ export async function cleanupCandidates(db,url,eligibility={}){
    FROM classified${f.eligible?' WHERE eligible=?':''}`).bind(...base,...f.args,...eligibleArgs).first();
  }
  const rows=page.slice(0,20),last=rows.at(-1);
- return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,file_created_at,case_internal_id,has_reservation,has_pin,has_export,r2_safe,backup_quiet,verification_context,...r})=>{
+ return{...summary,cutoff:f.cutoff,retention_days:ARCHIVE_RETENTION_DAYS,items:rows.map(({object_key,file_created_at,case_internal_id,has_reservation,has_pin,has_export,r2_safe,backup_quiet,...r})=>{
   const withoutArchive=r.archive_source==='none';
   const reasons=[];if(!r.archive_source)reasons.push('尚無符合目前圖片版本的 Drive 備份或已確認下載的匯出');
   if(!backup_quiet)reasons.push('Drive 備份作業尚未結束');
@@ -157,14 +157,13 @@ export async function cleanupCandidates(db,url,eligibility={}){
    if(!Number.isFinite(closedAt)||closedAt>cutoffMs)reasons.push('無法確認結案時間');
    else if(withinRetention&&!earlyExport)reasons.push('結案後尚未滿7天');
   }
-  if(has_reservation)reasons.push('有未決Reservation');if(has_pin)reasons.push('有Write Pin');if(has_export)reasons.push('有效匯出或下載lease尚未結束');
+  if(has_reservation)reasons.push('有未完成的儲存空間預留');if(has_pin)reasons.push('圖片仍有寫入鎖定');if(has_export)reasons.push('匯出或下載作業尚未結束');
   if(!r2_safe){
    const needsDriveRelay=eligibility.legacyOperations&&!eligibility.legacyDriveReady&&r.archive_source==='drive'
     &&object_key.startsWith('proofs/final/g')&&Date.parse(file_created_at)<Date.parse(LEGACY_CUTOFF);
    reasons.push(needsDriveRelay?'已有 Drive 備份，需設定即時驗證入口才能清理':'未決 R2 操作、原始版本收據不足、盤點或容量異常尚未排除');
   }
-  if(r.cleanup_state==='verifying')reasons.push('已有驗證作業；不按逾時接管');if(r.cleanup_state==='deleting')reasons.push('DELETE結果待人工核對，不會重送');
-  if(r.cleanup_state==='cold')return{...r,eligible:false,reason:cleanedMessage(context({verification_context}))};
+  if(r.cleanup_state==='verifying')reasons.push('已有驗證作業，逾時也不會接管');if(r.cleanup_state==='deleting')reasons.push('刪除結果待人工核對，不會重送');
   const archiveReason=withoutArchive?'依案件狀態可清理 R2，無需備份、下載或等待 7 天':r.archive_source==='export'
    ?(earlyExport?'結案未滿 7 天，已確認下載；清理前會重新核對匯出紀錄及 R2':'已確認下載；清理前會重新核對匯出紀錄及 R2')
    :'清理前會即時驗證 Drive 和 R2';

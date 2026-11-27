@@ -133,7 +133,13 @@ export function adminPath(path) {
   if (typeof path !== "string" || /[#\\]/.test(path)) return false;
   const [pathname, query, extra] = path.split("?");
   if(pathname.includes('.'))return false;
-  if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > 1024 || /[\u0000-\u001f\u007f]/.test(val))) return false;
+  const r2Usage = pathname === "/api/admin/storage/r2-usage";
+  const maxQueryValue = r2Usage ? 4096 : 1024;
+  if (extra !== undefined || query && [...new URLSearchParams(query)].some(([key, val]) => !/^[a-z_]+$/.test(key) || val.length > maxQueryValue || /[\u0000-\u001f\u007f]/.test(val))) return false;
+  if (r2Usage) {
+    const params = new URLSearchParams(query ?? "");
+    return params.size === 0 || (params.size === 1 && Boolean(params.get("cursor")));
+  }
   if(['/api/admin/solo-targets','/api/admin/overview'].includes(pathname) && query===undefined)return true;
   if(pathname==='/api/admin/overview'){const p=new URLSearchParams(query??''),keys=p.has('from_at')||p.has('to_at')?['from_at','to_at']:['from','to'];return keys.every(k=>p.getAll(k).length===1)&&[...p.keys()].every(k=>keys.includes(k));}
   if(pathname==='/api/admin/storage/manual'){

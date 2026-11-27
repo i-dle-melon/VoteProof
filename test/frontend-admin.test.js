@@ -47,6 +47,15 @@ test("dedicated admin transport retains CSRF/cookies and hides arbitrary respons
   assert.equal(options.headers["X-CSRF-Token"], data.csrf_token); assert.equal(options.credentials, "same-origin"); assert.equal(options.referrerPolicy, "no-referrer"); assert.equal(options.cache, "no-store");
   assert.equal(adminMessage({ status: 409, message: "internal SQL" }).includes("internal SQL"), false); session.clear();
 });
+test("R2 usage accepts one opaque cursor within the server limit", () => {
+  const path = "/api/admin/storage/r2-usage";
+  for (const query of ["", "?cursor=page%2B2%3D", "?cursor=" + "a".repeat(4096)]) {
+    assert.equal(adminPath(path + query), true);
+  }
+  for (const query of ["?cursor=", "?cursor=%00", "?cursor=a&cursor=b", "?page=1", "?cursor=" + "a".repeat(4097)]) {
+    assert.equal(adminPath(path + query), false);
+  }
+});
 test("no admin fetch without member; public member request cannot target admin", async () => {
   let calls = 0; const session = new MemberSession({ fetcher: () => calls++ });
   await assert.rejects(session.adminRequest("/api/admin/me"), { code: "AUTH_REQUIRED" });

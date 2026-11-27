@@ -30,6 +30,28 @@ test('backup list shows files moved to Drive trash separately from successes',as
  await expect(page.getByRole('dialog')).toContainText('Drive 圖片已移到垃圾桶');
  expect(state.calls.filter(c=>c.method!=='GET'&&c.path.includes('/backups'))).toEqual([]);
 });
+test('R2 usage reads all object pages through the production admin transport', async ({page}) => {
+  const state = await adminFixture(page);
+  await page.route('**/api/admin/backups', route => reply(route, {
+    ...state.backupReadiness, counts:{pending:0,processing:0,confirmed:0,failed:0}, missing:0,
+    storage:{budget:{budget:10000000000},upload_policy:'observe',inventory_invalidated:true},
+  }));
+  const calls = [];
+  await page.route('**/api/admin/storage/r2-usage*', route => {
+    const request = route.request();
+    const cursor = new URL(request.url()).searchParams.get('cursor');
+    calls.push({method:request.method(),cursor});
+    return reply(route, cursor === null
+      ? {bytes:600000000,objects:200,next_cursor:'page+2='}
+      : {bytes:310000000,objects:30,next_cursor:null});
+  });
+  await ready(page);
+  await tab(page,'Google Drive 備份');
+  const panel = page.getByRole('region',{name:'儲存容量保護'});
+  await panel.getByRole('button',{name:'查詢 R2 實際用量'}).click();
+  await expect(panel.getByRole('status')).toHaveText(/R2 物件用量約 0\.91 GB · 230 個物件/);
+  expect(calls).toEqual([{method:'GET',cursor:null},{method:'GET',cursor:'page+2='}]);
+});
 test('overview displays global status groups and never fetches a page of cases for totals',async({page})=>{
  const state=await adminFixture(page);await ready(page);const prior=state.calls.filter(c=>c.path==='/api/admin/cases').length;
  await tab(page,'工作總覽');for(const value of ['1,284','134','8','2']){if(value==='1,284')await expect(page.locator('[data-member-total]')).toContainText('1284');else await expect(page.locator('#admin-panel')).toContainText(value);}

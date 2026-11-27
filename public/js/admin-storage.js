@@ -6,7 +6,7 @@ export function renderStorage(container, data, { node, button, mutate, reload, r
   container.append(section);
   section.append(node("h3", "儲存容量保護"));
   if (!data) {
-    section.append(node("p", "容量未知 · 新圖片上傳安全封鎖", "notice warn"));
+    section.append(node("p", "目前無法取得容量保護狀態。", "notice warn"));
     return;
   }
   const gb = (n) => (Number.isFinite(n) ? (n / 1000000000).toFixed(2) + " GB" : "未知");
@@ -23,31 +23,34 @@ export function renderStorage(container, data, { node, button, mutate, reload, r
         gb(data.used_bytes) +
         " · 預留 " +
         gb(data.reserved_bytes) +
-        " · 資料時間 " +
+        " · 上次盤點 " +
         time(data.observed_at),
     ),
   );
-  section.append(
-    node(
-      "p",
-      data.blocked
-        ? "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。"
-        : "容量閘門正常；投稿開關仍獨立控制。",
-      data.blocked ? "notice warn" : "notice",
-    ),
-  );
+  const observing = data.upload_policy === "observe";
+  let status = observing ? "容量保護採觀察模式，投稿開關獨立控制。" : "容量閘門正常，投稿開關獨立控制。";
+  if (data.blocked) {
+    if (data.anomaly) status = "容量帳本異常，暫時停止圖片上傳。";
+    else if (data.snapshot_stale) status = "R2 盤點快照已過期，暫時停止圖片上傳。";
+    else status = "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。";
+  }
+  section.append(node("p", status, data.blocked ? "notice warn" : "notice"));
+  if (data.inventory_invalidated || data.snapshot_stale) {
+    const snapshotStatus = data.inventory_invalidated ? "R2 盤點已失效，須重新建立盤點快照。" : "R2 盤點快照已過期。";
+    section.append(node("p", snapshotStatus + "目前顯示帳本用量。", "notice warn"));
+  }
   if (data.anomaly) section.append(node("p", "容量異常：" + data.anomaly, "notice warn"));
   section.append(
-    node("p", "90% 啟動清理檢查 · 95% 停止新圖片 · 低於 90% 且重新盤點後解除容量封鎖。", "tiny"),
+    node("p", "容量限制開啟時：90% 啟動清理檢查 · 95% 停止新圖片 · 低於 90% 且重新盤點後解除容量封鎖。", "tiny"),
   );
-  section.append(node("p",data.cleanup_mode==="live"?"結案滿 7 天且 Drive 驗證成功的舊圖片，達 90% 自動清理至 85%。":"結案保留 7 天已確認；目前僅 dry-run，沒有正式刪除圖片。",data.cleanup_mode==="live"?"notice":"notice warn"));
-  section.append(
-    button("更新 R2 盤點（每次最多 200 個物件）", async () => {
-      const r = await mutate("storage/inventory", {});
-      await reload();
-      return r;
-    }),
-  );
+  section.append(node("p",data.cleanup_mode==="live"?"結案滿 7 天且 Drive 驗證成功的舊圖片，達 90% 自動清理至 85%。":"自動清理目前僅試算（dry-run），試算保留期為結案後 7 天。",data.cleanup_mode==="live"?"notice":"notice warn"));
+  const inventoryButton = button("更新 R2 盤點（每次最多 200 個物件）", async () => {
+    const r = await mutate("storage/inventory", {});
+    await reload();
+    return r;
+  });
+  inventoryButton.disabled = data.inventory_invalidated === true;
+  section.append(inventoryButton);
   section.append(
     button("檢查歷史圖片（dry-run）", async () => {
       const r = await mutate("storage/dry-run", {});

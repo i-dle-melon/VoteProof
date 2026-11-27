@@ -212,6 +212,8 @@ ROOT_FOLDER_ID、圖片 bytes、新 Secret 或新增 OAuth scope。
 `storage_capacity.inventory_phase`，須先由本機／隔離驗證，正式套用另需批准。
 既有 manifest 與 `runBackup` 完全不變。
 
+- `refreshDriveQuotaSnapshot()` 單獨更新 Google Drive 容量。由正式備份帳號執行，僅讀取 Drive 配額並提交有效的容量資料；不執行 R2 盤點。
+- `syncDriveBackupChanges()` 由同一備份資料夾擁有者執行。第一次建立 Drive 變更游標；此後每次讀取最多 40 筆變更並同步相符的備份。移到垃圾桶、永久移除或失去存取的備份會退出成功統計，恢復可存取後會回到成功清單。每頁成功送抵 Worker 後才推進游標。初次游標只涵蓋建立後的變更；不會掃描既有備份來推定過去的刪除。此同步需要 Worker 和 D1 migration `0029_drive_backup_presence.sql`，可手動執行。
 - `runStorageInventory()` 每輪先讀一次配額，POST 既有 `/storage/quota`，再
   POST `/api/internal/drive-backup/storage/tick` 保存 R2 分頁進度；tick body
   固定 `{ "inventory_only": true }`。新 Worker 模式保留原有 relay

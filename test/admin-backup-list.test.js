@@ -57,3 +57,23 @@ test('queue updates are reflected without changing backups and an empty list rem
   assert.equal(response.status,200);assert.deepEqual(data,{files:[],page:1,page_size:10,total:0,total_pages:1});
   assert.equal((await h.local.db.prepare('SELECT count(*) n FROM proof_backups').first()).n,24);
 });
+
+test('R2-cleaned images are excluded from missing and queued backups and cannot be backfilled',async()=>{
+  const [pending, missing]=files;
+  await h.local.db.prepare('DELETE FROM proof_backups WHERE file_id=?').bind(missing.id).run();
+  for (const {id} of [pending,missing])
+    await h.local.db.prepare("INSERT INTO cold_proofs(file_id,state,updated_at) VALUES(?,'cold',?)").bind(id,seconds()).run();
+  const summary=await h.local.fetch('/api/admin/backups','GET',undefined,admin.headers);
+  assert.equal(summary.status,200);
+  const data=(await summary.json()).data;
+  assert.equal(data.missing,0);
+  assert.equal(data.counts.pending,22);
+  const jobs=(await (await h.local.fetch('/api/admin/backups/jobs?status=pending','GET',undefined,admin.headers)).json()).data;
+  assert.equal(jobs.total,22);
+  assert.ok(jobs.files.every(item=>item.file_id!==pending.id));
+  assert.equal((await (await read()).json()).data.total,0);
+  const checked=await h.local.fetch('/api/admin/backups/backfill','POST',{dry_run:true,file_ids:[missing.id]},admin.headers);
+  assert.equal(checked.status,200);
+  assert.equal((await checked.json()).data.scanned,0);
+  assert.ok(await h.local.db.prepare('SELECT id FROM proof_backups WHERE file_id=?').bind(pending.id).first());
+});

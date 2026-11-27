@@ -6,7 +6,7 @@ const statusOptions=labels=>[['','全部'],...Object.entries(labels)];
 const formatSize=size=>size.toLocaleString('zh-TW')+' 位元組';
 export async function renderManualCleanup({container,request,run,isCurrent,loadProof}){
  const selected=new Map(),filters=el('form','','admin-filter manual-cleanup-filter'),list=el('section','','grid grid-2'),status=el('p','','notice info'),count=el('p'),progress=el('p');status.setAttribute('role','status');
- container.append(el('h2','R2 手動清理'),el('p','重複投稿、未通過及已撤銷的圖片可直接選取，無需備份、下載或等待 7 天。已完成案件須結案滿 7 天且有已驗證的 Drive 備份或已確認下載紀錄。已確認下載的圖片可選擇提早清理。','tiny'));
+ container.append(el('h2','R2 手動清理'),el('p','重複投稿、未通過及已撤銷的圖片可直接選取，無需備份、下載或等待 7 天。已完成案件須有與原圖相符的 Drive 備份或已確認下載紀錄，通常須結案滿 7 天。台灣時間 2026 年 11 月 25 日前的投稿圖片免等 7 天，可使用既有 Drive 備份確認紀錄。較新的圖片使用 Drive 備份時須即時驗證，若已確認下載則可勾選提早清理。','tiny'));
  const control=(name,title,type,choices)=>{const l=el('label',title),n=el(type==='select'?'select':'input');n.name=name;n.setAttribute('aria-label',title);if(type==='select')for(const[v,t]of choices)n.append(new Option(t,v));else n.type=type;l.append(n);filters.append(l);return n;};
  const campaign=control('campaign_id','活動','text'),choices=el('datalist');choices.id='manual-cleanup-campaigns';campaign.setAttribute('list',choices.id);filters.append(choices);
  void request('campaigns?limit=50').then(d=>{if(isCurrent())for(const c of d.campaigns??[]){const option=new Option(c.name,c.campaign_id);choices.append(option);}}).catch(()=>{});
@@ -60,7 +60,7 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
   if(working||!enabled||(!all&&!selected.size))return;closePreview();const plan=all?{...all,query:new URLSearchParams(all.query),excluded:new Map(all.excluded)}:null,items=[...selected.values()],total=plan?plan.total-plan.excluded.size:items.length;if(!total)return;
   const allowEarlyExport=query.has('allow_early_export');
   const earlyWarning=allowEarlyExport?'\n已勾選提早清理，符合條件的已下載圖片可在結案未滿 7 天時刪除。':'';
-  if(!confirm('確認清理已選 '+total+' 張 R2 原始圖片？'+earlyWarning+'\n重複投稿、未通過及已撤銷的圖片可無備份清理。若沒有另外留存，清理後將無法取回原圖。\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。刪除結果不明時會立即停止，不會重送。'))return;
+  if(!confirm('確認清理已選 '+total+' 張 R2 原始圖片？'+earlyWarning+'\n11 月 25 日前的投稿圖片可使用既有 Drive 備份確認紀錄，符合清理條件即可免等 7 天。\n重複投稿、未通過及已撤銷的圖片可無備份清理。若沒有另外留存，清理後將無法取回原圖。\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。刪除結果不明時會立即停止，不會重送。'))return;
   await run(async()=>{working=true;stopRequested=false;stop.hidden=false;let done=0,deleted=0,failed=0,unknown=0,next=null,queue=items,morePages=!!plan;
    try{while(isCurrent()&&!stopRequested&&(queue.length||morePages)){
     if(!queue.length){const p=new URLSearchParams(plan.query);p.set('summary','0');if(next)p.set('cursor',next);const d=await request('storage/manual?'+p);queue=d.items;next=d.next_cursor;morePages=!!next;if(!queue.length)continue;}

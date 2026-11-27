@@ -3,7 +3,7 @@ import { AdminAccess, dailyLimit, taipeiInput, utcFromTaipei, reviewActions, adm
 import { proofThumbnails } from "./admin-proof-thumbnails.js";
 import { PublicError } from "./api.js";
 import { renderTierArtwork } from "./tier-artwork.js";
-import { backupText, backupLink, missingBackupDialog } from "./admin-backup.js";
+import { backupText, backupLink, missingBackupDialog, drivePresenceLabel } from "./admin-backup.js";
 import { renderDuplicateEvidence } from './admin-duplicate.js';
 import { renderImageExports } from './admin-export.js';
 import { memberContactUI } from './admin-member-contact.js';
@@ -353,9 +353,10 @@ export function adminUI(session) {
     try {
       const data = await request('backups');
       renderStorage(box,data.storage,{node,button:(label,action)=>button(label,()=>void run(action)),mutate,reload:load,request,message:adminMessage,dialogActive:()=>busy||backupDialog?.open,onDialog:d=>{backupDialog=d;},onDialogClosed:d=>{if(backupDialog===d)backupDialog=null;}});
-      box.append(node('p','未建立備份工作：'+data.missing+' · 已排入等待執行：'+data.counts.pending+' · 備份中：'+data.counts.processing+' · 成功：'+data.counts.confirmed+' · 失敗：'+data.counts.failed));
+      const unavailable = data.counts.drive_unavailable ?? 0;
+      box.append(node('p','未建立備份工作：'+data.missing+' · 已排入等待執行：'+data.counts.pending+' · 備份中：'+data.counts.processing+' · 成功：'+data.counts.confirmed+' · 失敗：'+data.counts.failed+' · Drive 已移除或無法存取：'+unavailable));
       const jobs=node('details');jobs.append(node('summary','備份工作清單（已排入）'));
-      for(const [key,label] of Object.entries(backupLabels)){const open=button(label+'：'+data.counts[key],()=>{
+      for(const [key,label] of Object.entries({...backupLabels,drive_unavailable:'Drive 已移除或無法存取'})){const open=button(label+'：'+(data.counts[key]??0),()=>{
         if(busy||backupDialog?.open)return;backupDialog=missingBackupDialog({request,node,button,opener:open,message:adminMessage,jobStatus:key,onClose:()=>{backupDialog=null;}});
       });jobs.append(open);}box.append(jobs);
       if (!data.ready) box.append(node('p', copy(data.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
@@ -403,8 +404,17 @@ export function adminUI(session) {
         if (!backups.ready) backupBox.append(node('p', copy(backups.enabled ? 'backup-unconfigured' : 'backup-off'), 'tiny'));
         if (!backups.backups.length) backupBox.append(node('p', copy('backup-missing')));
         for (const item of backups.backups) {
+          if (item.drive_presence) {
+            backupBox.append(node('p', drivePresenceLabel(item.drive_presence), 'notice warn'));
+            if(item.archive_state==='cold')backupBox.append(node('p','R2 圖片已清理。','notice'));
+            continue;
+          }
+          if (item.archive_state==='cold' && item.status!=='confirmed') {
+            backupBox.append(node('p','R2 圖片已清理，略過備份。','notice'));
+            continue;
+          }
           backupBox.append(node('p', backupLabels[item.status] ?? copy('backup-unknown')));
-           if(item.archive_state==='cold')backupBox.append(node('p','R2 圖片已清理，原檔保存在 Google Drive；請由下方連結手動查看。','notice'));
+          if(item.archive_state==='cold')backupBox.append(node('p','R2 圖片已清理，可用下方連結查看既有 Google Drive 備份。','notice'));
           if (item.status === 'confirmed') {
             backupBox.append(node('p', stamp(item.completed_at * 1000)));
             const href = backupLink(item.drive_file_id);

@@ -46,6 +46,43 @@ const completion = (job, ids) => ({ ...receipt(job), drive_file_id: ids.drive_fi
 const content = (job, options) => api('content', undefined, { id: job.backup_id, headers: { 'X-VoteProof-Backup-Lease': job.lease_token, 'X-VoteProof-Backup-Attempt': String(job.attempt) }, ...options });
 const expire = (id, attempts) => h.local.db.prepare("UPDATE proof_backups SET status='processing',lease_until=?,attempts=?,lease_token=? WHERE id=?").bind(seconds() - 1, attempts, randomUUID(), id).run();
 
+test('Drive presence only affects confirmed files in the same root, is replay safe and restores success',async()=>{
+  const [normal,otherRoot,pending]=await fresh(3);
+  const file='synthetic_presence_file', other='synthetic_other_file', queued='synthetic_queued_file';
+  for(const [job,driveId,folder] of [[normal,file,root],[otherRoot,other,'different_root']])
+    await h.local.db.prepare("UPDATE proof_backups SET status='confirmed',drive_file_id=?,drive_folder_id='synthetic_day',root_folder_id=?,completed_at=? WHERE id=?").bind(driveId,folder,seconds(),job.id).run();
+  await h.local.db.prepare('UPDATE proof_backups SET drive_file_id=?,root_folder_id=? WHERE id=?').bind(queued,root,pending.id).run();
+  const original=await lookup(normal.id), admin=await h.identity({role:'admin'});
+  const presence=(state,options)=>api('presence',{root_folder_id:root,files:[file,other,queued,'synthetic_untracked'].map(drive_file_id=>({drive_file_id,state}))},options);
+  const counts=async()=>{
+    const res=await h.local.fetch('/api/admin/backups','GET',undefined,admin.headers);
+    assert.equal(res.status,200);
+    return (await res.json()).data.counts;
+  };
+  assert.equal((await presence('trashed',{headers:{Origin:'https://voteproof.example'}})).status,403);
+  assert.equal((await presence('trashed',{headers:{Authorization:undefined}})).status,401);
+  await h.local.db.prepare("INSERT INTO cold_proofs(file_id,state,updated_at) VALUES(?,'verifying',?)").bind(normal.file_id,seconds()).run();
+  assert.notEqual((await presence('trashed')).status,200);
+  assert.equal((await counts()).confirmed,2);
+  await h.local.db.prepare("UPDATE cold_proofs SET state='cold' WHERE file_id=?").bind(normal.file_id).run();
+  assert.deepEqual(await presence('trashed'),{status:200,data:{applied:1},code:undefined});
+  assert.equal((await presence('trashed')).data.applied,0);
+  assert.deepEqual(await lookup(normal.id),original);
+  const withTrash=await counts();
+  assert.equal(withTrash.confirmed,1);
+  assert.equal(withTrash.drive_unavailable,1);
+  assert.equal(withTrash.pending,1);
+  const report=await h.local.fetch('/api/admin/backups/jobs?status=drive_unavailable','GET',undefined,admin.headers);
+  assert.equal(report.status,200);
+  const reportData=(await report.json()).data;
+  assert.equal(reportData.total,1);
+  assert.equal(reportData.files[0].drive_presence,'trashed');
+  assert.equal(reportData.files[0].file_id,normal.file_id);
+  assert.equal((await presence('available')).data.applied,1);
+  assert.equal((await counts()).confirmed,2);
+  assert.equal((await counts()).drive_unavailable,0);
+});
+
 test('relay defaults are exact, credential-free and legacy requires explicit opt-in', async () => {
   assert.equal(backupReadiness(config()).transport, 'apps_script_pull'); assert.equal(backupReadiness(config()).ready, true);
   for (const flag of [undefined, true, 'TRUE', 'true ', 'false']) assert.equal(backupReadiness({ ...config(), GOOGLE_DRIVE_BACKUP_ENABLED: flag }).ready, false);

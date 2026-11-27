@@ -5,7 +5,14 @@ export const seconds = () => Math.floor(Date.now() / 1000);
 export const MAX_BACKUP_JOBS = 1;
 export const MAX_BACKUP_ATTEMPTS = 8;
 export const BACKUP_LEASE_SECONDS = 300;
-export const backupSourceAvailable="NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=proof_backups.file_id AND p.state IN('verifying','deleting','cold'))";
+export const backupSourceAvailableFor = fileId =>
+  `NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=${fileId} AND p.state IN('verifying','deleting','cold'))`;
+export const backupSourceAvailable = backupSourceAvailableFor('proof_backups.file_id');
+export const backupNotCleaned = fileId =>
+  `NOT EXISTS(SELECT 1 FROM cold_proofs p WHERE p.file_id=${fileId} AND p.state='cold')`;
+export const driveBackupPresence = "LEFT JOIN drive_backup_presence d ON b.status='confirmed' AND d.backup_id=b.id AND d.drive_file_id=b.drive_file_id AND d.state<>'available'";
+export const backupJobStatus = "CASE WHEN d.state IS NOT NULL THEN 'drive_unavailable' ELSE b.status END";
+export const backupJobVisible = `(b.status='confirmed' OR ${backupNotCleaned('b.file_id')})`;
 export const backupInsert = (db, fileId, now, guard = '1=1', bindings = []) => db.prepare(`INSERT INTO proof_backups
   (id,file_id,provider,source_object_key,source_size,source_mime,source_etag,created_at,next_attempt_at)
   SELECT ?,f.id,'google_drive',f.object_key,f.size,f.content_type,f.etag,?,? FROM case_files f JOIN cases c ON c.id=f.case_id
@@ -23,20 +30,23 @@ export async function ensureCaseBackups(env, caseInternalId, committedFiles) {
     try { console.warn('VoteProof backup scheduling unavailable', { code: 'BACKUP_SCHEDULING_FAILED' }); } catch { /* no upstream exception */ }
   }
 }
-export const backupRows = async (db, caseId) => (await db.prepare(`SELECT b.id,b.file_id,b.status,b.drive_file_id,
+export const backupRows = async (db, caseId) => (await db.prepare(`SELECT b.id,b.file_id,b.status,b.drive_file_id,d.state drive_presence,
   b.completed_at,b.last_error_code,b.attempts,b.next_attempt_at,b.version,(SELECT p.state FROM cold_proofs p WHERE p.file_id=b.file_id) AS archive_state FROM proof_backups b
-  JOIN case_files f ON f.id=b.file_id JOIN cases c ON c.id=f.case_id WHERE c.case_id=? ORDER BY b.file_id`).bind(caseId).all()).results;
+  JOIN case_files f ON f.id=b.file_id JOIN cases c ON c.id=f.case_id ${driveBackupPresence} WHERE c.case_id=? ORDER BY b.file_id`).bind(caseId).all()).results;
 export async function backupSummary(db) {
-  const counts = { pending: 0, processing: 0, confirmed: 0, failed: 0 };
-  for (const row of (await db.prepare('SELECT status,count(*) AS n FROM proof_backups GROUP BY status').all()).results) counts[row.status] = row.n;
-  const missing = await db.prepare(`SELECT count(*) AS n FROM case_files f WHERE NOT EXISTS
+  const counts = { pending: 0, processing: 0, confirmed: 0, failed: 0, drive_unavailable: 0 };
+  for (const row of (await db.prepare(`SELECT ${backupJobStatus} AS display_status,count(*) AS n
+    FROM proof_backups b ${driveBackupPresence} WHERE ${backupJobVisible} GROUP BY display_status`).all()).results)
+    counts[row.display_status] = row.n;
+  const missing = await db.prepare(`SELECT count(*) AS n FROM case_files f WHERE ${backupNotCleaned('f.id')} AND NOT EXISTS
     (SELECT 1 FROM proof_backups b WHERE b.file_id=f.id AND b.provider='google_drive')`).first();
   const lock = await db.prepare('SELECT blocked_error_code FROM backup_processor_lock WHERE id=1').first();
   return { counts, missing: missing.n, blocked_error_code: lock?.blocked_error_code ?? null };
 }
 export async function missingBackupPage(env, { after = '', limit = 25, fileIds } = {}) {
   const rows = (await env.DB.prepare(`SELECT f.id,f.object_key,f.size,f.content_type,f.etag FROM case_files f
-    WHERE f.id>? ${fileIds ? `AND f.id IN (${fileIds.map(() => '?').join(',')})` : ''} AND NOT EXISTS(SELECT 1 FROM proof_backups b WHERE b.file_id=f.id AND b.provider='google_drive')
+    WHERE f.id>? ${fileIds ? `AND f.id IN (${fileIds.map(() => '?').join(',')})` : ''}
+    AND ${backupSourceAvailableFor('f.id')} AND NOT EXISTS(SELECT 1 FROM proof_backups b WHERE b.file_id=f.id AND b.provider='google_drive')
     ORDER BY f.id LIMIT ?`).bind(after, ...(fileIds ?? []), limit + 1).all()).results;
   const selected = rows.slice(0, limit), ready = [], missing = [], changed = [];
   for (const row of selected) {
@@ -52,7 +62,7 @@ export async function backfillBackups(env, { dryRun = true, ...page } = {}) {
   const result = await missingBackupPage(env, page);
   let enqueued = 0;
   if (!dryRun && result.ready.length) {
-    const writes = await env.DB.batch(result.ready.map(id => backupInsert(env.DB, id, seconds())));
+    const writes = await env.DB.batch(result.ready.map(id => backupInsert(env.DB, id, seconds(), backupSourceAvailableFor('f.id'))));
     enqueued = writes.reduce((n, r) => n + r.meta.changes, 0);
   }
   return { ...result, dry_run: dryRun, enqueued };

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import {createHash} from 'node:crypto';
 import { APP64 } from './lib/prelaunch-reset-0028.mjs';
 const db=new DatabaseSync(':memory:');
-for(const file of fs.readdirSync('migrations').filter(x=>/^\d+_.+\.sql$/.test(x)).sort())db.exec(fs.readFileSync('migrations/'+file,'utf8'));
+for(const file of fs.readdirSync('migrations').filter(x=>/^\d+_.+\.sql$/.test(x)&&x<'0029').sort())db.exec(fs.readFileSync('migrations/'+file,'utf8'));
 const sql=[`-- reset-v1/0001: independent namespace, NOT main migration 0029/0030/0031.
 CREATE TABLE prelaunch_reset_schema_versions(version INTEGER PRIMARY KEY,sql_sha256 TEXT NOT NULL,applied_at TEXT NOT NULL);
 CREATE TABLE prelaunch_reset_control(id INTEGER PRIMARY KEY CHECK(id=1),epoch INTEGER NOT NULL CHECK(epoch>=0),mode TEXT NOT NULL CHECK(mode IN('open','maintenance')),version INTEGER NOT NULL,run_id TEXT);

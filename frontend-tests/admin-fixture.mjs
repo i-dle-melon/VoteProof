@@ -39,7 +39,7 @@ export async function adminFixture(page, options = {}) {
       if (state.conflict) return error("CASE_STATUS_CONFLICT", 409);
       state.audit.push({ id: randomUUID(), action: path.includes("campaigns") ? "campaign_update" : "approve", target_id: "LOCAL", admin_member_id: state.member.member_id, created_at: new Date().toISOString() });
     }
-    if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
+    if (path === '/api/admin/backups') return reply({ ...state.backupReadiness, counts: Object.fromEntries(['pending','processing','confirmed','failed','drive_unavailable'].map(k=>[k,state.backups.filter(b=>b.status===k).length])), missing: state.backupMissing, blocked_error_code: state.backupBlocked, audit: [] });
     if(path==='/api/admin/backups/jobs'){
       const page=Number(url.searchParams.get('page')??1),status=url.searchParams.get('status')??'pending';const rows=state.backups.filter(r=>r.status===status);
       return reply({files:rows.slice((page-1)*10,page*10).map(r=>({...r,case_id:r.case_id??state.caseId,created_at:r.created_at??1790000000,attempts:r.attempts??0})),page,page_size:10,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/10))});

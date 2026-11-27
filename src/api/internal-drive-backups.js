@@ -116,9 +116,41 @@ async function failed(env,url,request){
   if(['DRIVE_ACCESS_DENIED','DRIVE_FULL','ROOT_INACCESSIBLE','CONFIG_MISSING'].includes(v.error_code))writes.push(env.DB.prepare(`INSERT INTO backup_processor_lock(id,lease_token,lease_until,blocked_error_code) VALUES(1,'apps-script-relay',0,?) ON CONFLICT(id) DO UPDATE SET blocked_error_code=excluded.blocked_error_code`).bind(v.error_code));
   await authAtomic(env.DB,[active(id,v)],writes);return jsonSuccess({state:'failed',backup_id:id,next_attempt_at:next});
 }
+async function syncPresence(env,_url,request) {
+  const input=await readUploadJson(request);
+  exact(input,['root_folder_id','files']);
+  idValue(input.root_folder_id);
+  const { files }=input;
+  if(!Array.isArray(files)||files.length<1||files.length>40)fail(400,'INVALID_RELAY_REQUEST');
+  const seen=new Set();
+  for(const file of files){
+    exact(file,['drive_file_id','state']);
+    idValue(file.drive_file_id);
+    if(!['available','trashed','unavailable'].includes(file.state)||seen.has(file.drive_file_id))
+      fail(400,'INVALID_RELAY_REQUEST');
+    seen.add(file.drive_file_id);
+  }
+  const db=env.DB, values=JSON.stringify(files);
+  const matched=`FROM json_each(?) AS item
+    JOIN proof_backups b ON b.drive_file_id=json_extract(item.value,'$.drive_file_id')
+    WHERE b.provider='google_drive' AND b.status='confirmed' AND b.root_folder_id=?`;
+  // Back up and cleanup own their existing state. Do not change presence under
+  // an in-flight R2 cleanup; the relay preserves its cursor on a failed page.
+  const pin={sql:`NOT EXISTS(SELECT 1 ${matched} AND EXISTS(SELECT 1 FROM cold_proofs p
+    WHERE p.file_id=b.file_id AND p.state IN('verifying','deleting')))`,args:[values,input.root_folder_id]};
+  const [,result]=await authAtomic(db,[pin],[db.prepare(`INSERT INTO drive_backup_presence(backup_id,drive_file_id,state,observed_at)
+    SELECT b.id,b.drive_file_id,json_extract(item.value,'$.state'),? ${matched}
+    AND (json_extract(item.value,'$.state')<>'available' OR EXISTS(SELECT 1 FROM drive_backup_presence d WHERE d.backup_id=b.id))
+    ON CONFLICT(backup_id) DO UPDATE SET drive_file_id=excluded.drive_file_id,state=excluded.state,observed_at=excluded.observed_at
+    WHERE drive_backup_presence.state<>excluded.state OR drive_backup_presence.drive_file_id<>excluded.drive_file_id`)
+    .bind(seconds(),values,input.root_folder_id)]);
+  return jsonSuccess({applied:result.meta.changes});
+}
 const handlers={content,identity,complete,failed};
-const wrap=handler=>async(env,url,request)=>{try{await authenticateRelay(request,env);if(url.search)fail(400,'INVALID_RELAY_REQUEST');if(handler!==claim&&!UUID_PATTERN.test(url.pathname.split('/')[4]??''))fail(400,'INVALID_RELAY_REQUEST');return await handler(env,url,request);}catch(e){
+const wrap=(handler,jobScoped=true)=>async(env,url,request)=>{try{await authenticateRelay(request,env);if(url.search)fail(400,'INVALID_RELAY_REQUEST');if(jobScoped&&!UUID_PATTERN.test(url.pathname.split('/')[4]??''))fail(400,'INVALID_RELAY_REQUEST');return await handler(env,url,request);}catch(e){
   if(e instanceof RelayError)return jsonError(e.status,e.code,'Backup relay request rejected');if(e instanceof BackupError)return jsonError(409,'RELAY_SOURCE_CHANGED','Backup source unavailable');
   if(e?.status&&e?.code)return jsonError(e.status,'INVALID_RELAY_REQUEST','Backup relay request rejected');return jsonError(503,'RELAY_SERVICE_UNAVAILABLE','Backup relay unavailable');}};
-export function internalBackupRoute(path){if(path==='/api/internal/drive-backup/claim')return {method:'POST',handler:wrap(claim)};
+export function internalBackupRoute(path){
+ if(path==='/api/internal/drive-backup/claim')return {method:'POST',handler:wrap(claim,false)};
+ if(path==='/api/internal/drive-backup/presence')return {method:'POST',handler:wrap(syncPresence,false)};
  const m=/^\/api\/internal\/drive-backup\/[^/]+\/(content|identity|complete|failed)$/.exec(path);if(m)return {method:m[1]==='content'?'GET':'POST',handler:wrap(handlers[m[1]])};}

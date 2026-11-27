@@ -19,6 +19,17 @@ test('pending jobs and collapsed missing/history stay distinct, including zero a
  expect(state.calls.filter(c=>c.method==='POST'&&c.path.includes('/backups'))).toHaveLength(0);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
+test('backup list shows files moved to Drive trash separately from successes',async({page})=>{
+ const state=await adminFixture(page);
+ state.backups=[{file_id:randomUUID(),case_id:state.caseId,status:'drive_unavailable',drive_presence:'trashed',created_at:1790000000,attempts:1}];
+ await ready(page);await tab(page,'Google Drive 備份');
+ const panel=page.locator('#admin-panel');
+ await expect(panel).toContainText('成功：0 · 失敗：0 · Drive 已移除或無法存取：1');
+ await panel.getByText('備份工作清單（已排入）',{exact:true}).click();
+ await panel.getByRole('button',{name:'Drive 已移除或無法存取：1',exact:true}).click();
+ await expect(page.getByRole('dialog')).toContainText('Drive 圖片已移到垃圾桶');
+ expect(state.calls.filter(c=>c.method!=='GET'&&c.path.includes('/backups'))).toEqual([]);
+});
 test('overview displays global status groups and never fetches a page of cases for totals',async({page})=>{
  const state=await adminFixture(page);await ready(page);const prior=state.calls.filter(c=>c.path==='/api/admin/cases').length;
  await tab(page,'工作總覽');for(const value of ['1,284','134','8','2']){if(value==='1,284')await expect(page.locator('[data-member-total]')).toContainText('1284');else await expect(page.locator('#admin-panel')).toContainText(value);}

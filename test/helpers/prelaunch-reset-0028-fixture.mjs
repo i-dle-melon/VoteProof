@@ -9,7 +9,8 @@ import p from 'node:path';import {tmpdir} from 'node:os';
 export async function fixture(){
  const token=randomBytes(32).toString('base64url');const handles=[];const root=fs.mkdtempSync(p.join(p.resolve(tmpdir()),'vp-reset-0028-')),db=new DatabaseSync(p.join(root,'source.sqlite'));
  db.exec('PRAGMA foreign_keys=ON');
- for(const name of fs.readdirSync('migrations').filter(n=>/^\d+_.+\.sql$/.test(n)).sort()){db.exec('BEGIN');try{db.exec(fs.readFileSync('migrations/'+name,'utf8'));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}}
+ const migrations=fs.readdirSync('migrations').filter(n=>/^\d+_.+\.sql$/.test(n)&&n<'0029').sort();
+ for(const name of migrations){db.exec('BEGIN');try{db.exec(fs.readFileSync('migrations/'+name,'utf8'));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}}
  const insert=(table,row)=>{const keys=Object.keys(row);db.prepare('INSERT INTO '+table+'('+keys.join(',')+') VALUES('+keys.map(()=>'?').join(',')+')').run(...keys.map(k=>row[k]));};
  const stamp='2026-10-26T00:00:00.000Z',bytes=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jVZkAAAAASUVORK5CYII=','base64')),sha=digest(bytes),member='M-local',admin='M-operator';
  for(const [i,id]of [member,admin].entries())insert('members',{id:randomUUID(),member_id:id,login_name:'local'+i,nickname:'Synthetic '+i,player_id:'FAN-'+i,status:'active',created_at:stamp,updated_at:stamp,last_login_at:stamp});
@@ -41,7 +42,7 @@ export async function fixture(){
  db.exec('UPDATE submission_settings SET submissions_enabled=0 WHERE id=1');
  // Wrangler registry is auxiliary to the 64 app tables; synthetic here.
  db.exec('CREATE TABLE d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,applied_at TEXT NOT NULL)');
- for(const name of fs.readdirSync('migrations').filter(n=>/^\d+_.+\.sql$/.test(n)).sort())insert('d1_migrations',{name,applied_at:stamp});
+ for(const name of migrations)insert('d1_migrations',{name,applied_at:stamp});
  const stores={r2:new LocalResetObjects(p.join(root,'r2.sqlite'),'r2'),drive:new LocalResetObjects(p.join(root,'drive.sqlite'),'drive')},vault=new LocalResetObjects(p.join(root,'recovery.sqlite'),'recovery'),next=new LocalResetObjects(p.join(root,'clean-r2.sqlite'),'r2');
  for(let i=0;i<2;i++){stores.r2.put('proofs/cases/'+i+'.png',bytes);stores.r2.put('proofs/staging/'+i+'.png',bytes);stores.drive.put('drive-'+i,bytes,'image/png',{source:'voteproof',storage_source:'r2',root_folder_id:'local-root',voteproof_case_id:'LOCAL-'+i,voteproof_proof_id:'file-'+i});}
  stores.r2.put('proofs/staging/orphan.png',bytes);stores.r2.put('campaign-assets/LOCAL-RESET/example/local.png',bytes);stores.r2.put('unrelated/site.png',bytes);stores.drive.put('unrelated-drive',bytes,'image/png',{source:'another-app',root_folder_id:'local-root'});

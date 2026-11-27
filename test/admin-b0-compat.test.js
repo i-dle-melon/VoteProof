@@ -6,8 +6,8 @@ const summary='/api/admin/health-monitor/summary',events='/api/admin/health-moni
 const read=async(h,a,path)=>(await(await h.fetch(path,'GET',undefined,a.headers)).json()).data;
 
 test('B0 actual migration chain ends at0028; native workerd member/health handlers work without new tracking tables',async()=>{
- const files=(await readdir('migrations')).filter(f=>/^\d+_.*\.sql$/.test(f)).sort();assert.equal(files.length,28);assert.equal(files.at(-1),'0028_admin_operations_v2.sql');
- const h=await localAdminRuntime();try{
+ const files=(await readdir('migrations')).filter(f=>/^\d+_.*\.sql$/.test(f)&&f<'0029').sort();assert.equal(files.length,28);assert.equal(files.at(-1),'0028_admin_operations_v2.sql');
+ const h=await localAdminRuntime({migrationThrough:files.at(-1)});try{
  const a=await h.identity({role:'admin'}),db=h.local.db;
  assert.deepEqual((await db.prepare("SELECT name FROM sqlite_master WHERE name IN ('image_mutation_operations','storage_archive_dispatches','image_maintenance_control')").all()).results,[]);
  for(const p of ['/api/admin/members-overview',summary,events,'/api/admin/overview','/api/admin/storage','/api/admin/campaigns','/api/admin/leaderboards']){const r=await h.local.fetch(p,'GET',undefined,a.headers);assert.equal(r.status,200,await r.clone().text());}

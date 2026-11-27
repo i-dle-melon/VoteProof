@@ -102,6 +102,20 @@ test('health summary reports disabled quota and stale snapshot separately, witho
  const response=await f.fetch('/api/admin/health-monitor/summary','GET',undefined,f.actor.headers);assert.equal(response.status,200);const data=(await response.json()).data;
  assert.equal(data.storage.upload_policy,'observe');assert.equal(data.storage.blocked,false);assert.equal(data.storage.snapshot_stale,true);assert.equal(data.pending_operations.count,null);assert.equal(f.read('SELECT COUNT(*) n FROM prelaunch_reset_operations').n,n);
 });
+test('both admin capacity panels use the active upload policy even when the R2 inventory is invalidated', async t => {
+ const f = await setup(t);
+ await f.edit('UPDATE storage_capacity SET inventory_dirty=1 WHERE id=1');
+ for (const path of ['/api/admin/storage', '/api/admin/backups']) {
+   const response = await f.fetch(path, 'GET', undefined, f.actor.headers);
+   assert.equal(response.status, 200, path);
+   const { data } = await response.json();
+   const storage = path.endsWith('/backups') ? data.storage : data;
+   assert.equal(storage.upload_policy, 'observe');
+   assert.equal(storage.blocked, false);
+   assert.equal(storage.snapshot_stale, true);
+   assert.equal(storage.inventory_invalidated, true);
+ }
+});
 test('member case replay and repeated review cannot award points twice',async t=>{
  const f=await setup(t),p=await f.prepare('direct',true);assert.equal((await f.put(p)).status,200);
  const body={campaign_id:'OBSERVE',vote_date:new Date().toISOString().slice(0,10),upload_session:{session_id:p.session_id,keys:[p.uploads[0].key]}},headers={...p.headers,'Idempotency-Key':randomUUID()};

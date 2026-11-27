@@ -6,11 +6,14 @@ export function backupText(copy) {
   return { labels: Object.freeze(labels), errors: Object.freeze(errors) };
 }
 export const backupLink = id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(id) ? 'https://drive.google.com/file/d/' + id + '/view' : null;
+export const drivePresenceLabel = state => state === 'trashed' ? 'Drive 圖片已移到垃圾桶' : 'Drive 圖片已移除或無法存取';
+const jobTitles = {pending:'已排入等待執行',processing:'備份中',confirmed:'成功備份',failed:'備份失敗',drive_unavailable:'Drive 已移除或無法存取'};
+const jobLabels = {...jobTitles,confirmed:'成功',failed:'失敗'};
 
 export function missingBackupDialog({ request, node, button, opener, message, onClose, jobStatus=null }) {
   const dialog = node('dialog', '', 'case-dialog backup-missing-dialog');
   dialog.setAttribute('aria-labelledby', 'backup-missing-title');
-  const header = node('div', '', 'contact-titlebar'), title = node('h2', jobStatus?({pending:'已排入等待執行',processing:'備份中',confirmed:'成功備份',failed:'備份失敗'}[jobStatus]):'尚未排入備份');
+  const header = node('div', '', 'contact-titlebar'), title = node('h2', jobStatus ? jobTitles[jobStatus] : '尚未排入備份');
   title.id = 'backup-missing-title';
   const close = button('關閉', () => dialog.close());header.append(title, close);
   const status = node('p'), error = node('p', '', 'notice warn'), list = node('div', '', 'backup-missing-list');
@@ -43,7 +46,7 @@ export function missingBackupDialog({ request, node, button, opener, message, on
         const row = node('article', '', 'member-case');
         row.append(node('h3', file.case_id), node('p', '檔案編號：' + file.file_id),
           node('p', (jobStatus?'工作建立時間：':'投稿時間：') + new Date(jobStatus?file.created_at*1000:file.created_at).toLocaleString('zh-TW', {timeZone:'Asia/Taipei', hour12:false})),
-          node('p', jobStatus?'狀態：'+({pending:'已排入等待執行',processing:'備份中',confirmed:'成功',failed:'失敗'}[file.status])+' · 嘗試次數：'+file.attempts:
+          node('p', jobStatus?'狀態：'+(jobStatus==='drive_unavailable'?drivePresenceLabel(file.drive_presence):jobLabels[file.status])+' · 嘗試次數：'+file.attempts:
             '檔案格式：' + file.content_type + ' · 大小：' + Number(file.size).toLocaleString('zh-TW') + ' bytes'));
         if(jobStatus){
           if(file.started_at)row.append(node('p','最近執行：'+new Date(file.started_at*1000).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})));

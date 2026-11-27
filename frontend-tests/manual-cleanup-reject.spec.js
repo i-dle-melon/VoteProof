@@ -157,6 +157,7 @@ test('selectable older photos use the same checkboxes, bulk selection and early-
  const first=page.getByRole('button',{name:'選取前20張可清理圖片',exact:true});
  const all=page.getByRole('button',{name:'選取全部可清理圖片',exact:true});
  const clear=page.getByRole('button',{name:'清除目前選取',exact:true});
+ await expect(page.locator('#admin-panel')).toContainText('2026 年 11 月 25 日前的投稿圖片免等 7 天');
  await box(oldVerified).check();
  await expect(box(oldVerified)).toBeChecked();
  await clear.click();
@@ -164,6 +165,10 @@ test('selectable older photos use the same checkboxes, bulk selection and early-
  await first.click();
  await expect(box(oldVerified)).toBeChecked();
  await expect(box(earlyDownload)).toBeDisabled();
+ await all.click();
+ await expect(page.locator('#admin-panel')).toContainText('已選 23 張');
+ await expect(box(oldVerified)).toBeChecked();
+ await expect(box(driveTooNew)).toBeDisabled();
  await clear.click();
  await expect(box(oldVerified)).not.toBeChecked();
  await page.getByRole('checkbox',{name:'未滿 7 天也可清理（僅限已確認下載）',exact:true}).check();

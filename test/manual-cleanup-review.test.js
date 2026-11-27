@@ -142,29 +142,40 @@ async function reviewedLegacyFixture(t,createdTimes){
  };
  return{...f,insert,ids,history,list};
 }
-test('reviewed legacy cutoff lists only eligible pre-November 25 pictures and keeps cases, points and leaderboards',async t=>{
+test('pre-November 25 cleanup uses confirmed backups without the relay and preserves cases, points and leaderboards',async t=>{
  const f=await reviewedLegacyFixture(t,['2026-11-24T15:59:59.999Z','2026-11-24T16:00:00.000Z',
-  '2026-10-25T10:00:00.000Z','2026-10-25T10:00:00.000Z']),[target,cutoff,download,missing]=f.cases;
+  '2026-10-25T10:00:00.000Z','2026-10-25T10:00:00.000Z','2026-10-25T10:00:00.000Z']),[target,cutoff,download,missing,unarchived]=f.cases;
+ const recentClose=new Date(Date.now()-3600000).toISOString();
+ for(const item of f.cases)await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',recentClose,item.row.id);
+ delete f.env.DRIVE_COLD_RELAY_URL;
+ delete f.env.DRIVE_BACKUP_RELAY_SECRET;
  await f.write('UPDATE storage_reservations SET object_version=NULL WHERE object_key=?',missing.file.object_key);
- await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',ago(1),download.row.id);
+ await f.write("UPDATE proof_backups SET source_etag='different-version' WHERE file_id=?",unarchived.file.id);
  await f.write('INSERT INTO export_completed_files VALUES(?,?,?,?,?,?,?,?)',download.file.id,download.file.etag,download.file.size,download.file.content_type,randomUUID(),1,f.admin.memberId,ago(1));
- assert.deepEqual((await f.list()).items.map(x=>x.file_id),[target.file.id]);
+ const defaultList=await f.list();
+ assert.equal(defaultList.eligible_count,2);
+ assert.deepEqual(new Set(defaultList.items.map(x=>x.file_id)),new Set([target.file.id,download.file.id]));
+ assert.ok(defaultList.items.every(x=>x.reason.includes('免等結案滿 7 天')));
  const withEarly=await f.list('&allow_early_export=1');
  assert.equal(withEarly.eligible_count,2);
  assert.deepEqual(new Set(withEarly.items.map(x=>x.file_id)),new Set([target.file.id,download.file.id]));
- const relay=f.env.DRIVE_COLD_RELAY_URL;
- delete f.env.DRIVE_COLD_RELAY_URL;
- assert.deepEqual((await f.list('&allow_early_export=1')).items.map(x=>x.file_id),[download.file.id]);
+ assert.match(defaultList.items.find(x=>x.file_id===target.file.id).reason,/既有的 Drive 備份確認紀錄/);
+ const targetBackup=f.sqlite.prepare('SELECT id,drive_file_id FROM proof_backups WHERE file_id=?').get(target.file.id);
+ await f.write("INSERT INTO drive_backup_presence VALUES(?,?,'trashed',?)",targetBackup.id,targetBackup.drive_file_id,Math.floor(Date.now()/1000));
+ assert.deepEqual((await f.list()).items.map(x=>x.file_id),[download.file.id]);
  assert.equal((await f.call(target,'clean')).status,400);
- f.env.DRIVE_COLD_RELAY_URL=relay;
- assert.equal((await f.call(cutoff,'clean')).status,400);
+ await f.write("UPDATE drive_backup_presence SET state='available' WHERE backup_id=?",targetBackup.id);
+ assert.equal((await f.call(cutoff,'clean')).status,409);
  assert.equal((await f.call(missing,'clean')).status,400);
+ assert.equal((await f.call(unarchived,'clean')).status,409);
+ assert.equal((await f.call({...unarchived,input:{...unarchived.input,backup_version:null,without_archive:true}},'clean')).status,409);
+ assert.equal(f.deleteCalls(),0);
  const tables=['cases','case_files','members','point_transactions','leaderboards','proof_backups'];
  const snapshot=()=>tables.map(name=>f.sqlite.prepare('SELECT * FROM '+name+' ORDER BY rowid').all());
  const board=async()=>(await publicLeaderboardData(f.db,'system-history')).leaderboards[0].rankings;
  const before=snapshot(),beforeBoard=await board(),history=f.history();
- assert.equal(before[3].length,4);
- assert.equal(beforeBoard.find(x=>x.member_id===f.member.memberId).points,12);
+ assert.equal(before[3].length,5);
+ assert.equal(beforeBoard.find(x=>x.member_id===f.member.memberId).points,15);
  const result=await f.call(target,'clean');
  assert.equal(result.status,200,await result.clone().text());
  assert.equal((await result.json()).data.state,'deleted');
@@ -172,7 +183,21 @@ test('reviewed legacy cutoff lists only eligible pre-November 25 pictures and ke
  assert.deepEqual(await board(),beforeBoard);
  assert.deepEqual(f.history(),history);
  assert.equal(f.deleteCalls(),1);
- assert.equal(f.driveCalls(),1);
+ assert.equal(f.driveCalls(),0);
+ const receipt=f.sqlite.prepare("SELECT detail FROM storage_audit WHERE action='manual_cleanup_deleted'").get();
+ assert.equal(JSON.parse(receipt.detail).legacy_retention_exempt,true);
+ assert.equal(JSON.parse(receipt.detail).drive_verification,'backup_record');
+ const evidence=JSON.parse(f.sqlite.prepare('SELECT verification_context FROM cold_proofs WHERE file_id=?').get(target.file.id).verification_context);
+ assert.equal(evidence.receipt,null);
+ assert.ok(evidence.drive_backup_record);
+ const exported=await f.call({...download,input:{...download.input,backup_version:null}},'clean');
+ assert.equal(exported.status,200,await exported.clone().text());
+ assert.equal((await exported.json()).data.state,'deleted');
+ assert.equal(f.deleteCalls(),2);
+ assert.equal(f.driveCalls(),0);
+ assert.deepEqual(snapshot(),before);
+ assert.deepEqual(await board(),beforeBoard);
+ assert.deepEqual(f.history(),history);
 });
 test('a future or unreviewed R2 operation still blocks a verified legacy image before DELETE',async t=>{
  const f=await reviewedLegacyFixture(t,['2026-10-29T00:00:00.000Z']),[target]=f.cases;
@@ -250,7 +275,7 @@ async function fixture(t,{manualSchema=true,count=1,closed=true,isolatedFrom=nul
  return{...f,write,admin,other,member,cases,call,driveCalls:()=>driveCalls,deleteCalls:()=>deleteCalls,gets:()=>gets,setDrive:o=>{driveFailure=!!o.failure;wrongSha=!!o.sha;wrongBinding=!!o.binding;}};
 }
 test('manual cleanup verifies signed Drive identity/checksum; preserves Case, points, member and SHA; never cold-reads',async t=>{
- const f=await fixture(t),c=f.cases[0],before=f.sqlite.prepare('SELECT * FROM point_transactions').all(),members=f.sqlite.prepare('SELECT * FROM members').all();
+ const f=await fixture(t,{createdTimes:['2026-11-24T16:00:00.000Z']}),c=f.cases[0],before=f.sqlite.prepare('SELECT * FROM point_transactions').all(),members=f.sqlite.prepare('SELECT * FROM members').all();
  const list=await f.fetch('/api/admin/storage/manual','GET',undefined,f.admin.headers);assert.equal(list.status,200);assert.equal((await list.json()).data.items[0].eligible,true);
  const v=await f.call(c,'verify');assert.equal(v.status,200,await v.clone().text());assert.equal((await v.json()).data.state,'verified');
  const d=await f.call(c,'delete');assert.equal(d.status,200,await d.clone().text());assert.equal((await d.json()).data.state,'deleted');assert.equal(f.deleteCalls(),1);assert.equal(f.driveCalls(),1);assert.equal(f.gets(),0);
@@ -388,7 +413,7 @@ test('manual cleanup rejects export evidence for a different image version',asyn
  assert.equal(f.driveCalls(),0);assert.equal(f.deleteCalls(),0);
 });
 test('opt-in early cleanup requires an exact confirmed export and still protects unresolved R2 writes',async t=>{
- const f=await fixture(t,{count:2}),[exported,driveOnly]=f.cases;
+ const f=await fixture(t,{count:2,createdTimes:Array(2).fill('2026-11-24T16:00:00.000Z')}),[exported,driveOnly]=f.cases;
  for(const c of f.cases)await f.write('UPDATE cases SET status_updated_at=? WHERE id=?',ago(1),c.row.id);
  const regular={...exported,input:{...exported.input,backup_version:null}};
  const early={...regular,input:{...regular.input,allow_early_export:true}};

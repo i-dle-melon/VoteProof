@@ -48,12 +48,34 @@ test("storage high/stop/recovery/unknown/Drive error/failed cleanup scenarios ar
   ]) {
     await backup(page, scenario);
     const p = page.getByRole("region", { name: "儲存容量保護" });
-    if (["stopped", "unknown"].includes(scenario))
+    if (scenario === "stopped")
       await expect(p).toContainText("目前儲存空間不足");
+    if (scenario === "unknown") await expect(p).toContainText("容量帳本異常");
     if (scenario === "high") await expect(p).toContainText("9.10 GB");
     if (scenario === "drive_error") await expect(p).toContainText("讀取失敗");
     if (scenario === "cleanup_failed") await expect(p).toContainText("CLEANUP_VERIFICATION_FAILED");
   }
+});
+
+test("an invalidated R2 snapshot in observe mode shows ledger status and disables the old scan", async ({ page }) => {
+  await backup(page);
+  await page.evaluate(async () => {
+    const { renderStorage } = await import('/VoteProof/js/admin-storage.js');
+    const node = (tag, text = '') => { const el = document.createElement(tag); el.textContent = text; return el; };
+    const container = node('div');
+    const previous = document.querySelector('.storage-panel');
+    previous.replaceWith(container);
+    renderStorage(container, {
+      upload_policy: 'observe', blocked: false, inventory_invalidated: true, snapshot_stale: true,
+      used_bytes: 913714660, reserved_bytes: 6547002, budget: { budget: 10000000000 },
+    }, { node, button: label => node('button', label) });
+  });
+  const panel = page.getByRole("region", { name: "儲存容量保護" });
+  await expect(panel).toContainText("容量保護採觀察模式");
+  await expect(panel).toContainText("R2 盤點已失效");
+  await expect(panel).toContainText("目前顯示帳本用量");
+  await expect(panel).not.toContainText("暫時停止圖片上傳");
+  await expect(panel.getByRole("button", { name: /更新 R2 盤點/ })).toBeDisabled();
 });
 
 test("Drive units follow quota bytes for different plans and preserve unknown values", async ({ page }) => {

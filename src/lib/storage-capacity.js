@@ -230,6 +230,13 @@ export async function inventoryPage(env) {
   });
   return { complete: true, bytes: total, anomaly };
 }
+export function adminStorageSummary(env) {
+  return storageSummary(env.DB, {
+    live: env.STORAGE_CLEANUP_LIVE_ENABLED === 'true',
+    accountingOnly: capacityAccountingOnly(env),
+  });
+}
+
 export async function storageSummary(db,{live=false,accountingOnly=false}={}) {
   const row = await capacityRow(db);
   const history = (

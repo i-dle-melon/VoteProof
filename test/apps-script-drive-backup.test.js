@@ -36,7 +36,8 @@ function fixture() {
   }
   function restart() {
     const context=vm.createContext({console:{log:s=>state.logs.push(s)},PropertiesService:{getScriptProperties:()=>({getProperty:k=>properties.get(k)??null,setProperty:(k,v)=>properties.set(k,v),deleteProperty:k=>properties.delete(k)})},
-      LockService:{getScriptLock:()=>({tryLock:()=>{if(state.locked||state.skip)return false;state.locked=true;return true;},releaseLock:()=>{state.locked=false;}})},
+      LockService:{getScriptLock:()=>({tryLock:()=>{if(state.locked||state.skip)return false;state.locked=true;return true;},releaseLock:()=>{state.locked=false;}}),
+        getUserLock(){return this.getScriptLock();}},
       Utilities:{getUuid:randomUUID,DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_a,key)=>[...createHash('sha256').update(key).digest()]},
       UrlFetchApp:{fetch},Drive:{Files:{get:id=>{if(!files.has(id))throw Error('404 File not found');return structuredClone(files.get(id));},
         generateIds:({count})=>({ids:Array.from({length:count},()=> 'generated_'+ ++state.serial)}),
@@ -51,6 +52,66 @@ test('manifest has exactly three minimal scopes, V8 and no web-app deployment',(
   const manifest=JSON.parse(readFileSync(new URL('../apps-script/drive-backup/appsscript.json',import.meta.url),'utf8'));
   assert.deepEqual(manifest.oauthScopes,['https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/script.external_request','https://www.googleapis.com/auth/script.scriptapp']);
   assert.equal(manifest.runtimeVersion,'V8');assert.equal(manifest.webapp,undefined);
+});
+test('manual quota refresh publishes one valid Drive quota and never runs the R2 inventory',()=>{
+  const {context,state}=fixture();
+  let aboutCalls=0, posted;
+  context.Drive.About={get:options=>{
+    aboutCalls++;
+    assert.equal(options.fields,'storageQuota');
+    return {storageQuota:{usage:'10',limit:'100'}};
+  }};
+  context.UrlFetchApp.fetch=(url,options)=>{
+    state.calls.push(new URL(url).pathname);
+    posted=JSON.parse(options.payload);
+    return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({ok:true,data:{accepted:true}})};
+  };
+  assert.equal(context.refreshDriveQuotaSnapshot().snapshot,'accepted');
+  assert.equal(aboutCalls,1);
+  assert.deepEqual(state.calls,['/api/internal/drive-backup/storage/quota']);
+  assert.equal(posted.total_bytes,100);
+  assert.equal(posted.used_bytes,10);
+  context.Drive.About.get=()=>{throw Error('synthetic provider failure');};
+  assert.equal(context.refreshDriveQuotaSnapshot().snapshot,'not_published');
+  assert.equal(state.calls.length,1);
+});
+test('Drive changes require the root owner, dedupe changes and keep the cursor until an ACK',()=>{
+  const {context,properties,files,state}=fixture();
+  const root=properties.get('ROOT_FOLDER_ID');
+  let sent, acknowledge=false, opens=0;
+  context.Drive.Changes={
+    getStartPageToken:()=>{opens++;return {startPageToken:'start'};},
+    list:(token,options)=>{
+      assert.equal(token,'start');
+      assert.equal(options.pageSize,40);
+      return {nextPageToken:'next',changes:[
+        {changeType:'file',fileId:'removed',removed:true},
+        {changeType:'file',fileId:'restored',file:{id:'restored',trashed:true}},
+        {changeType:'file',fileId:'restored',file:{id:'restored',trashed:false}}
+      ]};
+    }
+  };
+  context.UrlFetchApp.fetch=(url,options)=>{
+    assert.equal(new URL(url).pathname,'/api/internal/drive-backup/presence');
+    sent=JSON.parse(options.payload);
+    if(!acknowledge)throw Error('synthetic ACK loss');
+    return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({ok:true,data:{applied:2}})};
+  };
+  assert.throws(()=>context.syncDriveBackupChanges(),/ROOT_INACCESSIBLE/);
+  assert.equal(opens,0);
+  files.get(root).ownedByMe=true;
+  const key='VOTEPROOF_DRIVE_CHANGES_CURSOR_'+context.vpHash_(root);
+  assert.equal(context.syncDriveBackupChanges().state,'tracking_started');
+  assert.equal(properties.get(key),'start');
+  assert.throws(()=>context.syncDriveBackupChanges(),/NETWORK/);
+  assert.equal(properties.get(key),'start');
+  acknowledge=true;
+  assert.equal(context.syncDriveBackupChanges().applied,2);
+  assert.deepEqual(sent,{root_folder_id:root,files:[
+    {drive_file_id:'removed',state:'unavailable'},{drive_file_id:'restored',state:'available'}
+  ]});
+  assert.equal(properties.get(key),'next');
+  assert.equal(state.locked,false);
 });
 test('five-minute installer removes only same-handler duplicate triggers; disable leaves unrelated triggers',()=>{
   const f=fixture();f.state.triggers=[{getHandlerFunction:()=> 'runBackup'},{getHandlerFunction:()=> 'runBackup'},{getHandlerFunction:()=> 'other'}];

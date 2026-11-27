@@ -17,7 +17,39 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
  const search=el('button','搜尋','btn btn-primary');search.type='submit';filters.append(search);
  let query=new URLSearchParams(),cutoff=null,cursor=null,all=null,working=false,stopRequested=false,epoch=0,enabled=false,preview=null;
  const closePreview=()=>{if(preview){const d=preview;preview=null;d.close();d.remove();}};
- async function showProof(row){if(working||!loadProof)return;const n=epoch;try{const blob=await loadProof(row);if(!active(n))return;closePreview();const d=el('dialog','','proof-preview-dialog'),image=el('img'),url=URL.createObjectURL(blob);image.src=url;image.alt='清理前圖片預覽';d.append(button('關閉',()=>d.close()),image);container.append(d);preview=d;d.addEventListener('close',()=>{URL.revokeObjectURL(url);d.remove();if(preview===d)preview=null;},{once:true});d.showModal();}catch(e){if(isCurrent())status.textContent=e.code==='PROOF_ARCHIVED_IN_DRIVE'?'圖片已從網站清理，無法預覽。':e.message??'圖片暫時無法預覽';}}
+ async function showProof(row,opener){
+  if(working||!loadProof)return;
+  const n=epoch;
+  try{
+   const blob=await loadProof(row);
+   if(!active(n))return;
+   closePreview();
+   const dialog=el('dialog','','proof-preview-dialog is-modal'),image=el('img'),url=URL.createObjectURL(blob);
+   dialog.setAttribute('aria-label','清理前圖片預覽');
+   image.src=url;
+   image.alt='清理前圖片預覽';
+   const close=button('關閉圖片預覽',()=>dialog.close());
+   dialog.append(close,image);
+   dialog.addEventListener('click',event=>{
+    if(event.target!==dialog)return;
+    const {left,right,top,bottom}=dialog.getBoundingClientRect();
+    if(event.clientX<left||event.clientX>=right||event.clientY<top||event.clientY>=bottom)dialog.close();
+   });
+   dialog.addEventListener('close',()=>{
+    URL.revokeObjectURL(url);
+    dialog.remove();
+    if(preview!==dialog)return;
+    preview=null;
+    if(active(n)&&opener.isConnected)opener.focus();
+   },{once:true});
+   container.append(dialog);
+   preview=dialog;
+   dialog.showModal();
+   close.focus();
+  }catch(e){
+   if(active(n))status.textContent=e.code==='PROOF_ARCHIVED_IN_DRIVE'?'圖片已從網站清理，無法預覽。':e.message??'圖片暫時無法預覽';
+  }
+ }
  const checkboxes=new Map(),actions=el('div','','manual-cleanup-actions'),stop=button('停止後續圖片',()=>{stopRequested=true;});stop.dataset.reviewStop='';stop.hidden=true;
  const earlyExport=el('input'),earlyLabel=el('label','未滿 7 天也可清理（僅限已確認下載）','manual-cleanup-early');
  earlyExport.type='checkbox';earlyLabel.prepend(earlyExport);
@@ -44,7 +76,7 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
     if(row.cleanup_state==='cold')continue;
     const c=el('article','','member-case'),label=el('label',row.case_id),box=el('input');box.type='checkbox';box.disabled=!row.eligible;box.dataset.eligible=String(row.eligible);box.setAttribute('aria-label','選取圖片 '+row.file_id);label.prepend(box);box.addEventListener('change',()=>{if(all){if(box.checked)all.excluded.delete(row.file_id);else all.excluded.set(row.file_id,row);}else if(box.checked)selected.set(row.file_id,row);else selected.delete(row.file_id);sync();});checkboxes.set(row.file_id,box);
     c.append(label,el('p',(Object.hasOwn(caseStatuses,row.status)?caseStatuses[row.status]:'狀態不明')+' · '+formatSize(row.size)));
-    if(loadProof&&row.cleanup_state!=='deleting')c.append(button('預覽圖片',()=>void showProof(row)));
+    if(loadProof&&row.cleanup_state!=='deleting')c.append(button('預覽圖片',event=>void showProof(row,event.currentTarget)));
     c.append(el('p',row.reason));list.append(c);
    }
    more.hidden=!cursor;status.textContent=!enabled?'手動清理尚未啟用，目前只提供唯讀候選清單。':!cursor&&!list.childElementCount?'沒有符合篩選的圖片。':'候選清單為唯讀；實際清理前重新檢查全部安全條件。';sync();

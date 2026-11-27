@@ -81,6 +81,33 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFi
  });
  await page.goto('/#admin');await selectAdminTab(page,'R2 手動清理');await expect(page.locator('#admin-panel')).toContainText('已選 0 張');return{state,rows,calls,initialImageReads:state.calls.filter(c=>c.path.includes('/files/')).length};
 }
+test('manual cleanup photo preview closes by button, backdrop or Escape',async({page},info)=>{
+ const fixture=await cleanupFixture(page);
+ const opener=page.locator('#admin-panel .member-case').first().getByRole('button',{name:'預覽圖片',exact:true});
+ const dialog=page.getByRole('dialog',{name:'清理前圖片預覽'});
+ const close=dialog.getByRole('button',{name:'關閉圖片預覽',exact:true});
+ const image=dialog.getByRole('img',{name:'清理前圖片預覽'});
+ const tapOrClick=target=>info.project.use.hasTouch?target.tap():target.click();
+
+ for(const dismiss of [
+  ()=>tapOrClick(close),
+  ()=>info.project.use.hasTouch?page.touchscreen.tap(4,4):page.mouse.click(4,4),
+  ()=>page.keyboard.press('Escape'),
+ ]){
+  await tapOrClick(opener);
+  await expect(close).toBeVisible();
+  await expect(close).toBeFocused();
+  await expect(image).toHaveJSProperty('complete',true);
+  await expect.poll(()=>image.evaluate(img=>img.naturalWidth)).toBeGreaterThan(0);
+  await tapOrClick(image);
+  await expect(dialog).toBeVisible();
+  await dismiss();
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+ }
+
+ expect(fixture.calls.every(call=>call.method==='GET')).toBe(true);
+});
 test('manual cleanup all covers 25 files over pages, first20 is stable and each file has independent verified cleanup',async({page},info)=>{
  const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());
  const panel=page.locator('#admin-panel');

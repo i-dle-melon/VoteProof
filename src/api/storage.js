@@ -12,6 +12,8 @@ import {
 import { cleanupArchive } from "../lib/storage-archive.js";
 import { processStorageAlerts } from "../lib/storage-alerts.js";
 import { scanInventoryPage,finalizeInventory } from "../lib/storage-inventory.js";
+import { safetyInventoryPage } from "../lib/storage-safety-inventory.js";
+import { cleanupEligibility } from "../lib/manual-r2-cleanup.js";
 import {manualCleanupRoute} from './admin-manual-cleanup.js';
 const validObject = (v) => v && typeof v === "object" && !Array.isArray(v);
 export async function quotaSnapshot(env, v) {
@@ -98,6 +100,10 @@ const internal = async (env, url, request) => {
     if (url.search) throw Error();
     const v = await readReviewJson(request);
     if (url.pathname.endsWith("/quota")) return jsonSuccess(await quotaSnapshot(env, v));
+    if (url.pathname.endsWith("/safety-inventory")) {
+      if (!validObject(v) || Object.keys(v).length) return jsonError(400,"INVALID_STORAGE_REQUEST","盤點參數無效。");
+      return jsonSuccess(await safetyInventoryPage(env,cleanupEligibility(env).legacyOperations));
+    }
     if(url.pathname.endsWith('/inventory/finalize')){
       if(!validObject(v)||Object.keys(v).length!==2||!Object.hasOwn(v,'inventory_id')||!Object.hasOwn(v,'inventory_version')||
         !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(v.inventory_id??'')||
@@ -137,6 +143,7 @@ export function storageRoute(path) {
   if (
     [
       "/api/internal/drive-backup/storage/quota",
+      "/api/internal/drive-backup/storage/safety-inventory",
       "/api/internal/drive-backup/storage/tick",
       "/api/internal/drive-backup/storage/inventory/finalize",
       "/api/internal/drive-backup/storage/archive",

@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 const backup = readFileSync('apps-script/drive-backup/Code.gs', 'utf8');
 const source = readFileSync('apps-script/drive-backup/StorageInventory.gs', 'utf8');
+const safetySource = readFileSync('apps-script/drive-backup/StorageSafetyInventory.gs', 'utf8');
 const handler = 'runStorageInventory';
 const tickPath = '/api/internal/drive-backup/storage/tick';
 const finalPath = '/api/internal/drive-backup/storage/inventory/finalize';
@@ -74,6 +75,26 @@ function fixture() {
   return {context,state,properties,secret};
 }
 const trigger = name => ({getHandlerFunction:()=>name});
+
+test('hourly safety inventory stops at completion or the page budget without querying Drive',()=>{
+ const f=fixture();
+ vm.runInContext(safetySource,f.context);
+ let calls=0, completeAt=2;
+ f.context.UrlFetchApp.fetch=(url,options)=>{
+   assert.equal(url,'https://isolated.invalid/api/internal/drive-backup/storage/safety-inventory');
+   assert.deepEqual(JSON.parse(options.payload),{});
+   calls++;
+   const state=calls===completeAt?'complete':'scanning';
+   return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({ok:true,data:{state}})};
+ };
+ assert.equal(f.context.runStorageSafetyInventory().state,'complete');
+ assert.equal(calls,2);
+ completeAt=999;
+ assert.equal(f.context.runStorageSafetyInventory().state,'incomplete');
+ assert.equal(calls,22);
+ assert.equal(f.state.aboutCalls,0);
+ assert.equal(f.state.locked,false);
+});
 
 test('maintenance only reads quota metadata and ticks; never images, archive, mail, backup or auto-install',()=>{
   assert.doesNotMatch(source,/\/storage\/archive|Drive\.(Files|Permissions)|MailApp|runStorageMaintenance\(/);

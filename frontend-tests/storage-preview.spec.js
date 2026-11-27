@@ -70,12 +70,17 @@ test("an invalidated R2 snapshot in observe mode shows ledger status and disable
     renderStorage(container, {
       upload_policy: 'observe', blocked: false, inventory_invalidated: true, snapshot_stale: true,
       used_bytes: 913714660, reserved_bytes: 6547002, budget: { budget: 10000000000 },
+      safety_inventory: {state:'complete',latest:{observed_at:1795833600,bytes:914654359,objects:2325,
+        accounted_upper_bytes:921201361,pending_operations:7}},
     }, { node, button: label => node('button', label) });
   });
   const panel = page.getByRole("region", { name: "儲存容量保護" });
   await expect(panel).toContainText("容量保護採觀察模式");
   await expect(panel).toContainText("R2 盤點已失效");
   await expect(panel).toContainText("目前顯示帳本用量");
+  await expect(panel).toContainText("自動安全盤點");
+  await expect(panel).toContainText("R2 物件用量約 0.91 GB · 2,325 個物件");
+  await expect(panel).toContainText("7 筆歷史寫入待核對");
   await expect(panel).not.toContainText("暫時停止圖片上傳");
   await expect(panel.getByRole("button", { name: /更新 R2 盤點/ })).toBeDisabled();
 });

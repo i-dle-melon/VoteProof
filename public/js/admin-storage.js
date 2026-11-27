@@ -35,6 +35,20 @@ export function renderStorage(container, data, { node, button, mutate, reload, r
     else status = "目前儲存空間不足，暫時停止圖片上傳，請稍後再試。";
   }
   section.append(node("p", status, data.blocked ? "notice warn" : "notice"));
+  const safety = data.safety_inventory;
+  if (safety) {
+    section.append(node("h4", "自動安全盤點"));
+    if (safety.latest) {
+      const latest = safety.latest;
+      section.append(node("p", "最近完成 " + time(latest.observed_at) + " · R2 物件用量約 " +
+        gb(latest.bytes) + " · " + latest.objects.toLocaleString("zh-TW") + " 個物件"));
+      section.append(node("p", "計入既有預留後約 " + gb(latest.accounted_upper_bytes) +
+        " · " + latest.pending_operations + " 筆歷史寫入待核對", "tiny"));
+    }
+    if (safety.state === "scanning") section.append(node("p", "正在進行本輪盤點。", "tiny"));
+    else if (safety.state === "waiting") section.append(node("p",
+      safety.latest ? "等待下輪盤點。" : "等待首次盤點。", "tiny"));
+  }
   if (data.inventory_invalidated || data.snapshot_stale) {
     const snapshotStatus = data.inventory_invalidated ? "R2 盤點已失效。" : "R2 盤點快照已過期。";
     section.append(node("p", snapshotStatus + "目前顯示帳本用量。", observing && !data.blocked ? "tiny" : "notice warn"));

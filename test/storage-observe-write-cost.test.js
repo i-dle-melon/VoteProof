@@ -144,6 +144,82 @@ test('admin R2 usage pages read only object sizes without changing the inventory
  assert.deepEqual(f.read('SELECT * FROM storage_capacity WHERE id=1'), before);
  assert.equal(f.read('SELECT COUNT(*) n FROM storage_history').n, 0);
 });
+const safetyPath = 'storage/safety-inventory';
+async function safetyFixture(t) {
+ const f = await setup(t);
+ for (const path of ['migrations-manual-cleanup/0002_isolated_r2_scope.sql',
+   'migrations-storage-safety-inventory/0001_safety_inventory.sql'])
+   f.sqlite.exec('BEGIN;'+fs.readFileSync(path,'utf8')+'COMMIT;');
+ f.env.R2_ISOLATED_PROOF_KEYS_ENABLED = 'true';
+ return f;
+}
+test('automatic safety inventory publishes a conservative total and preserves the eight reservations and seven operations',async t=>{
+ const f = await safetyFixture(t);
+ const ids = Array.from({length:7},()=>randomUUID());
+ const insert = f.sqlite.prepare(`INSERT INTO prelaunch_reset_operations(id,epoch,state,pending_r2,r2_writes,started_at)
+   VALUES(?,1,?,1,1,'2026-11-06T04:00:00.000Z')`);
+ ids.forEach((id,index)=>insert.run(id,index<4?'active':'unknown'));
+ f.env.R2_MANUAL_CLEANUP_REVIEWED_LEGACY_OPERATIONS=JSON.stringify(ids);
+ await f.edit(`INSERT INTO storage_reservations(id,object_key,bytes,state,created_at)
+   VALUES ${Array.from({length:8},(_,i)=>`('sample-${i}','proofs/legacy-${i}',10,'reserved',1)`).join(',')}`);
+ await f.edit('UPDATE storage_capacity SET inventory_dirty=1 WHERE id=1');
+ const legacy = f.read('SELECT * FROM storage_capacity WHERE id=1');
+ const historical = f.sqlite.prepare('SELECT * FROM prelaunch_reset_operations WHERE pending_r2>0 ORDER BY id').all();
+ const received = [];
+ f.bucket.list = async options => {
+   received.push(options);
+   return options.cursor
+     ? {objects:[{size:17}],truncated:false}
+     : {objects:[{size:43}],truncated:true,cursor:'page-2'};
+ };
+ let response = await f.relay(safetyPath,{});
+ assert.equal(response.status,200,await response.clone().text());
+ assert.equal((await response.json()).data.state,'scanning');
+ response = await f.relay(safetyPath,{});
+ assert.equal(response.status,200,await response.clone().text());
+ const {latest} = (await response.json()).data;
+ assert.deepEqual([latest.bytes,latest.objects,latest.reserved_bytes,latest.accounted_upper_bytes,latest.pending_operations],[60,2,80,140,7]);
+ response = await f.relay(safetyPath,{});
+ assert.equal((await response.json()).data.state,'current');
+ assert.deepEqual(received,[{limit:200},{limit:200,cursor:'page-2'}]);
+ assert.deepEqual(f.read('SELECT * FROM storage_capacity WHERE id=1'),legacy);
+ assert.equal(f.read("SELECT COUNT(*) n FROM storage_reservations WHERE state='reserved'").n,8);
+ assert.deepEqual(f.sqlite.prepare('SELECT * FROM prelaunch_reset_operations WHERE pending_r2>0 ORDER BY id').all(),historical);
+ assert.equal(f.read("SELECT COUNT(*) n FROM storage_audit WHERE action='safety_inventory'").n,1);
+ const summary = await f.fetch('/api/admin/backups','GET',undefined,f.actor.headers);
+ assert.deepEqual((await summary.json()).data.storage.safety_inventory,{state:'complete',latest});
+});
+test('a pending operation outside the reviewed set stops safety inventory before R2 I/O',async t=>{
+ const f = await safetyFixture(t);
+ f.sqlite.prepare(`INSERT INTO prelaunch_reset_operations(id,epoch,state,pending_r2,r2_writes,started_at)
+   VALUES(?,1,'unknown',1,1,?)`).run(randomUUID(),new Date().toISOString());
+ f.bucket.list = async()=>assert.fail('unreviewed R2 operation must stop the scan');
+ const response=await f.relay(safetyPath,{});
+ assert.equal(response.status,409);
+ assert.equal((await response.json()).error.code,'R2_SAFETY_SCAN_PRECONDITION');
+ assert.equal(f.read('SELECT scan_id FROM r2_safety_inventory WHERE id=1').scan_id,null);
+});
+test('a native PUT during safety inventory invalidates the result and the next run restarts',async t=>{
+ const f = await safetyFixture(t), p=await f.prepare(), gate=latch();
+ f.bucket.list = async()=>{gate.arrive();await gate.held;return {objects:[{size:10}],truncated:false};};
+ const pending = f.relay(safetyPath,{});
+ await gate.arrived;
+ try{assert.equal((await f.put(p)).status,200);}finally{gate.release();}
+ const discarded = await pending;
+ assert.equal(discarded.status,409);
+ assert.equal((await discarded.json()).error.code,'R2_SAFETY_SCAN_CHANGED');
+ const invalidated = f.read('SELECT scan_id,latest,invalidated FROM r2_safety_inventory WHERE id=1');
+ assert.equal(invalidated.invalidated,1);
+ assert.equal(invalidated.latest,null);
+ assert.equal(f.read("SELECT COUNT(*) n FROM prelaunch_reset_operations WHERE state='unknown'").n,0);
+ f.bucket.list = async options=>{assert.deepEqual(options,{limit:200});return {objects:[{size:23}],truncated:false};};
+ const response=await f.relay(safetyPath,{});
+ assert.equal(response.status,200,await response.clone().text());
+ const {latest} = (await response.json()).data;
+ assert.equal(latest.bytes,23);
+ assert.notEqual(latest.id,invalidated.scan_id);
+ assert.equal(f.read("SELECT COUNT(*) n FROM storage_audit WHERE action='safety_inventory'").n,1);
+});
 test('member case replay and repeated review cannot award points twice',async t=>{
  const f=await setup(t),p=await f.prepare('direct',true);assert.equal((await f.put(p)).status,200);
  const body={campaign_id:'OBSERVE',vote_date:new Date().toISOString().slice(0,10),upload_session:{session_id:p.session_id,keys:[p.uploads[0].key]}},headers={...p.headers,'Idempotency-Key':randomUUID()};

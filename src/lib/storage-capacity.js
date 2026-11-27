@@ -1,6 +1,7 @@
 import { authAtomic } from "./auth-store.js";
 import { AdminError } from "./admin-identity.js";
 import {storageAdmissionStatements} from './storage-admission.js';
+import {safetyInventorySummary} from './storage-safety-inventory.js';
 export const R2_STORAGE_BUDGET_BYTES=10000000000;
 export const R2_CLEANUP_START_BYTES=9000000000;
 export const R2_UPLOAD_STOP_BYTES=9500000000;
@@ -230,11 +231,12 @@ export async function inventoryPage(env) {
   });
   return { complete: true, bytes: total, anomaly };
 }
-export function adminStorageSummary(env) {
-  return storageSummary(env.DB, {
+export async function adminStorageSummary(env) {
+  const storage = await storageSummary(env.DB, {
     live: env.STORAGE_CLEANUP_LIVE_ENABLED === 'true',
     accountingOnly: capacityAccountingOnly(env),
   });
+  return {...storage,safety_inventory:await safetyInventorySummary(env)};
 }
 
 export async function storageSummary(db,{live=false,accountingOnly=false}={}) {

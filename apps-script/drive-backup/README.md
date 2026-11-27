@@ -378,3 +378,15 @@ POST 回 401/RELAY_AUTH_REQUIRED，未寫入正式 D1。服務帳號的正式
 首次執行建立變更游標，此後每次讀取最多 40 筆變更，並在 Worker 確認後推進游標。
 移到垃圾桶、移除或失去存取的備份會退出成功統計，恢復可存取後會回到成功清單。
 同步範圍從游標建立時起算。容量盤點及原備份排程各自獨立執行。
+
+## 自動 R2 安全盤點
+
+自動安全盤點適用於容量觀察模式。每次完成保留當時的 R2 用量、物件數、
+既有預留位元組數和待核對的歷史操作數。加計既有預留的用量是保守記帳值。
+盤點結果只供後台檢視，上傳和清理繼續使用既有的安全條件。
+
+正式啟用時，先確認既有 reset fence、isolated R2 scope 及 Writer 設定，再安裝
+`migrations-storage-safety-inventory/0001_safety_inventory.sql` 並發布對應 Worker。
+在同一備份專案新增 `StorageSafetyInventory.gs`，只對
+`runStorageSafetyInventory` 設一個每小時觸發條件。每次最多 20 頁，每頁最多 200 個物件。
+寫入會作廢本輪掃描，下一次執行自動從頭開始。原備份與 Drive 容量排程照常運作。

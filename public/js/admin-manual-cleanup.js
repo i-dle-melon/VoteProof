@@ -15,14 +15,14 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
  control('backup','Drive 備份狀態','select',statusOptions(backupStatuses));
  control('eligible','清理資格','select',[['','全部'],['yes','可進入清理驗證'],['no','不可清理']]);
  const search=el('button','搜尋','btn btn-primary');search.type='submit';filters.append(search);
- let query=new URLSearchParams(),cutoff=null,cursor=null,all=null,working=false,stopRequested=false,epoch=0,enabled=false,preview=null;
+ let query=new URLSearchParams(),cutoff=null,cursor=null,all=null,working=false,stopRequested=false,epoch=0,enabled=false,preview=null,confirmation=null;
  const closePreview=()=>{if(preview){const d=preview;preview=null;d.close();d.remove();}};
  async function showProof(row,opener){
   if(working||!loadProof)return;
   const n=epoch;
   try{
    const blob=await loadProof(row);
-   if(!active(n))return;
+   if(!active(n)||confirmation)return;
    closePreview();
    const dialog=el('dialog','','proof-preview-dialog is-modal'),image=el('img'),url=URL.createObjectURL(blob);
    dialog.setAttribute('aria-label','清理前圖片預覽');
@@ -79,7 +79,7 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
     if(loadProof&&row.cleanup_state!=='deleting')c.append(button('預覽圖片',event=>void showProof(row,event.currentTarget)));
     c.append(el('p',row.reason));list.append(c);
    }
-   more.hidden=!cursor;status.textContent=!enabled?'手動清理尚未啟用，目前只提供唯讀候選清單。':!cursor&&!list.childElementCount?'沒有符合篩選的圖片。':'候選清單為唯讀；實際清理前重新檢查全部安全條件。';sync();
+   more.hidden=!cursor;status.className='notice info';status.textContent=!enabled?'手動清理尚未啟用，目前只提供唯讀候選清單。':!cursor&&!list.childElementCount?'沒有符合篩選的圖片。':'候選清單為唯讀；實際清理前重新檢查全部安全條件。';sync();
   }catch(e){if(active(n))status.textContent=e.code??e.message??'無法載入。';}
  }
  async function select(first20){
@@ -88,12 +88,40 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
    if(first20){all=null;for(const r of d.items)selected.set(r.file_id,r);}else all={total:d.eligible_count,bytes:d.eligible_bytes,query:p,excluded:new Map()};
   }catch(e){status.textContent=e.code??e.message;}finally{working=false;sync();}
  }
+ function confirmCleanup(total,allowEarlyExport){
+  const dialog=el('dialog','','modal-sheet');
+  const heading=el('h3','確認清理 R2 原始圖片');
+  heading.id='manual-cleanup-confirm-title';
+  dialog.setAttribute('aria-labelledby',heading.id);
+  dialog.append(heading,el('p','已選 '+total+' 張。清理後無法線上讀取或再次匯出原圖。'));
+  if(allowEarlyExport)dialog.append(el('p','已勾選提早清理，符合條件的已下載圖片可在結案未滿 7 天時清理。'));
+  dialog.append(
+   el('p','11 月 25 日前的投稿圖片符合清理條件時，可使用既有 Drive 備份確認紀錄並免等 7 天。'),
+   el('p','重複投稿、未通過及已撤銷的圖片可無備份清理。若沒有另外留存，清理後將無法取回原圖。'),
+   el('p','案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。刪除結果不明時會停止。')
+  );
+  const controls=el('div','','manual-cleanup-actions');
+  const cancel=button('取消',()=>dialog.close());
+  controls.append(cancel,button('永久清理 '+total+' 張',()=>dialog.close('confirmed'),'btn btn-review-reject'));
+  dialog.append(controls);
+  container.append(dialog);
+  confirmation=dialog;
+  const result=new Promise(resolve=>dialog.addEventListener('close',()=>{
+   dialog.remove();
+   confirmation=null;
+   resolve(dialog.returnValue==='confirmed');
+  },{once:true}));
+  dialog.showModal();
+  cancel.focus();
+  return result;
+ }
  async function clean(){
-  if(working||!enabled||(!all&&!selected.size))return;closePreview();const plan=all?{...all,query:new URLSearchParams(all.query),excluded:new Map(all.excluded)}:null,items=[...selected.values()],total=plan?plan.total-plan.excluded.size:items.length;if(!total)return;
+  if(working||confirmation||!enabled||(!all&&!selected.size))return;closePreview();const plan=all?{...all,query:new URLSearchParams(all.query),excluded:new Map(all.excluded)}:null,items=[...selected.values()],total=plan?plan.total-plan.excluded.size:items.length;if(!total)return;
+  const n=epoch;
   const allowEarlyExport=query.has('allow_early_export');
-  const earlyWarning=allowEarlyExport?'\n已勾選提早清理，符合條件的已下載圖片可在結案未滿 7 天時刪除。':'';
-  if(!confirm('確認清理已選 '+total+' 張 R2 原始圖片？'+earlyWarning+'\n11 月 25 日前的投稿圖片可使用既有 Drive 備份確認紀錄，符合清理條件即可免等 7 天。\n重複投稿、未通過及已撤銷的圖片可無備份清理。若沒有另外留存，清理後將無法取回原圖。\n案件、積分與現有 Drive 備份會保留。以匯出紀錄清理的圖片請先保留下載的 ZIP。清理後無法線上讀取或再次匯出。刪除結果不明時會立即停止，不會重送。'))return;
+  if(!await confirmCleanup(total,allowEarlyExport)||!active(n))return;
   await run(async()=>{working=true;stopRequested=false;stop.hidden=false;let done=0,deleted=0,failed=0,unknown=0,next=null,queue=items,morePages=!!plan;
+   let firstFailure=null;
    try{while(isCurrent()&&!stopRequested&&(queue.length||morePages)){
     if(!queue.length){const p=new URLSearchParams(plan.query);p.set('summary','0');if(next)p.set('cursor',next);const d=await request('storage/manual?'+p);queue=d.items;next=d.next_cursor;morePages=!!next;if(!queue.length)continue;}
     const row=queue.shift();if(plan?.excluded.has(row.file_id))continue;const input={file_id:row.file_id,case_version:row.case_version,backup_version:row.backup_version,attempt_id:crypto.randomUUID(),
@@ -102,14 +130,31 @@ export async function renderManualCleanup({container,request,run,isCurrent,loadP
      if(d.state==='deleted'){deleted++;markDeleted(row);}else{unknown++;markUnknown(row);stopRequested=true;}
     }catch(e){
      // Read only after any failed request. No automatic re-verify/re-DELETE.
-     try{const s=await request('storage/manual/'+row.file_id+'/status');if(s.state==='deleted'){deleted++;markDeleted(row);}else if(['unknown','verifying','deleting'].includes(s.state)){unknown++;markUnknown(row);stopRequested=true;}else{failed++;status.textContent=e.code??e.message;}}catch{unknown++;markUnknown(row);stopRequested=true;}
+     try{
+      const s=await request('storage/manual/'+row.file_id+'/status');
+      if(s.state==='deleted'){deleted++;markDeleted(row);}
+      else if(['unknown','verifying','deleting'].includes(s.state)){unknown++;markUnknown(row);stopRequested=true;}
+      else{
+       failed++;
+       firstFailure??=row.case_id+' · '+(e.code??e.message??'清理失敗');
+       if(e.status>=500||e.status===429||['INVALID_AUTH_REQUEST','CSRF_REJECTED','MANUAL_CLEANUP_DISABLED','MANUAL_CLEANUP_SCHEMA_REQUIRED'].includes(e.code)){
+        stopRequested=true;
+       }
+      }
+     }catch{unknown++;markUnknown(row);stopRequested=true;}
     }
     done++;progress.textContent='已處理 '+done+'/'+total+' · 已清理 '+deleted+' · 失敗 '+failed+' · 未確認 '+unknown;
-   }}finally{working=false;stop.hidden=true;all=null;sync();status.textContent=unknown?'結果不明，已停止；保留鎖、稽核及待對帳狀態。':stopRequested?'已停止後續清理。':'本次處理完成；需要重新搜尋取得最新資格。';}
+   }}finally{
+    working=false;stop.hidden=true;all=null;sync();
+    const outcome=unknown?'結果不明，已停止；保留鎖、稽核及待對帳狀態。':stopRequested?'已停止後續清理。':'本次處理完成；需要重新搜尋取得最新資格。';
+    status.classList.toggle('warn',Boolean(unknown||failed));
+    status.classList.toggle('info',!(unknown||failed));
+    status.textContent=firstFailure?outcome+' 首筆失敗 '+firstFailure:outcome;
+   }
   });
  }
  actions.append(button('選取全部可清理圖片',()=>void select(false)),button('選取前20張可清理圖片',()=>void select(true)),button('清除目前選取',()=>{if(!working){selected.clear();all=null;sync();}}),earlyLabel,execute,stop);
  earlyExport.addEventListener('change',()=>void page(true));
  filters.addEventListener('submit',e=>{e.preventDefault();if(!working)void page(true);});container.append(filters,actions,count,status,progress,list,more);await page(true);
- return()=>{epoch++;closePreview();};
+ return()=>{epoch++;closePreview();confirmation?.close();};
 }

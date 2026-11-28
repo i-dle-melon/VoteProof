@@ -55,7 +55,7 @@ test('reject stop finishes only current chunk, and never runs approve concurrent
  let release;const wait=new Promise(r=>release=r),f=await reviewFixture(page,{wait});page.on('dialog',d=>d.accept(d.type()==='prompt'?'Reason':undefined));await enter(page);await page.getByRole('button',{name:'選取全部未審案件',exact:true}).click();
  try{await page.locator('#admin-batch-reject').click();await expect.poll(()=>f.posts.length).toBe(1);await expect(page.locator('#admin-batch-approve')).toBeDisabled();await page.getByRole('button',{name:'停止後續批次'}).click();release();await expect(page.locator('.batch-review-results')).toContainText('已停止');expect(f.posts).toHaveLength(1);expect(f.state.cases.filter(c=>c.status==='rejected')).toHaveLength(4);}finally{release();}
 });
-async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFiles=false,withoutArchive=false}={}){
+async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFiles=false,withoutArchive=false,serviceFailure=false}={}){
  const state=await adminFixture(page,{autoConfirm:false}),at='2026-10-01T00:00:00.000Z',cutoff=new Date().toISOString(),calls=[];
  const rows=Array.from({length:25},(_,i)=>({file_id:randomUUID(),case_id:caseId(i),case_version:2,backup_version:1,size:3,status:'completed',eligible:true,cleanup_state:null,reason:'執行前將即時驗證Drive',ordinal:i}));
  Object.assign(rows[0],{archive_source:'export',backup_version:null,reason:'已確認下載；清理前會重新核對匯出紀錄及 R2'});
@@ -76,11 +76,14 @@ async function cleanupFixture(page,{unknown=false,wait=null,enabled=true,earlyFi
    return ok(route,{enabled,cutoff,...(summary?{total:filtered.length,eligible_count:eligibleCount,eligible_bytes:eligibleCount*3}:{}),items:chosen,next_cursor:available.length>20?String(chosen.at(-1).ordinal):null});
   }
   const row=rows.find(x=>p.includes(x.file_id));if(p.endsWith('/verify'))return ok(route,{file_id:row.file_id,state:'verified',attempt_id:body.attempt_id});
-  if((p.endsWith('/delete')||p.endsWith('/clean'))){if(wait)await wait;row.cleanup_state=unknown?'deleting':'cold';return ok(route,{file_id:row.file_id,state:unknown?'unknown':'deleted',message:row.archive_source==='export'?'圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。':undefined});}
-  if(p.endsWith('/status'))return ok(route,{state:row.cleanup_state==='cold'?'deleted':'unknown'});
+  if((p.endsWith('/delete')||p.endsWith('/clean'))){if(wait)await wait;if(serviceFailure)return route.fulfill({status:503,json:{ok:false,error:{code:'ADMIN_SERVICE_UNAVAILABLE'}}});row.cleanup_state=unknown?'deleting':'cold';return ok(route,{file_id:row.file_id,state:unknown?'unknown':'deleted',message:row.archive_source==='export'?'圖片已清理，請從已確認下載的匯出 ZIP 取得原圖。':undefined});}
+  if(p.endsWith('/status'))return ok(route,{state:row.cleanup_state==='cold'?'deleted':row.cleanup_state==='deleting'?'unknown':'not_started'});
  });
  await page.goto('/#admin');await selectAdminTab(page,'R2 手動清理');await expect(page.locator('#admin-panel')).toContainText('已選 0 張');return{state,rows,calls,initialImageReads:state.calls.filter(c=>c.path.includes('/files/')).length};
 }
+const cleanupConfirmation=page=>page.getByRole('dialog',{name:'確認清理 R2 原始圖片',exact:true});
+const openCleanupConfirmation=page=>page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();
+const confirmCleanup=(page,total)=>cleanupConfirmation(page).getByRole('button',{name:'永久清理 '+total+' 張',exact:true}).click();
 test('manual cleanup photo preview closes by button, backdrop or Escape',async({page},info)=>{
  const fixture=await cleanupFixture(page);
  const opener=page.locator('#admin-panel .member-case').first().getByRole('button',{name:'預覽圖片',exact:true});
@@ -109,7 +112,7 @@ test('manual cleanup photo preview closes by button, backdrop or Escape',async({
  expect(fixture.calls.every(call=>call.method==='GET')).toBe(true);
 });
 test('manual cleanup all covers 25 files over pages, first20 is stable and each file has independent verified cleanup',async({page},info)=>{
- const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());
+ const f=await cleanupFixture(page);
  const panel=page.locator('#admin-panel');
  await expect(panel.getByLabel('活動',{exact:true})).toBeVisible();
  await expect(panel.getByLabel('案件狀態').locator('option')).toHaveText(['全部','待審核','已通過','已完成','未通過','重複投稿','已撤銷']);
@@ -119,7 +122,18 @@ test('manual cleanup all covers 25 files over pages, first20 is stable and each 
  const chosen=await page.locator('#admin-panel input[type=checkbox]:checked').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')));expect(chosen).toHaveLength(20);
  await page.getByRole('button',{name:'清除目前選取',exact:true}).click();await page.getByRole('button',{name:'選取前20張可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel input[type=checkbox]:checked')).toHaveCount(20);expect(await page.locator('#admin-panel input[type=checkbox]:checked').evaluateAll(a=>a.map(x=>x.getAttribute('aria-label')))).toEqual(chosen);
  await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張 · 預計釋放 75 位元組');
- await page.screenshot({path:'.wrangler/frontend-previews/manual-cleanup-'+info.project.name+'.png'});await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();
+ await page.screenshot({path:'.wrangler/frontend-previews/manual-cleanup-'+info.project.name+'.png'});
+ const dialog=cleanupConfirmation(page);
+ for(const cancel of [()=>dialog.getByRole('button',{name:'取消',exact:true}).click(),()=>page.keyboard.press('Escape')]){
+  await openCleanupConfirmation(page);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'取消',exact:true})).toBeFocused();
+  await cancel();
+  await expect(dialog).toHaveCount(0);
+  expect(f.calls.every(c=>c.method==='GET')).toBe(true);
+ }
+ await openCleanupConfirmation(page);
+ await confirmCleanup(page,25);
  await expect(page.locator('#admin-panel')).toContainText('已處理 25/25 · 已清理 25');expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(25);
  expect(f.calls.filter(c=>c.p==='/api/admin/storage/manual').map(c=>c.summary)).toEqual([false,false,false,true,false,false]);
  for(const row of f.rows){const operations=f.calls.filter(c=>c.p.includes(row.file_id)&&c.method==='POST');expect(operations.map(c=>c.p.split('/').at(-1))).toEqual(['clean']);expect(operations[0].body.file_id).toBe(row.file_id);expect(operations[0].body.backup_version).toBe(row.backup_version);}
@@ -130,8 +144,18 @@ test('manual cleanup all covers 25 files over pages, first20 is stable and each 
  await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(f.state.calls.filter(c=>c.path.includes('/files/'))).toHaveLength(f.initialImageReads);
 });
 test('manual cleanup unknown stops without re-delete',async({page})=>{
- const f=await cleanupFixture(page,{unknown:true});page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('未確認 1');
+ const f=await cleanupFixture(page,{unknown:true});await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await openCleanupConfirmation(page);await confirmCleanup(page,25);await expect(page.locator('#admin-panel')).toContainText('未確認 1');
  expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(1);await expect(page.getByRole('checkbox',{name:'選取圖片 '+f.rows[0].file_id,exact:true})).toBeDisabled();
+});
+test('manual cleanup retains the server error and stops after the first service failure',async({page})=>{
+ const f=await cleanupFixture(page,{serviceFailure:true});
+ const panel=page.locator('#admin-panel');
+ await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();
+ await openCleanupConfirmation(page);
+ await confirmCleanup(page,25);
+ await expect(panel.getByRole('status')).toHaveText('已停止後續清理。 首筆失敗 '+f.rows[0].case_id+' · ADMIN_SERVICE_UNAVAILABLE');
+ await expect(panel).toContainText('已處理 1/25 · 已清理 0 · 失敗 1 · 未確認 0');
+ expect(f.calls.filter(c=>/\/(clean|status)$/.test(c.p)).map(c=>[c.method,c.p.split('/').at(-1)])).toEqual([['POST','clean'],['GET','status']]);
 });
 test('archive-free duplicate can be selected without the early download checkbox',async({page})=>{
  const f=await cleanupFixture(page,{earlyFiles:true,withoutArchive:true}),[recentExport,duplicate]=f.rows;
@@ -141,8 +165,9 @@ test('archive-free duplicate can be selected without the early download checkbox
  await expect(box(duplicate)).toBeChecked();
  await page.getByRole('button',{name:'清除目前選取',exact:true}).click();
  await box(duplicate).check();
- page.on('dialog',d=>{expect(d.message()).toContain('清理後將無法取回原圖');return d.accept();});
- await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();
+ await openCleanupConfirmation(page);
+ await expect(cleanupConfirmation(page)).toContainText('清理後將無法取回原圖');
+ await confirmCleanup(page,1);
  await expect(page.locator('#admin-panel')).toContainText('已清理 1');
  expect(f.calls.filter(c=>c.method==='POST').map(c=>c.body)).toEqual([
   {file_id:duplicate.file_id,case_version:duplicate.case_version,backup_version:null,attempt_id:expect.any(String),without_archive:true}
@@ -172,8 +197,9 @@ test('early export checkbox resets selection and only opts in confirmed download
  await early.check();
  await expect(exportedBox).toBeEnabled();
  await exportedBox.check();
- page.on('dialog',d=>{expect(d.message()).toContain('已勾選提早清理');return d.accept();});
  await execute.click();
+ await expect(cleanupConfirmation(page)).toContainText('已勾選提早清理');
+ await confirmCleanup(page,1);
  await expect(page.locator('#admin-panel')).toContainText('已清理 1');
  expect(f.calls.filter(c=>c.method==='POST').map(c=>[c.body.file_id,c.body.backup_version,c.body.allow_early_export]))
   .toEqual([[exported.file_id,null,true]]);
@@ -211,10 +237,10 @@ test('selectable older photos use the same checkboxes, bulk selection and early-
  expect(f.calls.filter(c=>c.method==='POST')).toHaveLength(0);
 });
 test('manual all-page selection retains individual exclusions across pagination',async({page})=>{
- const f=await cleanupFixture(page);page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張');
+ const f=await cleanupFixture(page);await page.getByRole('button',{name:'選取全部可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 25 張');
  const omitted=f.rows[0].file_id;await page.getByRole('checkbox',{name:'選取圖片 '+omitted,exact:true}).uncheck();await expect(page.locator('#admin-panel')).toContainText('已選 24 張 · 預計釋放 72 位元組');
  await page.getByRole('button',{name:'載入更多',exact:true}).click();await expect(page.locator('#admin-panel input[type=checkbox]:checked')).toHaveCount(24);
- await page.getByRole('button',{name:'確認清理已選圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已處理 24/24 · 已清理 24');expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(24);expect(f.calls.some(c=>c.method==='POST'&&c.p.includes(omitted))).toBe(false);expect(f.rows[0].cleanup_state).toBeNull();
+ await openCleanupConfirmation(page);await confirmCleanup(page,24);await expect(page.locator('#admin-panel')).toContainText('已處理 24/24 · 已清理 24');expect(f.calls.filter(c=>c.p.endsWith('/clean'))).toHaveLength(24);expect(f.calls.some(c=>c.method==='POST'&&c.p.includes(omitted))).toBe(false);expect(f.rows[0].cleanup_state).toBeNull();
 });
 test('disabled manual policy permits only metadata reads',async({page})=>{
  const f=await cleanupFixture(page,{enabled:false});await page.getByRole('button',{name:'選取前20張可清理圖片',exact:true}).click();await expect(page.locator('#admin-panel')).toContainText('已選 20 張');await expect(page.getByRole('button',{name:'確認清理已選圖片',exact:true})).toBeDisabled();expect(f.calls.every(c=>c.method==='GET')).toBe(true);
@@ -222,7 +248,7 @@ test('disabled manual policy permits only metadata reads',async({page})=>{
 test('admin navigation nests membership tools and date counts are GET only',async({page},info)=>{
  await adminFixture(page);await page.route('**/api/admin/members-overview**',r=>ok(r,{members:[],page_size:20,next_cursor:null}));const reads=[];
  await page.route('**/api/admin/overview**',route=>{reads.push(route.request().method());return ok(route,{member_count:98,case_totals:{pending:7,approved:8,rejected:3,revoked:0}});});
- await page.goto('/#admin');const tabs=page.locator('#admin-tabs');await expect(tabs.getByRole('button',{name:'會員等級',exact:true})).toHaveCount(0);await expect(tabs.getByRole('button',{name:'會員封鎖',exact:true})).toHaveCount(0);
+ await page.goto('/#admin');const tabs=page.locator('#admin-tabs');await expect(tabs.getByRole('button',{name:'系統',exact:true})).toBeVisible();await expect(tabs.getByRole('button',{name:'會員等級',exact:true})).toHaveCount(0);await expect(tabs.getByRole('button',{name:'會員封鎖',exact:true})).toHaveCount(0);
  const names=await tabs.locator('button').allTextContents();expect(names.indexOf('彈窗公告')).toBeLessThan(names.indexOf('會員管理'));expect(names.indexOf('投稿開關')+1).toBe(names.indexOf('系統'));for(const sub of ['Google Drive 備份','R2 手動清理','系統健康監控','操作紀錄'])expect(names).not.toContain(sub);
   await tabs.getByRole('button',{name:'系統',exact:true}).click();const system=page.getByRole('navigation',{name:'系統功能'});await expect(system.locator('button')).toHaveText(['Google Drive 備份','R2 手動清理','系統健康監控','操作紀錄']);await expect(system.getByRole('button',{name:'Google Drive 備份',exact:true})).toHaveAttribute('aria-pressed','true');
  await tabs.getByRole('button',{name:'會員管理',exact:true}).click();const bar=page.locator('.admin-panel-toolbar');await expect(bar.getByRole('button',{name:'會員等級',exact:true})).toBeVisible();await expect(bar.getByRole('button',{name:'會員封鎖',exact:true})).toBeVisible();

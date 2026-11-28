@@ -28,18 +28,19 @@ const legacyOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations 
 const isolatedOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations
  WHERE isolated_r2_key IN(f.object_key,'*') AND (${unresolvedR2}))`;
 // An operator can quarantine one durably linked manual DELETE while its proof stays pinned.
-const quarantinedLegacyDispatch=`o.id=? AND o.epoch=1 AND o.isolated_r2_key IS NULL
- AND o.state IN('active','unknown') AND o.pending_r2=1 AND o.r2_writes=1 AND o.ended_at IS NULL
+// Group conjuncts to keep the nested atomic guard within D1's expression depth.
+const quarantinedLegacyDispatch=`(o.id=? AND o.epoch=1 AND o.isolated_r2_key IS NULL)
+ AND (o.state IN('active','unknown') AND o.pending_r2=1 AND o.r2_writes=1 AND o.ended_at IS NULL)
  AND EXISTS(SELECT 1 FROM cold_proofs p JOIN case_files q ON q.id=p.file_id
   JOIN storage_audit a ON a.id='manual-cleanup:dispatch:'||p.file_id
-  WHERE p.file_id=? AND p.state='deleting' AND p.lease_token=o.id
-   AND q.object_key LIKE 'proofs/final/g%' AND q.object_key<>f.object_key
-   AND a.action='manual_cleanup_dispatch' AND a.target=p.file_id
-   AND json_extract(p.verification_context,'$.manual')=1
-   AND json_extract(p.verification_context,'$.epoch')=o.epoch
-   AND json_extract(p.verification_context,'$.attempt_id')=json_extract(a.detail,'$.attempt_id')
-   AND p.etag=q.etag AND p.size=q.size AND p.verified_at IS NOT NULL
-   AND p.r2_version=json_extract(a.detail,'$.r2_version') AND p.sha256=json_extract(a.detail,'$.sha256')
+  WHERE (p.file_id=? AND p.state='deleting' AND p.lease_token=o.id)
+   AND (q.object_key LIKE 'proofs/final/g%' AND q.object_key<>f.object_key)
+   AND (a.action='manual_cleanup_dispatch' AND a.target=p.file_id)
+   AND (json_extract(p.verification_context,'$.manual')=1
+    AND json_extract(p.verification_context,'$.epoch')=o.epoch
+    AND json_extract(p.verification_context,'$.attempt_id')=json_extract(a.detail,'$.attempt_id'))
+   AND (p.etag=q.etag AND p.size=q.size AND p.verified_at IS NOT NULL
+    AND p.r2_version=json_extract(a.detail,'$.r2_version') AND p.sha256=json_extract(a.detail,'$.sha256'))
    AND NOT EXISTS(SELECT 1 FROM storage_audit z WHERE z.id='manual-cleanup:deleted:'||p.file_id))`;
 const reviewedLegacyOperationsSafe=quarantine=>`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations o
  WHERE (${unresolvedR2}) AND (o.epoch<>1 OR o.isolated_r2_key IS NOT NULL
@@ -264,8 +265,8 @@ function guards(row,actor){
  WHERE f.id=? AND c.id=? AND c.version=? AND c.status=? AND coalesce(c.status_updated_at,c.updated_at)=?
  AND f.object_key=? AND f.etag=? AND f.size=? AND f.content_type=?
  ${row.legacy_retention_exempt?`AND ${beforeLegacyCutoff}`:''}
- AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe(unfinishedExport('?'))} AND ${operations.sql})`,
- args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at(),...operations.args]},
+   AND ${durableSource.sql} AND ${backupQuiet} AND ${fileSafe(unfinishedExport('?'))} AND ${operations.sql})`,
+   args:[row.file_id,row.case_internal_id,row.case_version,row.status,row.closed_at,row.object_key,row.etag,row.size,row.content_type,...durableSource.args,new Date().toISOString(),at(),...operations.args]},
  ];}
 const audit=(db,row,actor,action,detail,id=crypto.randomUUID())=>db.prepare('INSERT INTO storage_audit(id,created_at,action,target,detail) VALUES(?,?,?,?,?)').bind(id,at(),action,row.file_id,JSON.stringify({admin_member_id:actor.member.member_id,case_version:row.case_version,backup_version:row.backup_version,archive_source:row.archive_source,...(row.archive_source==='none'?{case_status:row.status}:{}),...(row.allow_early_export?{allow_early_export:true}:{}),...(row.legacy_retention_exempt?{legacy_retention_exempt:true}:{}),...(row.legacy_r2_version?{reviewed_legacy_candidate:true}:{}),...detail}));
 function context(p){try{return JSON.parse(p?.verification_context??'null');}catch{return null;}}

@@ -207,6 +207,47 @@ test('a future or unreviewed R2 operation still blocks a verified legacy image b
  assert.equal(f.deleteCalls(),0);
  assert.ok(await f.bucket.head(target.file.object_key));
 });
+test('one pinned legacy DELETE can be quarantined while a different exact proof remains cleanable',async t=>{
+ const f=await reviewedLegacyFixture(t,['2026-11-07T01:00:00.000Z','2026-11-07T02:00:00.000Z']);
+ const [held,other]=f.cases,deleteObject=f.bucket.delete;
+ f.bucket.delete=async()=>{throw Error('synthetic failure before R2 receives delete');};
+ let response;
+ try{
+  response=await f.call(held,'clean');
+ }finally{f.bucket.delete=deleteObject;}
+ assert.equal(response.status,200,await response.clone().text());
+ assert.equal((await response.json()).data.state,'unknown');
+ const pin=()=>f.sqlite.prepare('SELECT * FROM cold_proofs WHERE file_id=?').get(held.file.id);
+ const originalPin=pin(),opId=originalPin.lease_token;
+ assert.equal(originalPin.state,'deleting');
+ // Also model a request lost before its catch handler could mark it unknown.
+ f.sqlite.prepare("UPDATE prelaunch_reset_operations SET state='active' WHERE id=?").run(opId);
+ const originalOperations=f.history();
+ const dispatch=()=>f.sqlite.prepare("SELECT * FROM storage_audit WHERE id=?").get('manual-cleanup:dispatch:'+held.file.id);
+ const originalDispatch=dispatch();
+ assert.equal((await f.list()).eligible_count,0);
+ f.env.R2_MANUAL_CLEANUP_LEGACY_QUARANTINE=JSON.stringify([opId,other.file.id]);
+ assert.equal((await f.list()).eligible_count,0);
+ assert.notEqual((await f.call(other,'clean')).status,200);
+ f.env.R2_MANUAL_CLEANUP_LEGACY_QUARANTINE=JSON.stringify([opId,held.file.id]);
+ assert.deepEqual((await f.list()).items.map(item=>item.file_id),[other.file.id]);
+ assert.equal((await f.call(held,'clean')).status,409);
+ assert.equal(f.deleteCalls(),0);
+ const unrelated=randomUUID();
+ f.insert.run(unrelated,'unknown');
+ assert.equal((await f.list()).eligible_count,0);
+ assert.notEqual((await f.call(other,'clean')).status,200);
+ assert.equal(f.deleteCalls(),0);
+ f.sqlite.prepare("UPDATE prelaunch_reset_operations SET state='completed',pending_r2=0 WHERE id=?").run(unrelated);
+ response=await f.call(other,'clean');
+ assert.equal(response.status,200,await response.clone().text());
+ assert.equal((await response.json()).data.state,'deleted');
+ assert.equal(f.deleteCalls(),1);
+ assert.deepEqual(f.history(),originalOperations);
+ assert.deepEqual(pin(),originalPin);
+ assert.deepEqual(dispatch(),originalDispatch);
+ assert.ok(await f.bucket.head(held.file.object_key));
+});
 test('manual cleanup refuses a malformed closing date before accessing R2 or Drive',async t=>{
  const f=await fixture(t),c=f.cases[0];
  await f.write('UPDATE cases SET status_updated_at=? WHERE id=?','invalid-close-date',c.row.id);

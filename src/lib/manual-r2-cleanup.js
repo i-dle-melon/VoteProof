@@ -27,12 +27,26 @@ const unresolvedR2="pending_r2>0 OR (state='unknown' AND r2_writes>0)";
 const legacyOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations WHERE ${unresolvedR2})`;
 const isolatedOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations
  WHERE isolated_r2_key IN(f.object_key,'*') AND (${unresolvedR2}))`;
-// Any unresolved operation outside the reviewed historical set blocks this
-// exception. Reviewing the set never modifies or settles the original rows.
-const reviewedLegacyOperationsSafe=`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations o
+// An operator can quarantine one durably linked manual DELETE while its proof stays pinned.
+const quarantinedLegacyDispatch=`o.id=? AND o.epoch=1 AND o.isolated_r2_key IS NULL
+ AND o.state IN('active','unknown') AND o.pending_r2=1 AND o.r2_writes=1 AND o.ended_at IS NULL
+ AND EXISTS(SELECT 1 FROM cold_proofs p JOIN case_files q ON q.id=p.file_id
+  JOIN storage_audit a ON a.id='manual-cleanup:dispatch:'||p.file_id
+  WHERE p.file_id=? AND p.state='deleting' AND p.lease_token=o.id
+   AND q.object_key LIKE 'proofs/final/g%' AND q.object_key<>f.object_key
+   AND a.action='manual_cleanup_dispatch' AND a.target=p.file_id
+   AND json_extract(p.verification_context,'$.manual')=1
+   AND json_extract(p.verification_context,'$.epoch')=o.epoch
+   AND json_extract(p.verification_context,'$.attempt_id')=json_extract(a.detail,'$.attempt_id')
+   AND p.etag=q.etag AND p.size=q.size AND p.verified_at IS NOT NULL
+   AND p.r2_version=json_extract(a.detail,'$.r2_version') AND p.sha256=json_extract(a.detail,'$.sha256')
+   AND NOT EXISTS(SELECT 1 FROM storage_audit z WHERE z.id='manual-cleanup:deleted:'||p.file_id))`;
+const reviewedLegacyOperationsSafe=quarantine=>`NOT EXISTS(SELECT 1 FROM prelaunch_reset_operations o
  WHERE (${unresolvedR2}) AND (o.epoch<>1 OR o.isolated_r2_key IS NOT NULL
  OR julianday(o.started_at) IS NULL OR o.started_at>'${LEGACY_OPERATIONS_END}'
- OR NOT EXISTS(SELECT 1 FROM json_each(?) j WHERE j.value=o.id)))`;
+ OR NOT EXISTS(SELECT 1 FROM json_each(?) j WHERE j.value=o.id))
+ ${quarantine?`AND NOT (${quarantinedLegacyDispatch})`:''})`;
+const argsForLegacy=({legacyOperations,quarantine})=>legacyOperations?[legacyOperations,...(quarantine??[])]:[];
 const capacitySafe='EXISTS(SELECT 1 FROM storage_capacity WHERE id=1 AND anomaly IS NULL AND inventory_id IS NULL)';
 // Match the exact server-issued key of a consumed final Intent and its original
 // native PUT version. Old records and live HEAD responses cannot create a receipt.
@@ -59,12 +73,20 @@ export function cleanupEligibility(env){
    if(Array.isArray(ids)&&ids.length===7&&new Set(ids).size===7&&ids.every(x=>typeof x==='string'&&uuid.test(x)))legacyOperations=JSON.stringify(ids);
   }catch{/* An invalid approval does not relax the ordinary guard. */}
  }
- return {isolatedProofs,legacyOperations};
+ let quarantine=null;
+ const approved=env.R2_MANUAL_CLEANUP_LEGACY_QUARANTINE;
+ if(legacyOperations&&typeof approved==='string'&&approved.length<100){
+  try{
+   const ids=JSON.parse(approved);
+   if(Array.isArray(ids)&&ids.length===2&&ids[0]!==ids[1]&&ids.every(id=>typeof id==='string'&&uuid.test(id)))quarantine=ids;
+  }catch{/* Invalid quarantine settings leave the additional operation blocking. */}
+ }
+ return {isolatedProofs,legacyOperations,quarantine};
 }
-const candidateSafety=({isolatedProofs,legacyOperations})=>isolatedProofs
+const candidateSafety=({isolatedProofs,legacyOperations,quarantine})=>isolatedProofs
  ?`(CASE WHEN f.object_key GLOB '${ISOLATED_FINAL_PREFIX}*'
  THEN (${isolatedReceipt}) IS NOT NULL AND ${isolatedOperationsSafe}
- ELSE ${legacyOperationsSafe}${legacyOperations?` OR (${reviewedLegacyOperationsSafe} AND (${legacyReceipt}) IS NOT NULL)`:''} END) AND ${capacitySafe}`
+ ELSE ${legacyOperationsSafe}${legacyOperations?` OR (${reviewedLegacyOperationsSafe(quarantine)} AND (${legacyReceipt}) IS NOT NULL)`:''} END) AND ${capacitySafe}`
  :`${legacyOperationsSafe} AND ${capacitySafe}`;
 const unfinishedExport=until=>`EXISTS(SELECT 1 FROM export_job_items e JOIN export_jobs j ON j.id=e.job_id
  LEFT JOIN export_packages pkg ON pkg.job_id=e.job_id AND pkg.number=e.package_no
@@ -129,7 +151,7 @@ function filters(url){
 }
 export async function cleanupCandidates(db,url,eligibility={}){
  const f=filters(url),cutoffMs=Date.parse(f.cutoff),time=Math.floor(cutoffMs/1000);
- const legacyArgs=eligibility.isolatedProofs&&eligibility.legacyOperations?[eligibility.legacyOperations]:[];
+ const legacyArgs=eligibility.isolatedProofs?argsForLegacy(eligibility):[];
  const base=[...legacyArgs,f.cutoff,Number(f.allowEarlyExport),f.cutoff,time,...legacyArgs];
  const candidates=`FROM (${candidateSql(eligibility)}) WHERE (cleanup_state IS NULL OR cleanup_state<>'cold') AND ${f.where}`;
  const eligibleArgs=f.eligible?[Number(f.eligible==='yes')]:[];
@@ -211,11 +233,11 @@ async function source(env,input){
   if(!version)throw fail('MANUAL_CLEANUP_ISOLATION_RECEIPT_REQUIRED');
   r.isolated_r2_version=version;
  }else{
-  const {legacyOperations}=cleanupEligibility(env);
-  if(legacyOperations&&r.before_legacy_cutoff===1&&r.object_key.startsWith('proofs/final/g')){
+  const eligibility=cleanupEligibility(env);
+  if(eligibility.legacyOperations&&r.before_legacy_cutoff===1&&r.object_key.startsWith('proofs/final/g')){
    const version=await db.prepare(`SELECT (${legacyReceipt}) AS version
     FROM case_files f JOIN cases c ON c.id=f.case_id WHERE f.id=?`).bind(r.file_id).first('version');
-   if(version){r.legacy_r2_version=version;r.legacy_operations=legacyOperations;}
+   if(version){r.legacy_r2_version=version;r.legacy_eligibility=eligibility;}
   }
  }
  const driveBackupRecord=legacyRetentionExempt&&r.archive_source==='drive'
@@ -226,8 +248,8 @@ function guards(row,actor){
  const operations=row.isolated_r2_version
   ?{sql:`${isolatedOperationsSafe} AND (${isolatedReceipt})=?`,args:[row.isolated_r2_version]}
   :row.legacy_r2_version
-   ?{sql:`(${legacyOperationsSafe} OR (${reviewedLegacyOperationsSafe} AND (${legacyReceipt})=?))`,
-     args:[row.legacy_operations,row.legacy_r2_version]}
+   ?{sql:`(${legacyOperationsSafe} OR (${reviewedLegacyOperationsSafe(row.legacy_eligibility.quarantine)} AND (${legacyReceipt})=?))`,
+     args:[...argsForLegacy(row.legacy_eligibility),row.legacy_r2_version]}
    :{sql:legacyOperationsSafe,args:[]};
  const durableSource=row.archive_source==='none'?{sql:'1',args:[]}:row.archive_source==='export'
   ?{sql:`EXISTS(SELECT 1 FROM export_completed_files d WHERE ${exportMatch} AND d.job_id=? AND d.package_no=? AND d.confirmed_at=? AND d.confirmed_by=?)`,

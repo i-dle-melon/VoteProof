@@ -578,3 +578,5 @@ Pages 使用 Production `admin.js` + `admin-storage.js`，只替換 fixture adap
 發布時先以兩個開關關閉的方式驗證相容 Worker，再另行套用 `migrations-manual-cleanup/0002_isolated_r2_scope.sql`。核對正式 R2 寫入邊界後，才另行啟用 `R2_ISOLATED_PROOF_KEYS_ENABLED`。手動清理另由 `R2_MANUAL_CLEANUP_ENABLED` 控制。回復時關閉兩個開關，保留認得隔離 Key 的 Worker 與 D1 欄位，讓已簽發的 Intent 和案件圖片仍可使用。
 
 台灣時間 2026/11/25 00:00 前建立的舊格式圖片，可在核對七筆歷史 Operation 後加入同一份候選清單。正式變數 `R2_MANUAL_CLEANUP_REVIEWED_LEGACY_OPERATIONS` 接受七筆已核對的 Operation ID 陣列。額外的未決操作會維持舊格式圖片的封鎖。這個日期前建立的已完成案件圖片可免等結案滿 7 天。系統依與目前圖片版本相符的既有 Drive 備份確認紀錄或已確認的下載紀錄清理，並核對 R2 原始版本與目前版本。以既有 Drive 紀錄清理時，稽核記為 `drive_verification=backup_record`。管理者可個別勾選、選取全部或選取前 20 張。
+
+對帳後可另核准 `R2_MANUAL_CLEANUP_LEGACY_QUARANTINE`。值為單一 `[operation_id, file_id]` JSON 陣列。清理候選與派送前會各自核對該 Operation、刪除中的圖片鎖及原派送稽核。這個選項只讓其他有完整證據的舊格式圖片恢復可選。被隔離圖片、原稽核與 Operation 保持未決，任何新未決項目仍會封鎖舊格式清理。自動安全盤點繼續檢查原有未決操作。
